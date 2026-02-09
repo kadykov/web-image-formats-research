@@ -1,3 +1,18 @@
+# Data and results
+datasets/*
+!datasets/.gitkeep
+results/*
+!results/.gitkeep
+
+# IDE
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.log
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

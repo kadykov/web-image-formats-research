@@ -1,0 +1,22 @@
+{
+	"name": "${localWorkspaceFolderBasename}-devcontainer",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"tamasfe.even-better-toml",
+				"mechatroner.rainbow-csv",
+				"github.vscode-github-actions",
+				"skellock.just"
+			]
+		}
+	},
+	"containerEnv": {
+		"PYTHONPATH": "${containerWorkspaceFolder}"
+	},
+	"postCreateCommand": "just install-dev",
+	"remoteUser": "vscode"
+}
