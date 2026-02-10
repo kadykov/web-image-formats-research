@@ -26,6 +26,7 @@ data/
 ```
 
 This structure supports the full pipeline workflow and makes it easy to:
+
 - Track data lineage from raw to analysis
 - Organize outputs from each stage
 - Share intermediate results
@@ -39,6 +40,7 @@ All pipeline configuration is centralized in the `config/` directory:
 - Future: `preprocessing.json`, `encoding.json`, `quality.json`, `analysis.json`
 
 This separation allows:
+
 - Version control of configurations
 - Easy parameter tuning
 - Schema validation

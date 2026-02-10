@@ -90,6 +90,7 @@ Validated by `config/datasets.schema.json`.
 ### Validation
 
 The schema `config/datasets.schema.json` enforces:
+
 - Required fields are present
 - Types are correct (string, number)
 - `id` matches pattern `^[a-z0-9-]+$`
@@ -104,6 +105,7 @@ As the pipeline develops, additional configuration files will be added:
 ### preprocessing.json (Planned)
 
 Will define image preprocessing parameters:
+
 - Target resolutions
 - Color space conversions
 - Resize algorithms
@@ -112,6 +114,7 @@ Will define image preprocessing parameters:
 ### encoding.json (Planned)
 
 Will define encoding parameters for each format:
+
 - JPEG: quality levels, chroma subsampling
 - WebP: quality, compression method, near-lossless
 - AVIF: quality, speed, chroma subsampling
@@ -120,6 +123,7 @@ Will define encoding parameters for each format:
 ### quality.json (Planned)
 
 Will define quality measurement settings:
+
 - Which metrics to compute (SSIMULACRA2, Butteraugli, PSNR, SSIM)
 - Metric-specific parameters
 - Output format (JSON, CSV)
@@ -127,6 +131,7 @@ Will define quality measurement settings:
 ### analysis.json (Planned)
 
 Will define analysis parameters:
+
 - Plot types to generate
 - Statistical tests to perform
 - Report formats

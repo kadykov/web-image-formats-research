@@ -16,21 +16,25 @@ The DIV2K dataset from ETH Zurich is the primary dataset for this project during
 - **Source**: [DIV2K Challenge](https://data.vision.ee.ethz.ch/cvl/DIV2K/)
 
 **Available splits**:
+
 - Validation: 100 images (~500MB)
 - Training: 800 images (~4GB)
 
 **Usage**:
+
 ```bash
 just fetch-div2k-valid  # Recommended for development
 just fetch-div2k-train  # For comprehensive research
 ```
 
 **Pros**:
+
 - Manageable size for testing
 - High-quality reference images
 - Widely used in image processing research
 
 **Cons**:
+
 - Limited to 2K resolution (may not test high-res encoder optimizations)
 - Relatively small number of images
 
@@ -48,6 +52,7 @@ Extension of DIV2K with 2650 additional 2K resolution images from Flickr.
 - **Source**: [EDSR Project](https://cv.snu.ac.kr/research/EDSR/Flickr2K.tar)
 
 **Implementation notes**:
+
 - Would add `fetch_flickr2k()` method to `DatasetFetcher`
 - Requires TAR archive support (already implemented)
 - Could be combined with DIV2K for larger test set
@@ -59,6 +64,7 @@ Extension of DIV2K with 2650 additional 2K resolution images from Flickr.
 **Challenge**: Most high-resolution datasets are very large and designed for computer vision tasks rather than compression research.
 
 **Requirements for ideal dataset**:
+
 - 4K or higher resolution (ideally 24MP)
 - High-quality photographs (not synthetic)
 - Manageable size (<10GB for validation set)
@@ -66,6 +72,7 @@ Extension of DIV2K with 2650 additional 2K resolution images from Flickr.
 - Diverse content (landscapes, portraits, objects, etc.)
 
 **Potential sources being evaluated**:
+
 - Camera manufacturer sample images
 - Open photo platforms (Unsplash, Pexels) with licensing
 - Scientific/satellite imagery datasets
@@ -78,12 +85,14 @@ Extension of DIV2K with 2650 additional 2K resolution images from Flickr.
 HuggingFace hosts numerous image datasets that could be useful.
 
 **Implementation considerations**:
+
 - Would require `datasets` library dependency
 - Need to filter for high-resolution, high-quality images
 - Many HF datasets are designed for ML training (labeled, preprocessed)
 - Would add `fetch_huggingface()` method with dataset identifier
 
 **Example datasets to evaluate**:
+
 - `imagenet-1k` (if uncompressed high-res available)
 - `coco` (if suitable resolution available)
 - Photography-specific datasets
@@ -107,18 +116,21 @@ When evaluating new datasets, we consider:
 For maximum control and high-resolution testing, we could curate our own dataset:
 
 **Advantages**:
+
 - Precise resolution control (24MP target)
 - Content diversity optimization
 - Known quality and provenance
 - Size optimization for research needs
 
 **Challenges**:
+
 - Time-intensive selection process
 - Need clear selection criteria
 - Copyright/licensing management
 - Quality verification workflow
 
 **Potential sources**:
+
 - Unsplash API (free high-res, good licensing)
 - Pexels API (free high-res)
 - Flickr API (with appropriate licensing filters)
@@ -144,6 +156,7 @@ class DatasetFetcher:
 ```
 
 Each method follows the same pattern:
+
 1. Check if dataset already exists
 2. Download archive or files
 3. Extract/organize files

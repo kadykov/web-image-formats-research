@@ -1,9 +1,5 @@
 FROM mcr.microsoft.com/devcontainers/python:3-3.13-trixie
 
-# Fix Yarn GPG key for Debian Trixie
-RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/share/keyrings/yarnkey.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main" > /etc/apt/sources.list.d/yarn.list
-
 # Install system dependencies and build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     just \
@@ -97,6 +93,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js and npm for markdown tooling
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set up working directory
 WORKDIR /workspace

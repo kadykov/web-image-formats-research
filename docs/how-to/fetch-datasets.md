@@ -208,11 +208,13 @@ Example:
 - **Quality**: High-quality photographs
 
 **Validation Set:**
+
 - Images: 100
 - Size: ~449MB
 - URL: `http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip`
 
 **Training Set:**
+
 - Images: 800
 - Size: ~3.53GB
 - URL: `http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip`
@@ -273,6 +275,7 @@ By default, the script looks for `config/datasets.json`. If you get a warning ab
 ### Download Fails
 
 If the download fails, check:
+
 1. Your internet connection
 2. The dataset URL is still accessible
 3. You have sufficient disk space
@@ -290,6 +293,7 @@ To save space, enable archive cleanup (default behavior).
 ### Slow Downloads
 
 The download uses a progress bar to show speed and estimated time. If downloads are slow:
+
 1. Check your network connection
 2. Try downloading during off-peak hours
 3. Consider using a different network
@@ -304,4 +308,3 @@ The configuration-based architecture makes it easy to add new datasets. Simply a
 - **High-resolution datasets**: 4K or higher resolution images
 
 See [Dataset Support and Roadmap](../reference/datasets.md) for more information about planned datasets and evaluation criteria.
-

@@ -33,15 +33,29 @@ lint-fix:
     ruff check --fix src/ tests/ scripts/
 
 # Format code
-format:
+format-code:
     ruff format src/ tests/ scripts/
 
+# Format markdown files
+format-markdown:
+    npx markdownlint-cli2 --fix "**/*.md"
+
 # Check formatting without making changes
-format-check:
+format-code-check:
     ruff format --check src/ tests/ scripts/
 
-# Run all quality checks (lint, type, test)
-check: lint typecheck test
+# Check markdown formatting
+format-markdown-check:
+    npx markdownlint-cli2 "**/*.md"
+
+# Check formatting for both code and markdown
+format-check: format-code-check format-markdown-check
+
+# Format code and markdown
+format: format-code format-markdown
+
+# Run all quality checks (format, lint, type check, test)
+check: format-check lint typecheck test
 
 # Clean generated files
 clean:

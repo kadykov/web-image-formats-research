@@ -195,7 +195,9 @@ class DatasetFetcher:
             elif archive_path.suffix.lower() in [".tar", ".gz", ".tgz"]:
                 with tarfile.open(archive_path, "r:*") as tar_ref:
                     tar_members = tar_ref.getmembers()
-                    with tqdm(total=len(tar_members), desc=f"Extracting {archive_path.name}") as pbar:
+                    with tqdm(
+                        total=len(tar_members), desc=f"Extracting {archive_path.name}"
+                    ) as pbar:
                         for tar_member in tar_members:
                             tar_ref.extract(tar_member, extract_dir)
                             pbar.update(1)
@@ -343,10 +345,7 @@ class DatasetFetcher:
 
         # Count images (common formats)
         image_extensions = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".jxl"]
-        image_count = sum(
-            len(list(dataset_dir.rglob(f"*{ext}")))
-            for ext in image_extensions
-        )
+        image_count = sum(len(list(dataset_dir.rglob(f"*{ext}"))) for ext in image_extensions)
 
         return {
             "path": dataset_dir,

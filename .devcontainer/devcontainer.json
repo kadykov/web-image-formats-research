@@ -10,7 +10,8 @@
 				"tamasfe.even-better-toml",
 				"mechatroner.rainbow-csv",
 				"github.vscode-github-actions",
-				"skellock.just"
+				"skellock.just",
+				"DavidAnson.vscode-markdownlint"
 			]
 		}
 	},
