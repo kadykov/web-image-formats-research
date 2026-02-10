@@ -12,6 +12,50 @@ Each stage is implemented as an independent module that can be used
 standalone or composed into a pipeline. This makes individual components
 easy to test and replace.
 
+### Data Organization
+
+All research data is organized under the `data/` directory:
+
+```text
+data/
+├── datasets/        # Raw downloaded datasets
+├── preprocessed/    # Preprocessed images
+├── encoded/         # Encoded images (JPEG, WebP, AVIF, JXL)
+├── metrics/         # Quality measurements (JSON/CSV)
+└── analysis/        # Analysis outputs (plots, reports)
+```
+
+This structure supports the full pipeline workflow and makes it easy to:
+- Track data lineage from raw to analysis
+- Organize outputs from each stage
+- Share intermediate results
+- Clean up specific pipeline stages
+
+### Configuration Management
+
+All pipeline configuration is centralized in the `config/` directory:
+
+- `datasets.json` - Dataset definitions and sources
+- Future: `preprocessing.json`, `encoding.json`, `quality.json`, `analysis.json`
+
+This separation allows:
+- Version control of configurations
+- Easy parameter tuning
+- Schema validation
+- Configuration sharing between team members
+
+### Dataset Module
+
+The dataset fetching module provides:
+
+- **Extensible architecture** — Easy to add support for new dataset sources
+- **DIV2K support** — Training (800 images) and validation (100 images) sets
+- **Archive handling** — Automatic download, extraction, and cleanup
+- **Progress tracking** — Visual feedback for long-running downloads
+
+The module is designed to support future additions like Flickr2K, HuggingFace
+datasets, and custom URL sources without major refactoring.
+
 ## Why These Formats?
 
 - **JPEG** — The baseline. Universally supported, well-understood.

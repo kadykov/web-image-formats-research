@@ -81,8 +81,26 @@ if metrics.butteraugli is not None:
     print(f"Butteraugli: {metrics.butteraugli:.4f}")
 ```
 
+## Fetching Test Datasets
+
+Before running full comparisons, you'll need test images. First, see what's available:
+
+```bash
+just list-available-datasets
+```
+
+Then fetch the DIV2K validation dataset:
+
+```bash
+just fetch div2k-valid
+```
+
+This downloads 100 high-quality 2K images (~500MB). For more details, see the
+[Fetch Datasets guide](../how-to/fetch-datasets.md).
+
 ## Next Steps
 
+- Learn how to [fetch datasets](../how-to/fetch-datasets.md) for research
 - Read the [How-to guides](../how-to/) for specific tasks like running
   the full pipeline or adding a new format
 - See the [Reference](../reference/) for detailed module and tool documentation

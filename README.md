@@ -32,26 +32,33 @@ See the [Getting Started tutorial](docs/tutorials/getting-started.md) for detail
 ## Project Structure
 
 ```text
-├── src/                  # Source code modules
-│   ├── dataset.py        # Dataset fetching and management
-│   ├── preprocessing.py  # Image preprocessing (resize, convert)
-│   ├── encoder.py        # Format encoding (JPEG, WebP, AVIF, JXL)
-│   ├── quality.py        # Quality measurement (SSIMULACRA2, PSNR, SSIM, Butteraugli)
-│   └── analysis.py       # Analysis and visualization
-├── tests/                # Unit and integration tests
-├── scripts/              # Executable pipeline scripts
-├── datasets/             # Test image datasets
-├── results/              # Encoded samples and measurements
-├── docs/                 # Documentation (Diátaxis framework)
-├── .devcontainer/        # Dev container configuration
-├── .github/workflows/    # CI pipeline
-├── pyproject.toml        # Project configuration and dependencies
-└── justfile              # Development task runner
+├── src/                     # Source code modules
+│   ├── dataset.py           # Dataset fetching and management
+│   ├── preprocessing.py     # Image preprocessing (resize, convert)
+│   ├── encoder.py           # Format encoding (JPEG, WebP, AVIF, JXL)
+│   ├── quality.py           # Quality measurement (SSIMULACRA2, PSNR, SSIM, Butteraugli)
+│   └── analysis.py          # Analysis and visualization
+├── tests/                   # Unit and integration tests
+├── scripts/                 # Executable pipeline scripts
+├── config/                  # Configuration files (datasets, encoding, etc.)
+├── data/                    # All research data
+│   ├── datasets/            # Raw image datasets
+│   ├── preprocessed/        # Preprocessed images
+│   ├── encoded/             # Encoded images (JPEG, WebP, AVIF, JXL)
+│   ├── metrics/             # Quality measurements (JSON/CSV)
+│   └── analysis/            # Analysis outputs (plots, reports)
+├── results/                 # Legacy results directory (deprecated)
+├── docs/                    # Documentation (Diátaxis framework)
+├── .devcontainer/           # Dev container configuration
+├── .github/workflows/       # CI pipeline
+├── pyproject.toml           # Project configuration and dependencies
+└── justfile                 # Development task runner
 ```
 
 ## Development Commands
 
 ```bash
+# Development
 just install-dev   # Install all dependencies (dev + production)
 just check         # Run all quality checks (lint + typecheck + test)
 just test          # Run tests
@@ -60,6 +67,11 @@ just lint-fix      # Fix auto-fixable lint issues
 just format        # Format code
 just typecheck     # Run type checking
 just verify-tools  # Verify encoding and measurement tools
+
+# Dataset Management
+just fetch <dataset-id>     # Fetch a dataset (e.g., div2k-valid, div2k-train)
+just list-available-datasets # List all datasets in configuration
+just list-datasets           # List downloaded datasets
 ```
 
 ## Documentation

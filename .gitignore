@@ -1,8 +1,20 @@
-# Data and results
-datasets/*
-!datasets/.gitkeep
+# Data and results - new structure
+data/datasets/*
+!data/datasets/.gitkeep
+data/preprocessed/*
+!data/preprocessed/.gitkeep
+data/encoded/*
+!data/encoded/.gitkeep
+data/metrics/*
+!data/metrics/.gitkeep
+data/analysis/*
+!data/analysis/.gitkeep
 results/*
 !results/.gitkeep
+
+# Legacy structure (if it still exists)
+datasets/*
+!datasets/.gitkeep
 
 # IDE
 *.swp

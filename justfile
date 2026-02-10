@@ -61,10 +61,17 @@ clean-data:
     rm -rf results/metrics/*
     rm -rf results/analysis/*
 
-# Fetch test datasets (placeholder)
-fetch-datasets:
-    @echo "Fetching datasets..."
-    python3 scripts/fetch_datasets.py
+# Fetch a dataset by ID
+fetch DATASET_ID:
+    python3 scripts/fetch_dataset.py {{DATASET_ID}}
+
+# List all available datasets from configuration
+list-available-datasets:
+    python3 scripts/fetch_dataset.py --list
+
+# List downloaded datasets
+list-datasets:
+    python3 scripts/fetch_dataset.py --show-downloaded
 
 # Run encoding pipeline (placeholder)
 encode:
@@ -81,9 +88,10 @@ analyze:
     @echo "Analyzing results..."
     python3 scripts/analyze_results.py
 
-# Run complete pipeline (fetch, encode, measure, analyze)
-pipeline: fetch-datasets encode measure analyze
+# Run complete pipeline (datasets must be fetched separately with: just fetch <id>)
+pipeline: encode measure analyze
     @echo "Pipeline complete!"
+    @echo "Note: Make sure you've fetched datasets first with 'just fetch <dataset-id>'"
 
 # Verify all tools are available
 verify-tools:

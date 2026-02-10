@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dataset Configuration",
+  "description": "Configuration schema for image datasets used in web image formats research",
+  "type": "object",
+  "properties": {
+    "datasets": {
+      "type": "array",
+      "description": "List of available datasets",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type", "url"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the dataset (used in CLI)",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name of the dataset"
+          },
+          "description": {
+            "type": "string",
+            "description": "Brief description of the dataset"
+          },
+          "type": {
+            "type": "string",
+            "description": "Archive type",
+            "enum": ["zip", "tar", "tar.gz", "tgz"]
+          },
+          "url": {
+            "type": "string",
+            "description": "Download URL for the dataset",
+            "format": "uri"
+          },
+          "size_mb": {
+            "type": "number",
+            "description": "Approximate size in megabytes",
+            "minimum": 0
+          },
+          "image_count": {
+            "type": "integer",
+            "description": "Number of images in the dataset",
+            "minimum": 1
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Typical resolution of images (e.g., '2K', '4K', '1080p')"
+          },
+          "format": {
+            "type": "string",
+            "description": "Image format (e.g., 'PNG', 'JPEG')"
+          },
+          "extracted_folder": {
+            "type": "string",
+            "description": "Name of the folder after extraction (if different from archive name)"
+          },
+          "rename_to": {
+            "type": "string",
+            "description": "Rename extracted folder to this name for consistency"
+          },
+          "license": {
+            "type": "string",
+            "description": "License information or URL"
+          },
+          "source": {
+            "type": "string",
+            "description": "Organization or project providing the dataset"
+          }
+        }
+      }
+    }
+  },
+  "required": ["datasets"]
+}

@@ -1,33 +1,138 @@
 """Dataset fetching and management module.
 
 This module handles downloading and organizing test image datasets
-for the research project.
+for the research project. It provides an extensible architecture for
+supporting multiple dataset sources through a JSON configuration file.
 """
 
+import json
+import tarfile
+import zipfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import requests
 from tqdm import tqdm
 
 
-class DatasetFetcher:
-    """Handles fetching and managing image datasets."""
+@dataclass
+class DatasetConfig:
+    """Configuration for a dataset."""
 
-    def __init__(self, base_dir: Path) -> None:
+    id: str
+    name: str
+    description: str
+    type: str
+    url: str
+    size_mb: float
+    image_count: int
+    resolution: str
+    format: str
+    extracted_folder: str | None = None
+    rename_to: str | None = None
+    license: str | None = None
+    source: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DatasetConfig":
+        """Create DatasetConfig from dictionary.
+
+        Args:
+            data: Dictionary with dataset configuration
+
+        Returns:
+            DatasetConfig instance
+        """
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            description=data["description"],
+            type=data["type"],
+            url=data["url"],
+            size_mb=data["size_mb"],
+            image_count=data["image_count"],
+            resolution=data["resolution"],
+            format=data["format"],
+            extracted_folder=data.get("extracted_folder"),
+            rename_to=data.get("rename_to"),
+            license=data.get("license"),
+            source=data.get("source"),
+        )
+
+
+class DatasetFetcher:
+    """Handles fetching and managing image datasets.
+
+    This class provides methods for downloading datasets from various sources,
+    extracting archives, and managing the local dataset storage. It uses a
+    JSON configuration file to define available datasets.
+    """
+
+    def __init__(self, base_dir: Path, config_file: Path | None = None) -> None:
         """Initialize the dataset fetcher.
 
         Args:
             base_dir: Base directory where datasets will be stored
+            config_file: Path to datasets.json configuration file.
+                        If None, looks for config/datasets.json.
         """
         self.base_dir = base_dir
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    def download_image(self, url: str, output_path: Path) -> bool:
-        """Download a single image from URL.
+        # Load configuration
+        if config_file is None:
+            # Default to config/datasets.json
+            project_root = Path(__file__).parent.parent
+            config_file = project_root / "config" / "datasets.json"
+
+        self.config_file = config_file
+        self._datasets: dict[str, DatasetConfig] = {}
+        self._load_config()
+
+    def _load_config(self) -> None:
+        """Load dataset configuration from JSON file."""
+        if not self.config_file.exists():
+            print(f"Warning: Config file not found: {self.config_file}")
+            return
+
+        try:
+            with open(self.config_file) as f:
+                config_data = json.load(f)
+
+            for dataset_dict in config_data.get("datasets", []):
+                dataset = DatasetConfig.from_dict(dataset_dict)
+                self._datasets[dataset.id] = dataset
+
+        except Exception as e:
+            print(f"Error loading config file {self.config_file}: {e}")
+
+    def list_available_datasets(self) -> list[DatasetConfig]:
+        """List all datasets available in configuration.
+
+        Returns:
+            List of DatasetConfig objects for available datasets
+        """
+        return list(self._datasets.values())
+
+    def get_dataset_config(self, dataset_id: str) -> DatasetConfig | None:
+        """Get configuration for a specific dataset.
 
         Args:
-            url: URL of the image to download
-            output_path: Path where the image will be saved
+            dataset_id: Dataset identifier
+
+        Returns:
+            DatasetConfig if found, None otherwise
+        """
+        return self._datasets.get(dataset_id)
+
+    def download_file(self, url: str, output_path: Path, description: str | None = None) -> bool:
+        """Download a file from URL with progress bar.
+
+        Args:
+            url: URL of the file to download
+            output_path: Path where the file will be saved
+            description: Optional description for the progress bar
 
         Returns:
             True if download succeeded, False otherwise
@@ -39,9 +144,10 @@ class DatasetFetcher:
             total_size = int(response.headers.get("content-length", 0))
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
+            desc = description or output_path.name
             with (
                 open(output_path, "wb") as f,
-                tqdm(total=total_size, unit="B", unit_scale=True, desc=output_path.name) as pbar,
+                tqdm(total=total_size, unit="B", unit_scale=True, desc=desc) as pbar,
             ):
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -52,12 +158,197 @@ class DatasetFetcher:
             print(f"Failed to download {url}: {e}")
             return False
 
+    def download_image(self, url: str, output_path: Path) -> bool:
+        """Download a single image from URL.
+
+        Args:
+            url: URL of the image to download
+            output_path: Path where the image will be saved
+
+        Returns:
+            True if download succeeded, False otherwise
+        """
+        return self.download_file(url, output_path)
+
+    def extract_archive(self, archive_path: Path, extract_dir: Path) -> bool:
+        """Extract a ZIP or TAR archive.
+
+        Args:
+            archive_path: Path to the archive file
+            extract_dir: Directory where contents will be extracted
+
+        Returns:
+            True if extraction succeeded, False otherwise
+        """
+        try:
+            extract_dir.mkdir(parents=True, exist_ok=True)
+
+            if archive_path.suffix.lower() == ".zip":
+                with zipfile.ZipFile(archive_path, "r") as zip_ref:
+                    # Get list of files for progress bar
+                    members = zip_ref.namelist()
+                    with tqdm(total=len(members), desc=f"Extracting {archive_path.name}") as pbar:
+                        for member in members:
+                            zip_ref.extract(member, extract_dir)
+                            pbar.update(1)
+
+            elif archive_path.suffix.lower() in [".tar", ".gz", ".tgz"]:
+                with tarfile.open(archive_path, "r:*") as tar_ref:
+                    tar_members = tar_ref.getmembers()
+                    with tqdm(total=len(tar_members), desc=f"Extracting {archive_path.name}") as pbar:
+                        for tar_member in tar_members:
+                            tar_ref.extract(tar_member, extract_dir)
+                            pbar.update(1)
+            else:
+                print(f"Unsupported archive format: {archive_path.suffix}")
+                return False
+
+            return True
+        except Exception as e:
+            print(f"Failed to extract {archive_path}: {e}")
+            return False
+
+    def fetch_dataset(
+        self,
+        dataset_id: str,
+        cleanup_archive: bool = True,
+    ) -> Path | None:
+        """Fetch a dataset using its configuration.
+
+        Args:
+            dataset_id: Dataset identifier from datasets.json
+            cleanup_archive: Whether to delete the downloaded archive after extraction
+
+        Returns:
+            Path to the extracted dataset directory, or None if fetch failed
+        """
+        # Get dataset configuration
+        config = self.get_dataset_config(dataset_id)
+        if config is None:
+            print(f"Error: Dataset '{dataset_id}' not found in configuration")
+            available = [d.id for d in self.list_available_datasets()]
+            print(f"Available datasets: {', '.join(available)}")
+            return None
+
+        # Determine final dataset directory name
+        dataset_name = config.rename_to or dataset_id
+        dataset_dir = self.base_dir / dataset_name
+
+        # Check if dataset already exists
+        if dataset_dir.exists():
+            image_extensions = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".jxl"]
+            image_files = []
+            for ext in image_extensions:
+                image_files.extend(list(dataset_dir.rglob(f"*{ext}")))
+
+            if image_files:
+                print(f"Dataset '{config.name}' already exists at {dataset_dir}")
+                print(f"Found {len(image_files)} images")
+                return dataset_dir
+
+        # Determine archive filename from URL
+        url_path = config.url.split("/")[-1]
+        archive_path = self.base_dir / url_path
+
+        # Download archive
+        print(f"Downloading {config.name}...")
+        print(f"  Size: ~{config.size_mb} MB")
+        print(f"  Images: {config.image_count}")
+        print(f"  Format: {config.format}")
+        print()
+
+        if not self.download_file(config.url, archive_path, description=config.name):
+            return None
+
+        # Extract archive
+        print(f"Extracting {url_path}...")
+        if not self.extract_archive(archive_path, self.base_dir):
+            return None
+
+        # Handle folder renaming if needed
+        if config.extracted_folder:
+            extracted_path = self.base_dir / config.extracted_folder
+            if extracted_path.exists() and extracted_path != dataset_dir:
+                extracted_path.rename(dataset_dir)
+        else:
+            # Try to find the extracted folder
+            # This handles cases where the archive creates a top-level folder
+            potential_dirs = [d for d in self.base_dir.iterdir() if d.is_dir() and d != dataset_dir]
+            if len(potential_dirs) == 1:
+                potential_dirs[0].rename(dataset_dir)
+
+        # Verify dataset exists
+        if not dataset_dir.exists():
+            print(f"Warning: Expected folder {dataset_dir} not found after extraction")
+            return None
+
+        # Cleanup archive if requested
+        if cleanup_archive and archive_path.exists():
+            archive_path.unlink()
+            print(f"Removed archive: {url_path}")
+
+        # Verify images
+        image_extensions = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".jxl"]
+        image_files = []
+        for ext in image_extensions:
+            image_files.extend(list(dataset_dir.rglob(f"*{ext}")))
+
+        print(f"Successfully fetched {config.name}")
+        print(f"Location: {dataset_dir}")
+        print(f"Images: {len(image_files)}")
+
+        return dataset_dir
+
+    def fetch_div2k(
+        self,
+        split: Literal["train", "valid"] = "valid",
+        cleanup_archive: bool = True,
+    ) -> Path | None:
+        """Fetch the DIV2K dataset.
+
+        This is a convenience method that maps to the configuration-based fetch.
+
+        Args:
+            split: Dataset split to download - "train" or "valid"
+            cleanup_archive: Whether to delete the downloaded archive after extraction
+
+        Returns:
+            Path to the extracted dataset directory, or None if fetch failed
+        """
+        dataset_id = f"div2k-{split}"
+        return self.fetch_dataset(dataset_id, cleanup_archive)
+
     def list_datasets(self) -> list[str]:
         """List all available datasets.
 
         Returns:
-            List of dataset names
+            List of dataset names (directory names in the base directory)
         """
         if not self.base_dir.exists():
             return []
         return [d.name for d in self.base_dir.iterdir() if d.is_dir()]
+
+    def get_dataset_info(self, dataset_name: str) -> dict[str, int | Path] | None:
+        """Get information about a downloaded dataset.
+
+        Args:
+            dataset_name: Name of the dataset directory
+
+        Returns:
+            Dictionary with dataset information (path, image count), or None if not found
+        """
+        dataset_dir = self.base_dir / dataset_name
+        if not dataset_dir.exists() or not dataset_dir.is_dir():
+            return None
+
+        # Count images (common formats)
+        image_extensions = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".jxl"]
+        image_count = sum(
+            len(list(dataset_dir.rglob(f"*{ext}")))
+            for ext in image_extensions
+        )
+
+        return {
+            "path": dataset_dir,
+            "image_count": image_count,
+        }

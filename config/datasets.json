@@ -1,0 +1,34 @@
+{
+  "datasets": [
+    {
+      "id": "div2k-valid",
+      "name": "DIV2K Validation",
+      "description": "DIV2K validation set with 100 high-quality 2K images",
+      "type": "zip",
+      "url": "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip",
+      "size_mb": 449,
+      "image_count": 100,
+      "resolution": "2K",
+      "format": "PNG",
+      "extracted_folder": "DIV2K_valid_HR",
+      "rename_to": "DIV2K_valid",
+      "license": "Unknown - check DIV2K website",
+      "source": "ETH Zurich Computer Vision Lab"
+    },
+    {
+      "id": "div2k-train",
+      "name": "DIV2K Training",
+      "description": "DIV2K training set with 800 high-quality 2K images",
+      "type": "zip",
+      "url": "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip",
+      "size_mb": 3530,
+      "image_count": 800,
+      "resolution": "2K",
+      "format": "PNG",
+      "extracted_folder": "DIV2K_train_HR",
+      "rename_to": "DIV2K_train",
+      "license": "Unknown - check DIV2K website",
+      "source": "ETH Zurich Computer Vision Lab"
+    }
+  ]
+}
