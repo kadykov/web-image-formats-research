@@ -54,6 +54,9 @@ format-check: format-code-check format-markdown-check
 # Format code and markdown
 format: format-code format-markdown
 
+# Automatically fix formatting and lint issues
+fix: format lint-fix
+
 # Run all quality checks (format, lint, type check, test)
 check: format-check lint typecheck test
 
@@ -91,6 +94,18 @@ list-datasets:
 encode:
     @echo "Running encoding pipeline..."
     python3 scripts/encode_images.py
+
+# Run encoding study from a configuration file
+run-study STUDY:
+    python3 scripts/encode_images.py {{STUDY}}
+
+# Dry-run an encoding study (show what would be done)
+dry-run-study STUDY:
+    python3 scripts/encode_images.py {{STUDY}} --dry-run
+
+# List available study configurations
+list-studies:
+    python3 scripts/encode_images.py --list
 
 # Measure quality metrics (placeholder)
 measure:

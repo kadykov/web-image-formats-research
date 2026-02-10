@@ -102,24 +102,6 @@ The schema `config/datasets.schema.json` enforces:
 
 As the pipeline develops, additional configuration files will be added:
 
-### preprocessing.json (Planned)
-
-Will define image preprocessing parameters:
-
-- Target resolutions
-- Color space conversions
-- Resize algorithms
-- Normalization methods
-
-### encoding.json (Planned)
-
-Will define encoding parameters for each format:
-
-- JPEG: quality levels, chroma subsampling
-- WebP: quality, compression method, near-lossless
-- AVIF: quality, speed, chroma subsampling
-- JPEG XL: effort, distance, modular mode
-
 ### quality.json (Planned)
 
 Will define quality measurement settings:
@@ -136,6 +118,154 @@ Will define analysis parameters:
 - Statistical tests to perform
 - Report formats
 - Visualization settings
+
+## Study Configuration Files
+
+Study configurations live in the `studies/` directory
+and define targeted encoding experiments.
+
+### Schema
+
+Validated by `config/study.schema.json`.
+
+### Structure
+
+```json
+{
+  "id": "string",
+  "name": "string",
+  "description": "string (optional)",
+  "dataset": {
+    "id": "string",
+    "max_images": "integer (optional)"
+  },
+  "preprocessing": {
+    "resize": [1920, 1280, 640]
+  },
+  "encoders": [
+    {
+      "format": "jpeg|webp|avif|jxl",
+      "quality": 75,
+      "chroma_subsampling": ["444", "420"],
+      "speed": [4, 6],
+      "extra_args": {}
+    }
+  ]
+}
+```
+
+### Quality Specification
+
+The `quality` field supports three formats:
+
+| Format | Example | Result |
+|--------|---------|--------|
+| Single integer | `75` | `[75]` |
+| Explicit list | `[60, 75, 90]` | `[60, 75, 90]` |
+| Range object | `{"start": 30, "stop": 90, "step": 10}` | `[30, 40, 50, 60, 70, 80, 90]` |
+
+### Field Descriptions
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Unique identifier for the study. |
+| `name` | string | No | Human-readable name. Defaults to `id`. |
+| `description` | string | No | Purpose of the study. |
+| `dataset.id` | string | Yes | Dataset identifier from `datasets.json`. |
+| `dataset.max_images` | integer | No | Limit images from dataset (useful for testing). |
+| `preprocessing.resize` | integer[] | No | Target resolutions (longest edge in pixels). |
+| `encoders[].format` | string | Yes | One of: `jpeg`, `webp`, `avif`, `jxl`. |
+| `encoders[].quality` | int/list/range | Yes | Quality settings to sweep (0–100). |
+| `encoders[].chroma_subsampling` | string[] | No | Subsampling modes: `444`, `422`, `420`, `400`. |
+| `encoders[].speed` | int/int[] | No | Encoder speed/effort setting(s). |
+| `encoders[].extra_args` | object | No | Encoder-specific CLI arguments. |
+
+### Example: Quality Sweep
+
+```json
+{
+  "id": "avif-quality-sweep",
+  "name": "AVIF Quality Sweep",
+  "dataset": { "id": "div2k-valid", "max_images": 10 },
+  "encoders": [
+    {
+      "format": "avif",
+      "quality": { "start": 30, "stop": 90, "step": 5 },
+      "chroma_subsampling": ["444", "420"],
+      "speed": 4
+    }
+  ]
+}
+```
+
+### Example: Format Comparison
+
+```json
+{
+  "id": "format-comparison",
+  "name": "Format Comparison",
+  "dataset": { "id": "div2k-valid", "max_images": 10 },
+  "encoders": [
+    { "format": "jpeg", "quality": [60, 75, 85, 95] },
+    { "format": "webp", "quality": [60, 75, 85, 95] },
+    { "format": "avif", "quality": [60, 75, 85, 95], "speed": 4 },
+    { "format": "jxl",  "quality": [60, 75, 85, 95] }
+  ]
+}
+```
+
+### Running Studies
+
+```bash
+# List available studies
+just list-studies
+
+# Preview what a study will do
+just dry-run-study studies/avif-quality-sweep.json
+
+# Run a study
+just run-study studies/avif-quality-sweep.json
+```
+
+## Encoding Results
+
+The output of each study run is a JSON file matching
+`config/encoding-results.schema.json`.
+
+### Structure
+
+```json
+{
+  "study_id": "string",
+  "study_name": "string",
+  "dataset": {
+    "id": "string",
+    "path": "string",
+    "image_count": "integer"
+  },
+  "timestamp": "ISO 8601 string",
+  "encodings": [
+    {
+      "source_image": "string",
+      "original_image": "string",
+      "encoded_path": "string",
+      "format": "string",
+      "quality": "integer",
+      "file_size": "integer",
+      "width": "integer",
+      "height": "integer",
+      "source_file_size": "integer",
+      "chroma_subsampling": "string (optional)",
+      "speed": "integer (optional)",
+      "resolution": "integer (optional)",
+      "extra_args": "object (optional)"
+    }
+  ]
+}
+```
+
+The results file is saved at `data/encoded/<study-id>/results.json`
+and serves as the input for the quality measurement stage.
 
 ## Loading Configuration
 

@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Study Configuration",
+  "description": "Configuration schema for an encoding study in web image formats research. A study defines a targeted experiment where specific encoding parameters are swept across a set of source images.",
+  "type": "object",
+  "required": ["id", "name", "dataset", "encoders"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to the JSON schema for IDE validation"
+    },
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the study (used in file paths and CLI)",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name of the study"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief description of the study's purpose and what it investigates"
+    },
+    "dataset": {
+      "type": "object",
+      "description": "Source dataset configuration",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Dataset identifier matching an entry in datasets.json"
+        },
+        "max_images": {
+          "type": "integer",
+          "description": "Maximum number of images to use from the dataset (useful for quick tests). If omitted, all images are used.",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "preprocessing": {
+      "type": "object",
+      "description": "Optional preprocessing to apply before encoding. If omitted, images are encoded at their original resolution.",
+      "properties": {
+        "resize": {
+          "type": "array",
+          "description": "List of target resolutions (longest edge in pixels). Each resolution produces a separate set of encoded images. If omitted, original resolution is used.",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "encoders": {
+      "type": "array",
+      "description": "List of encoder configurations to sweep. Each entry defines one encoder and the parameter space to explore.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["format", "quality"],
+        "properties": {
+          "format": {
+            "type": "string",
+            "description": "Image format / encoder to use",
+            "enum": ["jpeg", "webp", "avif", "jxl"]
+          },
+          "quality": {
+            "description": "Quality settings to sweep. Can be a single value, an explicit list, or a range definition.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "minItems": 1
+              },
+              {
+                "type": "object",
+                "description": "Range definition for generating quality values",
+                "required": ["start", "stop", "step"],
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "stop": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "step": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "chroma_subsampling": {
+            "type": "array",
+            "description": "Chroma subsampling modes to sweep. Only applicable to formats that support it (AVIF, JPEG XL). If omitted, encoder default is used.",
+            "items": {
+              "type": "string",
+              "enum": ["444", "422", "420", "400"]
+            },
+            "minItems": 1
+          },
+          "speed": {
+            "description": "Encoder speed/effort settings to sweep. Interpretation varies by encoder: avifenc speed (0-10, higher=faster), cjxl effort (1-10, higher=slower).",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "extra_args": {
+            "type": "object",
+            "description": "Encoder-specific extra arguments as key-value pairs. Keys are CLI argument names (without leading dashes), values are argument values. These are passed directly to the encoder CLI tool.",
+            "additionalProperties": {
+              "type": ["string", "integer", "boolean"]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

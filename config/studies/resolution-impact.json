@@ -1,0 +1,20 @@
+{
+  "$schema": "../study.schema.json",
+  "id": "resolution-impact",
+  "name": "Resolution Impact on AVIF",
+  "description": "Test how input resolution affects AVIF compression efficiency. Encodes the same images at multiple downscaled resolutions.",
+  "dataset": {
+    "id": "div2k-valid",
+    "max_images": 10
+  },
+  "preprocessing": {
+    "resize": [2048, 1920, 1280, 960, 640]
+  },
+  "encoders": [
+    {
+      "format": "avif",
+      "quality": [60, 75, 85],
+      "speed": 4
+    }
+  ]
+}

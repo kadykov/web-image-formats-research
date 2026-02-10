@@ -1,0 +1,18 @@
+{
+  "$schema": "../study.schema.json",
+  "id": "avif-quality-sweep",
+  "name": "AVIF Quality Sweep",
+  "description": "Sweep AVIF quality settings across the DIV2K validation set to find the sweet spot for web delivery. Compares 4:4:4 and 4:2:0 chroma subsampling.",
+  "dataset": {
+    "id": "div2k-valid",
+    "max_images": 10
+  },
+  "encoders": [
+    {
+      "format": "avif",
+      "quality": { "start": 30, "stop": 90, "step": 5 },
+      "chroma_subsampling": ["444", "420"],
+      "speed": 4
+    }
+  ]
+}

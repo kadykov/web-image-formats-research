@@ -2,8 +2,12 @@
 
 This module handles encoding images to various formats (JPEG, WebP, AVIF, JPEG XL)
 using external command-line tools.
+
+All encode methods force single-threaded mode so that parallelism is
+handled at the task level (one process per encoding task).
 """
 
+import io
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +40,10 @@ class ImageEncoder:
     ) -> EncodeResult:
         """Encode image to JPEG format.
 
+        For inputs that ``cjpeg`` cannot read directly (e.g. PNG), the image
+        is converted to PPM in memory and piped to ``cjpeg`` via *stdin*,
+        avoiding any temporary files on disk.
+
         Args:
             input_path: Path to the input image
             quality: Quality setting (0-100)
@@ -46,12 +54,23 @@ class ImageEncoder:
         """
         if output_name is None:
             output_name = input_path.stem
-        output_path = self.output_dir / f"{output_name}_q{quality}.jpg"
+        output_path = self.output_dir / f"{output_name}.jpg"
 
         try:
-            cmd = ["cjpeg", "-quality", str(quality), str(input_path)]
-            with open(output_path, "wb") as f:
-                subprocess.run(cmd, stdout=f, check=True, stderr=subprocess.PIPE)
+            cjpeg_native_formats = {".ppm", ".pgm", ".bmp", ".tga"}
+            if input_path.suffix.lower() in cjpeg_native_formats:
+                # cjpeg can read this format directly from a file
+                cmd = ["cjpeg", "-quality", str(quality), str(input_path)]
+                with open(output_path, "wb") as f:
+                    subprocess.run(cmd, stdout=f, check=True, stderr=subprocess.PIPE)
+            else:
+                # Convert to PPM in memory and pipe to cjpeg via stdin
+                ppm_data = self._to_ppm_bytes(input_path)
+                cmd = ["cjpeg", "-quality", str(quality)]
+                with open(output_path, "wb") as f:
+                    subprocess.run(
+                        cmd, input=ppm_data, stdout=f, check=True, stderr=subprocess.PIPE
+                    )
 
             return EncodeResult(
                 success=True, output_path=output_path, file_size=output_path.stat().st_size
@@ -63,6 +82,23 @@ class ImageEncoder:
                 file_size=None,
                 error_message=e.stderr.decode() if e.stderr else str(e),
             )
+
+    @staticmethod
+    def _to_ppm_bytes(input_path: Path) -> bytes:
+        """Convert an image to PPM bytes in memory.
+
+        Args:
+            input_path: Path to the source image
+
+        Returns:
+            Raw PPM data suitable for piping to cjpeg
+        """
+        from PIL import Image
+
+        buf = io.BytesIO()
+        with Image.open(input_path) as img:
+            img.save(buf, format="PPM")
+        return buf.getvalue()
 
     def encode_webp(
         self, input_path: Path, quality: int, output_name: str | None = None
@@ -79,7 +115,7 @@ class ImageEncoder:
         """
         if output_name is None:
             output_name = input_path.stem
-        output_path = self.output_dir / f"{output_name}_q{quality}.webp"
+        output_path = self.output_dir / f"{output_name}.webp"
 
         try:
             cmd = ["cwebp", "-q", str(quality), str(input_path), "-o", str(output_path)]
@@ -101,6 +137,7 @@ class ImageEncoder:
         input_path: Path,
         quality: int,
         speed: int = 4,
+        chroma_subsampling: str | None = None,
         output_name: str | None = None,
     ) -> EncodeResult:
         """Encode image to AVIF format.
@@ -109,6 +146,8 @@ class ImageEncoder:
             input_path: Path to the input image
             quality: Quality setting (0-100)
             speed: Encoding speed (0-10, higher is faster)
+            chroma_subsampling: Chroma subsampling mode ("444", "422", "420", "400").
+                If None, avifenc default is used.
             output_name: Optional output filename (without extension)
 
         Returns:
@@ -116,18 +155,21 @@ class ImageEncoder:
         """
         if output_name is None:
             output_name = input_path.stem
-        output_path = self.output_dir / f"{output_name}_q{quality}_s{speed}.avif"
+        output_path = self.output_dir / f"{output_name}.avif"
 
         try:
             cmd = [
                 "avifenc",
+                "-j",
+                "1",
                 "-s",
                 str(speed),
                 "-q",
                 str(quality),
-                str(input_path),
-                str(output_path),
             ]
+            if chroma_subsampling is not None:
+                cmd.extend(["-y", chroma_subsampling])
+            cmd.extend([str(input_path), str(output_path)])
             subprocess.run(cmd, check=True, capture_output=True)
 
             return EncodeResult(
@@ -156,10 +198,10 @@ class ImageEncoder:
         """
         if output_name is None:
             output_name = input_path.stem
-        output_path = self.output_dir / f"{output_name}_q{quality}.jxl"
+        output_path = self.output_dir / f"{output_name}.jxl"
 
         try:
-            cmd = ["cjxl", str(input_path), str(output_path), "-q", str(quality)]
+            cmd = ["cjxl", str(input_path), str(output_path), "-q", str(quality), "--num_threads=1"]
             subprocess.run(cmd, check=True, capture_output=True)
 
             return EncodeResult(
