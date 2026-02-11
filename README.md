@@ -69,9 +69,29 @@ just typecheck     # Run type checking
 just verify-tools  # Verify encoding and measurement tools
 
 # Dataset Management
-just fetch <dataset-id>     # Fetch a dataset (e.g., div2k-valid, div2k-train)
-just list-available-datasets # List all datasets in configuration
-just list-datasets           # List downloaded datasets
+just fetch <dataset-id>          # Fetch a dataset (e.g., div2k-valid, div2k-train)
+just list-available-datasets     # List all datasets in configuration
+just list-datasets               # List downloaded datasets
+
+# Encoding Studies
+just list-studies                # List available study configurations
+just run-study <study-id>        # Run an encoding study
+just run-study-clean <study-id>  # Clean existing data then run study
+just dry-run-study <study-id>    # Preview what a study would do
+
+# Quality Measurement
+just measure <results-file>      # Measure quality for encoded images
+just measure-study <study-id>    # Measure quality for a specific study
+just measure-with-workers <results-file> <workers>  # Use custom worker count
+
+# Complete Pipeline
+just pipeline <study-id>         # Run encode + measure for a study
+
+# Cleanup
+just clean                       # Clean Python cache and build artifacts
+just clean-study <study-id>      # Remove all data for a specific study
+just clean-studies               # Remove all study data (preserves datasets)
+just clean-all-data              # Remove ALL data including datasets (careful!)
 ```
 
 ## Documentation

@@ -60,7 +60,7 @@ fix: format lint-fix
 # Run all quality checks (format, lint, type check, test)
 check: format-check lint typecheck test
 
-# Clean generated files
+# Clean Python cache and build artifacts
 clean:
     rm -rf .pytest_cache/
     rm -rf .mypy_cache/
@@ -72,11 +72,33 @@ clean:
     find . -type d -name "*.egg-info" -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
 
-# Clean results and datasets (BE CAREFUL!)
-clean-data:
-    rm -rf results/encoded/*
-    rm -rf results/metrics/*
-    rm -rf results/analysis/*
+# Clean all study data (encoded images, preprocessed, metrics) - preserves datasets
+clean-studies:
+    @echo "Removing all study data (encoded, preprocessed, metrics)..."
+    rm -rf data/encoded/*
+    rm -rf data/preprocessed/*
+    rm -rf data/metrics/*
+    @echo "Study data cleaned. Datasets preserved in data/datasets/"
+
+# Clean data for a specific study
+clean-study STUDY_ID:
+    @echo "Cleaning data for study: {{STUDY_ID}}"
+    rm -rf data/encoded/{{STUDY_ID}}
+    rm -rf data/preprocessed/{{STUDY_ID}}
+    rm -rf data/metrics/{{STUDY_ID}}
+    @echo "Study {{STUDY_ID}} data cleaned."
+
+# Clean all data including datasets (BE CAREFUL!)
+clean-all-data:
+    @echo "WARNING: This will delete ALL data including datasets!"
+    @echo "Press Ctrl+C to cancel, or Enter to continue..."
+    @read
+    rm -rf data/datasets/*
+    rm -rf data/encoded/*
+    rm -rf data/preprocessed/*
+    rm -rf data/metrics/*
+    rm -rf data/analysis/*
+    @echo "All data cleaned."
 
 # Fetch a dataset by ID
 fetch DATASET_ID:
@@ -99,6 +121,13 @@ encode:
 run-study STUDY:
     python3 scripts/encode_images.py {{STUDY}}
 
+# Clean and run encoding study (ensures fresh start)
+run-study-clean STUDY:
+    @echo "Cleaning existing data for study: {{STUDY}}"
+    @just clean-study {{STUDY}}
+    @echo "Running study: {{STUDY}}"
+    python3 scripts/encode_images.py {{STUDY}}
+
 # Dry-run an encoding study (show what would be done)
 dry-run-study STUDY:
     python3 scripts/encode_images.py {{STUDY}} --dry-run
@@ -107,10 +136,17 @@ dry-run-study STUDY:
 list-studies:
     python3 scripts/encode_images.py --list
 
-# Measure quality metrics (placeholder)
-measure:
-    @echo "Measuring quality metrics..."
-    python3 scripts/measure_quality.py
+# Measure quality metrics for encoded images
+measure RESULTS_FILE:
+    python3 scripts/measure_quality.py {{RESULTS_FILE}}
+
+# Measure quality with custom number of workers
+measure-with-workers RESULTS_FILE WORKERS:
+    python3 scripts/measure_quality.py {{RESULTS_FILE}} --workers {{WORKERS}}
+
+# Measure quality for a specific study by ID (assumes results.json in data/encoded/<study-id>/)
+measure-study STUDY_ID:
+    python3 scripts/measure_quality.py data/encoded/{{STUDY_ID}}/results.json
 
 # Analyze results (placeholder)
 analyze:
@@ -118,9 +154,13 @@ analyze:
     python3 scripts/analyze_results.py
 
 # Run complete pipeline (datasets must be fetched separately with: just fetch <id>)
-pipeline: encode measure analyze
+pipeline STUDY:
+    @echo "Running complete pipeline for study: {{STUDY}}"
+    just run-study {{STUDY}}
+    just measure-study {{STUDY}}
     @echo "Pipeline complete!"
-    @echo "Note: Make sure you've fetched datasets first with 'just fetch <dataset-id>'"
+    @echo "  Encodings: data/encoded/{{STUDY}}/results.json"
+    @echo "  Quality metrics: data/metrics/{{STUDY}}/quality.json"
 
 # Verify all tools are available
 verify-tools:

@@ -1,0 +1,48 @@
+{
+  "study_id": "test-fixture-study",
+  "study_name": "Test Fixture Study",
+  "dataset": {
+    "id": "test-dataset",
+    "path": "tests/fixtures",
+    "image_count": 1
+  },
+  "timestamp": "2026-02-11T10:00:00.000000+00:00",
+  "encodings": [
+    {
+      "source_image": "tests/fixtures/test_image.png",
+      "original_image": "tests/fixtures/test_image.png",
+      "encoded_path": "tests/fixtures/test_encoded.jpg",
+      "format": "jpeg",
+      "quality": 85,
+      "file_size": 12345,
+      "width": 100,
+      "height": 100,
+      "source_file_size": 54321
+    },
+    {
+      "source_image": "tests/fixtures/test_image.png",
+      "original_image": "tests/fixtures/test_image.png",
+      "encoded_path": "tests/fixtures/test_encoded.webp",
+      "format": "webp",
+      "quality": 85,
+      "file_size": 11000,
+      "width": 100,
+      "height": 100,
+      "source_file_size": 54321,
+      "chroma_subsampling": "420"
+    },
+    {
+      "source_image": "tests/fixtures/test_image.png",
+      "original_image": "tests/fixtures/test_image.png",
+      "encoded_path": "tests/fixtures/test_encoded.avif",
+      "format": "avif",
+      "quality": 60,
+      "file_size": 9500,
+      "width": 100,
+      "height": 100,
+      "source_file_size": 54321,
+      "chroma_subsampling": "420",
+      "speed": 6
+    }
+  ]
+}
