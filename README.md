@@ -47,7 +47,6 @@ See the [Getting Started tutorial](docs/tutorials/getting-started.md) for detail
 │   ├── encoded/             # Encoded images (JPEG, WebP, AVIF, JXL)
 │   ├── metrics/             # Quality measurements (JSON/CSV)
 │   └── analysis/            # Analysis outputs (plots, reports)
-├── results/                 # Legacy results directory (deprecated)
 ├── docs/                    # Documentation (Diátaxis framework)
 ├── .devcontainer/           # Dev container configuration
 ├── .github/workflows/       # CI pipeline
