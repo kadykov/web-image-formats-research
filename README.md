@@ -83,8 +83,14 @@ just measure <results-file>      # Measure quality for encoded images
 just measure-study <study-id>    # Measure quality for a specific study
 just measure-with-workers <results-file> <workers>  # Use custom worker count
 
+# Analysis
+just analyze <study-id>          # Analyze study results and generate plots
+just analyze-to <study-id> <dir> # Analyze with custom output directory
+just list-analyzed               # List studies available for analysis
+
 # Complete Pipeline
-just pipeline <study-id>         # Run encode + measure for a study
+just pipeline <study-id>         # Run encode + measure + analyze for a study
+just pipeline-clean <study-id>   # Run complete pipeline starting fresh
 
 # Cleanup
 just clean                       # Clean Python cache and build artifacts

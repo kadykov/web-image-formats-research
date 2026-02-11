@@ -148,19 +148,40 @@ measure-with-workers RESULTS_FILE WORKERS:
 measure-study STUDY_ID:
     python3 scripts/measure_quality.py data/encoded/{{STUDY_ID}}/results.json
 
-# Analyze results (placeholder)
-analyze:
-    @echo "Analyzing results..."
-    python3 scripts/analyze_results.py
+# Analyze study results and generate plots
+analyze STUDY:
+    python3 scripts/analyze_study.py {{STUDY}}
 
-# Run complete pipeline (datasets must be fetched separately with: just fetch <id>)
+# Analyze study with custom output directory
+analyze-to STUDY OUTPUT_DIR:
+    python3 scripts/analyze_study.py {{STUDY}} --output {{OUTPUT_DIR}}
+
+# List studies available for analysis
+list-analyzed:
+    python3 scripts/analyze_study.py --list
+
+# Run complete pipeline: encode + measure + analyze
 pipeline STUDY:
     @echo "Running complete pipeline for study: {{STUDY}}"
     just run-study {{STUDY}}
     just measure-study {{STUDY}}
+    just analyze {{STUDY}}
     @echo "Pipeline complete!"
     @echo "  Encodings: data/encoded/{{STUDY}}/results.json"
     @echo "  Quality metrics: data/metrics/{{STUDY}}/quality.json"
+    @echo "  Analysis: data/analysis/{{STUDY}}/"
+
+# Run complete pipeline starting fresh (clean first)
+pipeline-clean STUDY:
+    @echo "Running clean pipeline for study: {{STUDY}}"
+    just clean-study {{STUDY}}
+    just run-study {{STUDY}}
+    just measure-study {{STUDY}}
+    just analyze {{STUDY}}
+    @echo "Pipeline complete!"
+    @echo "  Encodings: data/encoded/{{STUDY}}/results.json"
+    @echo "  Quality metrics: data/metrics/{{STUDY}}/quality.json"
+    @echo "  Analysis: data/analysis/{{STUDY}}/"
 
 # Verify all tools are available
 verify-tools:
