@@ -8,6 +8,11 @@ Quality measurement tools often have limited format support, so encoded
 images are converted to PNG before measurement. To minimize disk IO,
 temporary files are stored in memory-backed storage (/dev/shm on Linux)
 when available.
+
+Important: Quality measurements compare encoded images against their
+source_image (the preprocessed version used for encoding), NOT the
+original_image. This ensures images are compared at the same resolution,
+which is required by all quality measurement tools.
 """
 
 import json
@@ -323,7 +328,27 @@ class QualityMeasurer:
 
 @dataclass
 class EncodingRecord:
-    """Record of a single encoding from the encoding results JSON."""
+    """Record of a single encoding from the encoding results JSON.
+
+    Attributes:
+        source_image: Path to the preprocessed image used for encoding.
+            This is the actual input to the encoder and is used as the
+            reference for quality measurements (same resolution as encoded).
+        original_image: Path to the original unprocessed image from the dataset.
+            This is tracked for provenance but not used for quality measurement
+            (may have different resolution than encoded image).
+        encoded_path: Path to the encoded output file.
+        format: Image format (jpeg, webp, avif, jxl).
+        quality: Quality parameter used for encoding (0-100).
+        file_size: Size of the encoded file in bytes.
+        width: Width of the encoded image in pixels.
+        height: Height of the encoded image in pixels.
+        source_file_size: Size of the source image file in bytes.
+        chroma_subsampling: Chroma subsampling mode if applicable.
+        speed: Encoding speed parameter if applicable.
+        resolution: Resolution tag for preprocessed images (e.g., 1920).
+        extra_args: Additional encoder-specific arguments.
+    """
 
     source_image: str
     original_image: str
@@ -486,12 +511,14 @@ def _execute_measurement_task(
     """
     measurer = QualityMeasurer()
 
-    original_path = project_root / encoding.original_image
+    # Use source_image as reference (preprocessed version) instead of original_image
+    # This ensures we compare images of the same resolution
+    reference_path = project_root / encoding.source_image
     encoded_path = project_root / encoding.encoded_path
 
     error_message = None
-    if not original_path.exists():
-        error_message = f"Original image not found: {original_path}"
+    if not reference_path.exists():
+        error_message = f"Reference image not found: {reference_path}"
     elif not encoded_path.exists():
         error_message = f"Encoded image not found: {encoded_path}"
 
@@ -520,7 +547,7 @@ def _execute_measurement_task(
             ),
         )
 
-    metrics = measurer.measure_all(original_path, encoded_path)
+    metrics = measurer.measure_all(reference_path, encoded_path)
 
     return (
         encoding,
