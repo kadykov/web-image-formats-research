@@ -345,7 +345,9 @@ class EncodingRecord:
         height: Height of the encoded image in pixels.
         source_file_size: Size of the source image file in bytes.
         chroma_subsampling: Chroma subsampling mode if applicable.
-        speed: Encoding speed parameter if applicable.
+        speed: AVIF encoding speed parameter (0-10, lower is slower/better) if applicable.
+        effort: JPEG XL encoding effort parameter (1-10, higher is slower/better) if applicable.
+        method: WebP compression method (0-6, higher is slower/better) if applicable.
         resolution: Resolution tag for preprocessed images (e.g., 1920).
         extra_args: Additional encoder-specific arguments.
     """
@@ -361,6 +363,8 @@ class EncodingRecord:
     source_file_size: int
     chroma_subsampling: str | None = None
     speed: int | None = None
+    effort: int | None = None
+    method: int | None = None
     resolution: int | None = None
     extra_args: dict[str, str | int | bool] | None = None
 
@@ -437,6 +441,8 @@ class QualityRecord:
     butteraugli: float | None
     chroma_subsampling: str | None = None
     speed: int | None = None
+    effort: int | None = None
+    method: int | None = None
     resolution: int | None = None
     extra_args: dict[str, str | int | bool] | None = None
     measurement_error: str | None = None
@@ -484,6 +490,8 @@ class QualityResults:
                     "butteraugli": rec.butteraugli,
                     "chroma_subsampling": rec.chroma_subsampling,
                     "speed": rec.speed,
+                    "effort": rec.effort,
+                    "method": rec.method,
                     "resolution": rec.resolution,
                     "extra_args": rec.extra_args,
                     "measurement_error": rec.measurement_error,
@@ -541,6 +549,8 @@ def _execute_measurement_task(
                 butteraugli=None,
                 chroma_subsampling=encoding.chroma_subsampling,
                 speed=encoding.speed,
+                effort=encoding.effort,
+                method=encoding.method,
                 resolution=encoding.resolution,
                 extra_args=encoding.extra_args,
                 measurement_error=error_message,
@@ -567,6 +577,8 @@ def _execute_measurement_task(
             butteraugli=metrics.butteraugli,
             chroma_subsampling=encoding.chroma_subsampling,
             speed=encoding.speed,
+            effort=encoding.effort,
+            method=encoding.method,
             resolution=encoding.resolution,
             extra_args=encoding.extra_args,
             measurement_error=metrics.error_message,

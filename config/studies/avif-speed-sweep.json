@@ -1,0 +1,17 @@
+{
+  "$schema": "../study.schema.json",
+  "id": "avif-speed-sweep",
+  "name": "AVIF Speed Settings Study",
+  "description": "Study how AVIF encoding speed affects quality and file size. Tests speed settings from 0 (slowest/best) to 10 (fastest) at representative quality levels to find the optimal speed/quality tradeoff.",
+  "dataset": {
+    "id": "div2k-valid",
+    "max_images": 30
+  },
+  "encoders": [
+    {
+      "format": "avif",
+      "quality": [50, 60, 70, 80],
+      "speed": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    }
+  ]
+}

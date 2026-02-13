@@ -28,6 +28,8 @@ class EncoderConfig:
     quality: list[int]
     chroma_subsampling: list[str] | None = None
     speed: list[int] | None = None
+    effort: list[int] | None = None
+    method: list[int] | None = None
     extra_args: dict[str, str | int | bool] | None = None
 
 
@@ -139,6 +141,16 @@ def _parse_encoder_config(data: dict[str, Any]) -> EncoderConfig:
     if speed_raw is not None:
         speed = [speed_raw] if isinstance(speed_raw, int) else speed_raw
 
+    effort_raw = data.get("effort")
+    effort: list[int] | None = None
+    if effort_raw is not None:
+        effort = [effort_raw] if isinstance(effort_raw, int) else effort_raw
+
+    method_raw = data.get("method")
+    method: list[int] | None = None
+    if method_raw is not None:
+        method = [method_raw] if isinstance(method_raw, int) else method_raw
+
     chroma = data.get("chroma_subsampling")
 
     return EncoderConfig(
@@ -146,6 +158,8 @@ def _parse_encoder_config(data: dict[str, Any]) -> EncoderConfig:
         quality=quality,
         chroma_subsampling=chroma,
         speed=speed,
+        effort=effort,
+        method=method,
         extra_args=data.get("extra_args"),
     )
 
@@ -161,6 +175,8 @@ class EncodingTask:
     megapixels: float
     chroma_subsampling: str | None = None
     speed: int | None = None
+    effort: int | None = None
+    method: int | None = None
     resolution: int | None = None
     extra_args: dict[str, str | int | bool] | None = None
 
@@ -180,6 +196,8 @@ class EncodingRecord:
     source_file_size: int
     chroma_subsampling: str | None = None
     speed: int | None = None
+    effort: int | None = None
+    method: int | None = None
     resolution: int | None = None
     extra_args: dict[str, str | int | bool] | None = None
 
@@ -200,6 +218,10 @@ class EncodingRecord:
             d["chroma_subsampling"] = self.chroma_subsampling
         if self.speed is not None:
             d["speed"] = self.speed
+        if self.effort is not None:
+            d["effort"] = self.effort
+        if self.method is not None:
+            d["method"] = self.method
         if self.resolution is not None:
             d["resolution"] = self.resolution
         if self.extra_args:
@@ -286,23 +308,29 @@ def expand_tasks(
                 list(enc.chroma_subsampling) if enc.chroma_subsampling else [None]
             )
             speed_options: list[int | None] = list(enc.speed) if enc.speed else [None]
+            effort_options: list[int | None] = list(enc.effort) if enc.effort else [None]
+            method_options: list[int | None] = list(enc.method) if enc.method else [None]
 
             for q in enc.quality:
                 for chroma in chroma_options:
                     for spd in speed_options:
-                        tasks.append(
-                            EncodingTask(
-                                source_image=src,
-                                original_image=orig,
-                                format=enc.format,
-                                quality=q,
-                                megapixels=image_megapixels[src],
-                                chroma_subsampling=chroma,
-                                speed=spd,
-                                resolution=resolution,
-                                extra_args=enc.extra_args,
-                            )
-                        )
+                        for eff in effort_options:
+                            for mth in method_options:
+                                tasks.append(
+                                    EncodingTask(
+                                        source_image=src,
+                                        original_image=orig,
+                                        format=enc.format,
+                                        quality=q,
+                                        megapixels=image_megapixels[src],
+                                        chroma_subsampling=chroma,
+                                        speed=spd,
+                                        effort=eff,
+                                        method=mth,
+                                        resolution=resolution,
+                                        extra_args=enc.extra_args,
+                                    )
+                                )
     return tasks
 
 
@@ -356,6 +384,10 @@ def _build_output_name(task: EncodingTask, stem: str) -> str:
         parts.append(task.chroma_subsampling)
     if task.speed is not None:
         parts.append(f"s{task.speed}")
+    if task.effort is not None:
+        parts.append(f"e{task.effort}")
+    if task.method is not None:
+        parts.append(f"m{task.method}")
     if task.resolution is not None:
         parts.append(f"r{task.resolution}")
     return "_".join(parts)
@@ -466,7 +498,13 @@ def _execute_encoding_task(
     if task.format == "jpeg":
         result = encoder.encode_jpeg(task.source_image, task.quality, output_name=output_name)
     elif task.format == "webp":
-        result = encoder.encode_webp(task.source_image, task.quality, output_name=output_name)
+        method = task.method if task.method is not None else 4
+        result = encoder.encode_webp(
+            task.source_image,
+            task.quality,
+            method=method,
+            output_name=output_name,
+        )
     elif task.format == "avif":
         speed = task.speed if task.speed is not None else 6
         result = encoder.encode_avif(
@@ -477,7 +515,13 @@ def _execute_encoding_task(
             output_name=output_name,
         )
     elif task.format == "jxl":
-        result = encoder.encode_jxl(task.source_image, task.quality, output_name=output_name)
+        effort = task.effort if task.effort is not None else 7
+        result = encoder.encode_jxl(
+            task.source_image,
+            task.quality,
+            effort=effort,
+            output_name=output_name,
+        )
     else:
         return (task, f"Unknown format: {task.format}", time.monotonic() - t0)
 
@@ -509,6 +553,8 @@ def _execute_encoding_task(
         source_file_size=task.source_image.stat().st_size,
         chroma_subsampling=task.chroma_subsampling,
         speed=task.speed,
+        effort=task.effort,
+        method=task.method,
         resolution=task.resolution,
         extra_args=task.extra_args,
     )

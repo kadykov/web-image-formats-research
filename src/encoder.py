@@ -101,13 +101,18 @@ class ImageEncoder:
         return buf.getvalue()
 
     def encode_webp(
-        self, input_path: Path, quality: int, output_name: str | None = None
+        self,
+        input_path: Path,
+        quality: int,
+        method: int = 4,
+        output_name: str | None = None,
     ) -> EncodeResult:
         """Encode image to WebP format.
 
         Args:
             input_path: Path to the input image
             quality: Quality setting (0-100)
+            method: Compression method (0=fast, 6=slowest), default=4
             output_name: Optional output filename (without extension)
 
         Returns:
@@ -118,7 +123,16 @@ class ImageEncoder:
         output_path = self.output_dir / f"{output_name}.webp"
 
         try:
-            cmd = ["cwebp", "-q", str(quality), str(input_path), "-o", str(output_path)]
+            cmd = [
+                "cwebp",
+                "-q",
+                str(quality),
+                "-m",
+                str(method),
+                str(input_path),
+                "-o",
+                str(output_path),
+            ]
             subprocess.run(cmd, check=True, capture_output=True)
 
             return EncodeResult(
@@ -184,13 +198,18 @@ class ImageEncoder:
             )
 
     def encode_jxl(
-        self, input_path: Path, quality: int, output_name: str | None = None
+        self,
+        input_path: Path,
+        quality: int,
+        effort: int = 7,
+        output_name: str | None = None,
     ) -> EncodeResult:
         """Encode image to JPEG XL format.
 
         Args:
             input_path: Path to the input image
             quality: Quality setting (0-100)
+            effort: Encoder effort setting (1-10, higher is slower/better), default=7
             output_name: Optional output filename (without extension)
 
         Returns:
@@ -201,7 +220,16 @@ class ImageEncoder:
         output_path = self.output_dir / f"{output_name}.jxl"
 
         try:
-            cmd = ["cjxl", str(input_path), str(output_path), "-q", str(quality), "--num_threads=1"]
+            cmd = [
+                "cjxl",
+                str(input_path),
+                str(output_path),
+                "-q",
+                str(quality),
+                "-e",
+                str(effort),
+                "--num_threads=1",
+            ]
             subprocess.run(cmd, check=True, capture_output=True)
 
             return EncodeResult(

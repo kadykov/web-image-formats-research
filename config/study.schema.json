@@ -119,15 +119,57 @@
             "minItems": 1
           },
           "speed": {
-            "description": "Encoder speed/effort settings to sweep. Interpretation varies by encoder: avifenc speed (0-10, higher=faster), cjxl effort (1-10, higher=slower).",
+            "description": "AVIF encoder speed settings to sweep (0-10, where 0=slowest/best quality, 10=fastest). Only applicable to AVIF format.",
             "oneOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
               },
               {
                 "type": "array",
                 "items": {
-                  "type": "integer"
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "effort": {
+            "description": "JPEG XL encoder effort settings to sweep (1-10, where higher=slower/better quality). Only applicable to JPEG XL format.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "method": {
+            "description": "WebP compression method settings to sweep (0-6, where 0=fast, 6=slowest/best quality). Only applicable to WebP format.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
                 },
                 "minItems": 1
               }

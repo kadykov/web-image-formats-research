@@ -1,0 +1,22 @@
+{
+  "$schema": "../study.schema.json",
+  "id": "speed-effort-comparison",
+  "name": "AVIF Speed vs JPEG XL Effort Comparison",
+  "description": "Compare AVIF encoding speed settings against JPEG XL effort settings to understand the quality/efficiency tradeoffs between these two advanced formats. Uses quality level 75 as a representative middle ground.",
+  "dataset": {
+    "id": "div2k-valid",
+    "max_images": 10
+  },
+  "encoders": [
+    {
+      "format": "avif",
+      "quality": 75,
+      "speed": [0, 2, 4, 6, 8, 10]
+    },
+    {
+      "format": "jxl",
+      "quality": 75,
+      "effort": [1, 3, 5, 7, 9]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "../study.schema.json",
+  "id": "multi-format-resolution-impact",
+  "name": "Multi-Format Resolution Impact Study",
+  "description": "Study how input resolution affects compression efficiency across different image formats (JPEG, WebP, AVIF, JPEG XL). Tests the same images at multiple downscaled resolutions to understand resolution-dependent performance characteristics.",
+  "dataset": {
+    "id": "div2k-valid",
+    "max_images": 30
+  },
+  "preprocessing": {
+    "resize": [2048, 1280, 960, 720, 640, 480, 320, 240, 160, 120]
+  },
+  "encoders": [
+    {
+      "format": "jpeg",
+      "quality": 85
+    },
+    {
+      "format": "webp",
+      "quality": 87
+    },
+    {
+      "format": "avif",
+      "quality": 65,
+      "speed": 4
+    },
+    {
+      "format": "jxl",
+      "quality": 85,
+      "effort": 7
+    }
+  ]
+}

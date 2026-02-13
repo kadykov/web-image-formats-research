@@ -88,7 +88,15 @@
           },
           "speed": {
             "type": "integer",
-            "description": "Speed/effort setting used, if applicable"
+            "description": "Speed setting for AVIF encoder (0-10, lower is slower/better), if applicable"
+          },
+          "effort": {
+            "type": "integer",
+            "description": "Effort setting for JPEG XL encoder (1-10, higher is slower/better), if applicable"
+          },
+          "method": {
+            "type": "integer",
+            "description": "Compression method for WebP encoder (0-6, higher is slower/better), if applicable"
           },
           "resolution": {
             "type": "integer",

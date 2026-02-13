@@ -5,7 +5,7 @@
   "description": "Sweep AVIF quality settings across the DIV2K validation set to find the sweet spot for web delivery. Compares 4:4:4 and 4:2:0 chroma subsampling.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 10
+    "max_images": 30
   },
   "encoders": [
     {
