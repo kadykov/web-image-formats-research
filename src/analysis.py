@@ -133,7 +133,15 @@ def determine_varying_parameters(df: pd.DataFrame) -> list[str]:
     Returns:
         List of parameter columns that have more than one unique value
     """
-    candidates = ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+    candidates = [
+        "format",
+        "quality",
+        "chroma_subsampling",
+        "speed",
+        "effort",
+        "method",
+        "resolution",
+    ]
     varying = []
     for col in candidates:
         if col in df.columns and df[col].nunique() > 1:
@@ -259,7 +267,15 @@ def plot_quality_metrics(
     # Exclude x_param and also any statistics columns
     group_cols = [
         col
-        for col in ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+        for col in [
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
 
@@ -475,7 +491,15 @@ def plot_efficiency_metrics(
     # Group by other parameters
     group_cols = [
         col
-        for col in ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+        for col in [
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
 
@@ -576,7 +600,15 @@ def plot_bytes_per_pixel(
     # Group by other parameters
     group_cols = [
         col
-        for col in ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+        for col in [
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
 
