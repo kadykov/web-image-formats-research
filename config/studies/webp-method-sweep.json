@@ -1,0 +1,17 @@
+{
+  "$schema": "../study.schema.json",
+  "id": "webp-method-sweep",
+  "name": "WebP Method Settings Study",
+  "description": "Study how WebP encoding method affects quality and file size. Tests method settings from 0 (fastest) to 6 (slowest/best) at representative quality levels to find the optimal method/quality tradeoff.",
+  "dataset": {
+    "id": "div2k-valid",
+    "max_images": 30
+  },
+  "encoders": [
+    {
+      "format": "webp",
+      "quality": [75, 80, 85, 90, 95],
+      "method": [0, 1, 2, 3, 4, 5, 6]
+    }
+  ]
+}

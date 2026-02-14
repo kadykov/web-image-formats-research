@@ -358,7 +358,7 @@ def plot_quality_metrics(
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(output_path, format="webp", dpi=150)
+    plt.savefig(output_path, format="svg")
     plt.close()
 
 
@@ -460,7 +460,7 @@ def plot_rate_distortion(
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(output_path, format="webp", dpi=150)
+    plt.savefig(output_path, format="svg")
     plt.close()
 
 
@@ -570,7 +570,7 @@ def plot_efficiency_metrics(
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(output_path, format="webp", dpi=150)
+    plt.savefig(output_path, format="svg")
     plt.close()
 
 
@@ -699,7 +699,7 @@ def plot_bytes_per_pixel(
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(output_path, format="webp", dpi=150)
+    plt.savefig(output_path, format="svg")
     plt.close()
 
 
@@ -751,7 +751,7 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     quality_metrics = ["ssimulacra2", "psnr", "ssim", "butteraugli"]
     for metric in quality_metrics:
         if f"{metric}_mean" in stats.columns:
-            plot_path = output_dir / f"{study_id}_{metric}_vs_{x_param}.webp"
+            plot_path = output_dir / f"{study_id}_{metric}_vs_{x_param}.svg"
             plot_quality_metrics(stats, x_param, metric, plot_path)
             print(f"Quality plot saved: {plot_path}")
 
@@ -759,13 +759,13 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     if "bytes_per_pixel_mean" in stats.columns:
         for metric in quality_metrics:
             if f"{metric}_mean" in stats.columns:
-                plot_path = output_dir / f"{study_id}_{metric}_vs_bytes_per_pixel.webp"
+                plot_path = output_dir / f"{study_id}_{metric}_vs_bytes_per_pixel.svg"
                 plot_rate_distortion(stats, metric, secondary_param, plot_path)
                 print(f"Rate-distortion plot saved: {plot_path}")
 
     # Generate bytes per pixel plot (with p05 and p95)
     if "bytes_per_pixel_mean" in stats.columns:
-        plot_path = output_dir / f"{study_id}_bytes_per_pixel_vs_{x_param}.webp"
+        plot_path = output_dir / f"{study_id}_bytes_per_pixel_vs_{x_param}.svg"
         plot_bytes_per_pixel(stats, x_param, plot_path)
         print(f"Bytes per pixel plot saved: {plot_path}")
 
@@ -778,6 +778,6 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     ]
     for metric in efficiency_metrics:
         if f"{metric}_mean" in stats.columns:
-            plot_path = output_dir / f"{study_id}_{metric}_vs_{x_param}.webp"
+            plot_path = output_dir / f"{study_id}_{metric}_vs_{x_param}.svg"
             plot_efficiency_metrics(stats, x_param, metric, plot_path)
             print(f"Efficiency plot saved: {plot_path}")

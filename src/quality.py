@@ -16,6 +16,7 @@ which is required by all quality measurement tools.
 """
 
 import json
+import re
 import subprocess
 import tempfile
 import time
@@ -35,6 +36,65 @@ def _get_tmpdir() -> str | None:
     shm_path = Path("/dev/shm")
     if shm_path.exists() and shm_path.is_dir():
         return str(shm_path)
+    return None
+
+
+def get_measurement_tool_version(tool: str) -> str | None:
+    """Get version string for a measurement tool.
+
+    Args:
+        tool: Name of measurement tool (ssimulacra2, butteraugli, ffmpeg)
+
+    Returns:
+        Version string or None if unable to determine
+    """
+    try:
+        if tool == "ssimulacra2":
+            # ssimulacra2 doesn't have --version, check if executable exists
+            try:
+                result = subprocess.run(
+                    ["ssimulacra2", "--help"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                # If command exists, return "available"
+                return "available"
+            except FileNotFoundError:
+                pass
+
+        elif tool == "butteraugli":
+            # butteraugli_main typically doesn't have --version
+            # Try --help to check if it exists
+            try:
+                result = subprocess.run(
+                    ["butteraugli_main", "--help"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                # If command exists (even if it fails on missing args), it's available
+                return "available"
+            except FileNotFoundError:
+                pass
+
+        elif tool == "ffmpeg":
+            # ffmpeg: "ffmpeg version 6.1.1"
+            result = subprocess.run(
+                ["ffmpeg", "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            output = result.stdout
+            match = re.search(r"ffmpeg version\s+(\S+)", output)
+            if match:
+                return match.group(1)
+            return "unknown"
+
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
     return None
 
 
@@ -458,6 +518,7 @@ class QualityResults:
     measurements: list[QualityRecord]
     timestamp: str
     encoding_timestamp: str | None = None
+    tool_versions: dict[str, str] | None = None
 
     def save(self, path: Path) -> None:
         """Save quality results to a JSON file.
@@ -473,6 +534,7 @@ class QualityResults:
             "dataset": self.dataset,
             "encoding_timestamp": self.encoding_timestamp,
             "timestamp": self.timestamp,
+            "tool_versions": self.tool_versions,
             "measurements": [
                 {
                     "source_image": rec.source_image,
@@ -661,6 +723,9 @@ class QualityMeasurementRunner:
         if failed > 0:
             print(f"  Failed: {failed}")
 
+        # Collect tool versions
+        tool_versions = self._collect_tool_versions()
+
         return QualityResults(
             study_id=encoding_results.study_id,
             study_name=encoding_results.study_name,
@@ -668,7 +733,32 @@ class QualityMeasurementRunner:
             measurements=measurements,
             timestamp=datetime.now(UTC).isoformat(),
             encoding_timestamp=encoding_results.timestamp,
+            tool_versions=tool_versions,
         )
+
+    def _collect_tool_versions(self) -> dict[str, str]:
+        """Collect version information for measurement tools.
+
+        Returns:
+            Dict mapping tool names to version strings
+        """
+        versions = {}
+
+        # Collect measurement tool versions
+        for tool in ["ssimulacra2", "butteraugli", "ffmpeg"]:
+            version = get_measurement_tool_version(tool)
+            if version:
+                versions[tool] = version
+
+        # Collect encoder versions (if available from encoding results)
+        from encoder import get_encoder_version  # type: ignore[import-untyped]
+
+        for encoder in ["cjpeg", "cwebp", "avifenc", "cjxl"]:
+            version = get_encoder_version(encoder)
+            if version:
+                versions[encoder] = version
+
+        return versions
 
     @staticmethod
     def _format_duration(seconds: float) -> str:

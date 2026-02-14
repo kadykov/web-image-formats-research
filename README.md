@@ -88,6 +88,12 @@ just analyze <study-id>          # Analyze study results and generate plots
 just analyze-to <study-id> <dir> # Analyze with custom output directory
 just list-analyzed               # List studies available for analysis
 
+# Report Generation
+just report                      # Generate interactive HTML report for all studies
+just report-studies <study-ids>  # Generate report for specific studies
+just list-report-studies         # List studies available for report generation
+just serve-report <port>         # Serve report locally (default: http://localhost:8000)
+
 # Complete Pipeline
 just pipeline <study-id>         # Run encode + measure + analyze for a study
 just pipeline-clean <study-id>   # Run complete pipeline starting fresh

@@ -8,7 +8,7 @@
     "max_images": 30
   },
   "preprocessing": {
-    "resize": [2048, 1280, 960, 720, 640, 480, 320, 240, 160, 120]
+    "resize": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
   },
   "encoders": [
     {
@@ -17,17 +17,18 @@
     },
     {
       "format": "webp",
-      "quality": 87
+      "quality": 87,
+      "method": 6
     },
     {
       "format": "avif",
       "quality": 65,
-      "speed": 4
+      "speed": 3
     },
     {
       "format": "jxl",
       "quality": 85,
-      "effort": 7
+      "effort": 9
     }
   ]
 }

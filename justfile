@@ -183,6 +183,27 @@ pipeline-clean STUDY:
     @echo "  Quality metrics: data/metrics/{{STUDY}}/quality.json"
     @echo "  Analysis: data/analysis/{{STUDY}}/"
 
+# Generate interactive HTML report for all studies
+report:
+    python3 scripts/generate_report.py
+
+# Generate report for specific studies
+report-studies +STUDIES:
+    python3 scripts/generate_report.py {{STUDIES}}
+
+# Generate report to custom output directory
+report-to OUTPUT_DIR +STUDIES:
+    python3 scripts/generate_report.py {{STUDIES}} --output {{OUTPUT_DIR}}
+
+# List studies available for report generation
+list-report-studies:
+    python3 scripts/generate_report.py --list
+
+# Serve report locally for preview
+serve-report PORT="8000":
+    @echo "Serving report at http://localhost:{{PORT}}"
+    python3 -m http.server {{PORT}} --directory data/report
+
 # Verify all tools are available
 verify-tools:
     @echo "Checking image encoding tools..."

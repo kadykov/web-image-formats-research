@@ -12,7 +12,7 @@
       "format": "avif",
       "quality": { "start": 30, "stop": 90, "step": 5 },
       "chroma_subsampling": ["444", "420"],
-      "speed": 4
+      "speed": 3
     }
   ]
 }

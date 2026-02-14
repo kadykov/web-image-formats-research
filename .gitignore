@@ -9,6 +9,11 @@ data/metrics/*
 !data/metrics/.gitkeep
 data/analysis/*
 !data/analysis/.gitkeep
+data/report/
+
+# Report assets (downloaded at report generation time)
+report/assets/plotly-basic.min.js
+
 results/*
 !results/.gitkeep
 

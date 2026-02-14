@@ -44,6 +44,13 @@
       "description": "ISO 8601 timestamp of when the quality measurements were completed",
       "format": "date-time"
     },
+    "tool_versions": {
+      "type": "object",
+      "description": "Versions of encoding and measurement tools used in this study. Keys are tool names (e.g., 'cjpeg', 'ssimulacra2'), values are version strings or 'available' if version could not be determined.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "measurements": {
       "type": "array",
       "description": "List of all quality measurement records",

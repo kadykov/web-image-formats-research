@@ -11,7 +11,8 @@
 				"mechatroner.rainbow-csv",
 				"github.vscode-github-actions",
 				"skellock.just",
-				"DavidAnson.vscode-markdownlint"
+				"DavidAnson.vscode-markdownlint",
+				"wholroyd.jinja"
 			]
 		}
 	},

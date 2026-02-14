@@ -1,0 +1,69 @@
+{% extends "base.html.j2" %}
+
+{% block title %}{{ study_name }} — Web Image Formats Research{% endblock %}
+
+{% block nav_links %}
+<a href="{{ index_path }}">Home</a>
+<a href="#" class="active">{{ study_name }}</a>
+{% endblock %}
+
+{% block content %}
+<h1>{{ study_name }}</h1>
+{% if study_description %}
+<p>{{ study_description }}</p>
+{% endif %}
+<p class="meta">
+    Dataset: {{ dataset_id }} ({{ image_count }} images) &middot;
+    {{ measurement_count }} measurements &middot;
+    Formats: {{ formats | join(", ") | upper }}
+</p>
+
+{% if tool_versions %}
+<details class="tool-versions" style="margin: 1rem 0; padding: 1rem; background: rgba(128,128,128,0.1); border-radius: 4px;">
+    <summary style="cursor: pointer; font-weight: 500;">Tool Versions</summary>
+    <table style="margin-top: 0.5rem; font-size: 0.9rem;">
+        <tr><th style="text-align: left; padding-right: 1rem;">Tool</th><th style="text-align: left;">Version</th></tr>
+    {% for tool, version in tool_versions.items() %}
+        <tr><td style="padding: 0.25rem 1rem 0.25rem 0;">{{ tool }}</td><td style="padding: 0.25rem 0;">{{ version }}</td></tr>
+    {% endfor %}
+    </table>
+</details>
+{% endif %}
+
+<div class="toc">
+    <h3>Contents</h3>
+    <ul>
+    {% for section in sections %}
+        <li><a href="#{{ section.id }}">{{ section.title }}</a></li>
+    {% endfor %}
+    </ul>
+    {% if csv_data_file %}
+    <h3 style="margin-top: 1rem;">Data Downloads</h3>
+    <ul>
+        <li><a href="{{ csv_data_file }}" download>📊 CSV Statistics</a></li>
+        {% if svg_files %}
+        <li><a href="#static-figures">🖼️ Static SVG Figures ({{ svg_files | length }})</a></li>
+        {% endif %}
+    </ul>
+    {% endif %}
+</div>
+
+{% for section in sections %}
+<div class="figure-section" id="{{ section.id }}">
+    <h2>{{ section.title }}</h2>
+    {{ section.html_fragment }}
+</div>
+{% endfor %}
+
+{% if svg_files %}
+<div class="figure-section" id="static-figures">
+    <h2>Static SVG Figures</h2>
+    <p>Downloadable vector graphics for use in papers, presentations, or offline analysis.</p>
+    <ul style="columns: 2; column-gap: 1.5rem;">
+    {% for svg in svg_files %}
+        <li style="margin-bottom: 0.5rem;"><a href="{{ svg }}" download>{{ svg.split('/')[-1] }}</a></li>
+    {% endfor %}
+    </ul>
+</div>
+{% endif %}
+{% endblock %}

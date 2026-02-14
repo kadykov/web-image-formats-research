@@ -251,9 +251,9 @@ def test_analyze_study_integration(tmp_path: Path, sample_quality_data: dict) ->
     csv_files = list(output_dir.glob("*_statistics.csv"))
     assert len(csv_files) == 1
 
-    # Check some plots exist
-    webp_files = list(output_dir.glob("*.webp"))
-    assert len(webp_files) > 0
+    # Check some plots exist (SVG format)
+    svg_files = list(output_dir.glob("*.svg"))
+    assert len(svg_files) > 0
 
     # Verify CSV content
     stats_df = pd.read_csv(csv_files[0])

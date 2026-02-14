@@ -1,0 +1,28 @@
+{% extends "base.html.j2" %}
+
+{% block title %}Web Image Formats Research{% endblock %}
+
+{% block nav_links %}
+<a href="{{ index_path }}" class="active">Home</a>
+{% endblock %}
+
+{% block content %}
+<h1>Web Image Formats Research</h1>
+<p>
+    Interactive analysis of modern image formats for the web.
+    Comparing compression efficiency and perceptual quality of JPEG, WebP, AVIF, and JPEG XL.
+</p>
+
+<h2>Studies</h2>
+{% for study in studies %}
+<div class="study-card">
+    <a href="{{ study.filename }}">{{ study.study_name }}</a>
+    <div class="meta">
+        {% if study.description %}{{ study.description }} &middot; {% endif %}
+        {{ study.image_count }} images &middot;
+        {{ study.measurement_count }} measurements &middot;
+        {{ study.formats | join(", ") | upper }}
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

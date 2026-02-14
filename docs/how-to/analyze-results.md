@@ -28,7 +28,7 @@ This will:
 1. Load quality measurements from `data/metrics/<study-id>/quality.json`
 2. Compute statistical aggregates (mean, 5th/25th/50th/75th/95th percentiles)
 3. Generate CSV with all statistics
-4. Create visualization plots in WebP format
+4. Create visualization plots in SVG format (vector graphics)
 
 ### Outputs
 
@@ -36,12 +36,20 @@ Analysis outputs are saved to `data/analysis/<study-id>/`:
 
 - **`<study-id>_statistics.csv`** - Complete statistical summary with all metrics
 - **Quality metric plots** - SSIMULACRA2, PSNR, SSIM, Butteraugli vs the sweep parameter
-- **Efficiency plots** - Bytes per pixel, bytes per quality score per pixel
+- **Rate-distortion plots** - Quality metrics vs bytes per pixel
+- **Efficiency plots** - Bytes per quality score per pixel
+- **Bytes per pixel plots** - File size distribution with percentile bands
+
+All plots are saved as **SVG** (Scalable Vector Graphics) for:
+
+- Perfect quality at any zoom level
+- Smaller file size for plots with few data points
+- Easy embedding in papers and presentations
 
 Each plot shows:
 
 - **Mean values** - Solid lines with filled markers
-- **5% worst values** - Dashed lines with open markers
+- **5% worst values** - Dashed lines with open markers (quality plots only)
 
 ## Available Commands
 
@@ -125,7 +133,7 @@ just analyze avif-quality-sweep
 head -20 data/analysis/avif-quality-sweep/avif-quality-sweep_statistics.csv
 
 # List all generated plots
-ls data/analysis/avif-quality-sweep/*.webp
+ls data/analysis/avif-quality-sweep/*.svg
 ```
 
 ### Compare Multiple Formats

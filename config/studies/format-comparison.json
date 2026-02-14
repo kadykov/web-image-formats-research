@@ -5,25 +5,27 @@
   "description": "Compare all four formats (JPEG, WebP, AVIF, JPEG XL) at the same quality levels using the DIV2K validation set.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 10
+    "max_images": 30
   },
   "encoders": [
     {
       "format": "jpeg",
-      "quality": [60, 70, 75, 80, 85, 90, 95]
+      "quality": [50, 55, 60, 65, 70, 75, 80, 85, 90, 95]
     },
     {
       "format": "webp",
-      "quality": [60, 70, 75, 80, 85, 90, 95]
+      "quality": [50, 55, 60, 65, 70, 75, 80, 85, 90, 95],
+      "method": 6
     },
     {
       "format": "avif",
-      "quality": [60, 70, 75, 80, 85, 90, 95],
-      "speed": 4
+      "quality": [40, 45, 50, 55, 60, 65, 70, 75, 80, 85],
+      "speed": 3
     },
     {
       "format": "jxl",
-      "quality": [60, 70, 75, 80, 85, 90, 95]
+      "quality": [50, 55, 60, 65, 70, 75, 80, 85, 90, 95],
+      "effort": 9
     }
   ]
 }

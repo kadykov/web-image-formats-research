@@ -8,6 +8,7 @@ handled at the task level (one process per encoding task).
 """
 
 import io
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,87 @@ class EncodeResult:
     output_path: Path | None
     file_size: int | None
     error_message: str | None = None
+
+
+def get_encoder_version(encoder: str) -> str | None:
+    """Get version string for an encoder tool.
+
+    Args:
+        encoder: Name of encoder tool (cjpeg, cwebp, avifenc, cjxl)
+
+    Returns:
+        Version string or None if unable to determine
+    """
+    try:
+        if encoder == "cjpeg":
+            # libjpeg-turbo: "cjpeg: JPEG file conversion from PPM/PGM/BMP/Targa files"
+            # Usually shows version with -version but not all builds support it
+            result = subprocess.run(
+                ["cjpeg", "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            output = result.stdout + result.stderr
+            # Extract version like "2.1.5"
+            match = re.search(r"version\s+(\d+\.\d+\.\d+)", output, re.IGNORECASE)
+            if match:
+                return match.group(1)
+            # Fallback: extract libjpeg-turbo version
+            match = re.search(r"libjpeg-turbo\s+(\d+\.\d+\.\d+)", output, re.IGNORECASE)
+            if match:
+                return f"libjpeg-turbo {match.group(1)}"
+            return "unknown"
+
+        elif encoder == "cwebp":
+            # cwebp: "1.5.0" (simple version output)
+            result = subprocess.run(
+                ["cwebp", "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            output = result.stdout + result.stderr
+            # Try to extract version from first line
+            lines = output.strip().split("\n")
+            if lines:
+                match = re.search(r"(\d+\.\d+\.\d+)", lines[0])
+                if match:
+                    return match.group(1)
+            return "unknown"
+
+        elif encoder == "avifenc":
+            # avifenc: "avifenc version: 1.0.3"
+            result = subprocess.run(
+                ["avifenc", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            output = result.stdout + result.stderr
+            match = re.search(r"version:\s*(\d+\.\d+\.\d+)", output, re.IGNORECASE)
+            if match:
+                return match.group(1)
+            return "unknown"
+
+        elif encoder == "cjxl":
+            # cjxl: "JPEG XL encoder v0.10.2"
+            result = subprocess.run(
+                ["cjxl", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            output = result.stdout + result.stderr
+            match = re.search(r"v?(\d+\.\d+\.\d+)", output)
+            if match:
+                return match.group(1)
+            return "unknown"
+
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    return None
 
 
 class ImageEncoder:
