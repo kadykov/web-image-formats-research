@@ -160,21 +160,40 @@ analyze-to STUDY OUTPUT_DIR:
 list-analyzed:
     python3 scripts/analyze_study.py --list
 
-# Run complete pipeline: encode + measure + analyze
-pipeline STUDY:
-    @echo "Running complete pipeline for study: {{STUDY}}"
-    just run-study {{STUDY}}
-    just measure-study {{STUDY}}
+# Run merged encode+measure pipeline with time budget
+pipeline STUDY TIME_BUDGET:
+    python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}}
+
+# Run pipeline without time budget (process all images)
+pipeline-all STUDY:
+    python3 scripts/run_pipeline.py {{STUDY}}
+
+# Run pipeline and save encoded artifacts to disk
+pipeline-save STUDY TIME_BUDGET:
+    python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}} --save-artifacts
+
+# Run pipeline then analyze results
+pipeline-analyze STUDY TIME_BUDGET:
+    python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}}
     just analyze {{STUDY}}
-    @echo "Pipeline complete!"
-    @echo "  Encodings: data/encoded/{{STUDY}}/results.json"
+    @echo "Pipeline + analysis complete!"
     @echo "  Quality metrics: data/metrics/{{STUDY}}/quality.json"
     @echo "  Analysis: data/analysis/{{STUDY}}/"
 
-# Run complete pipeline starting fresh (clean first)
-pipeline-clean STUDY:
-    @echo "Running clean pipeline for study: {{STUDY}}"
+# Run full pipeline: encode+measure, analyze, starting fresh
+pipeline-clean STUDY TIME_BUDGET:
     just clean-study {{STUDY}}
+    python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}}
+    @echo "Pipeline complete!"
+    @echo "  Quality metrics: data/metrics/{{STUDY}}/quality.json"
+
+# Dry-run the pipeline (preview tasks without executing)
+pipeline-dry-run STUDY:
+    python3 scripts/run_pipeline.py {{STUDY}} --dry-run
+
+# Run old-style separate pipeline: encode + measure + analyze
+pipeline-separate STUDY:
+    @echo "Running separate encode → measure → analyze pipeline for: {{STUDY}}"
     just run-study {{STUDY}}
     just measure-study {{STUDY}}
     just analyze {{STUDY}}

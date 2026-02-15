@@ -22,6 +22,11 @@
       "type": "string",
       "description": "Brief description of the study's purpose and what it investigates"
     },
+    "time_budget": {
+      "type": "number",
+      "description": "Maximum wall-clock time in seconds for the pipeline. When set, the pipeline processes as many images as possible within this budget. Can be overridden via CLI.",
+      "minimum": 1
+    },
     "dataset": {
       "type": "object",
       "description": "Source dataset configuration",
@@ -33,7 +38,7 @@
         },
         "max_images": {
           "type": "integer",
-          "description": "Maximum number of images to use from the dataset (useful for quick tests). If omitted, all images are used.",
+          "description": "Maximum number of images to use from the dataset. Acts as an upper bound even when time_budget is set. If omitted, all images are used.",
           "minimum": 1
         }
       },

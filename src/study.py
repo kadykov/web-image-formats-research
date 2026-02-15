@@ -44,6 +44,7 @@ class StudyConfig:
     encoders: list[EncoderConfig]
     resize: list[int] | None = None
     description: str | None = None
+    time_budget: float | None = None
 
     @classmethod
     def from_file(cls, config_path: Path) -> "StudyConfig":
@@ -98,6 +99,7 @@ class StudyConfig:
             encoders=encoders,
             resize=resize,
             description=data.get("description"),
+            time_budget=data.get("time_budget"),
         )
 
 
