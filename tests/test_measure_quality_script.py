@@ -94,6 +94,7 @@ def fake_encoding_results(tmp_path, test_image: Path, test_image_ppm: Path) -> P
             width=100,
             height=100,
             source_file_size=test_image.stat().st_size,
+            encoding_time=0.5,  # Mock encoding time in seconds
         )
         results.records.append(record)
 

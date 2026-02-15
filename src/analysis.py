@@ -50,6 +50,10 @@ def create_analysis_dataframe(quality_results: dict[str, Any]) -> pd.DataFrame:
         (df["source_file_size"] - df["file_size"]) / df["source_file_size"]
     ) * 100
 
+    # Calculate encoding time per pixel (if encoding_time is available)
+    if "encoding_time" in df.columns:
+        df["encoding_time_per_pixel"] = df["encoding_time"] / (df["width"] * df["height"])
+
     # Encoder efficiency metrics (bytes per quality score per pixel)
     # Lower is better - fewer bytes needed per pixel to achieve quality
     for metric in ["ssimulacra2", "psnr", "ssim", "butteraugli"]:
@@ -90,6 +94,8 @@ def compute_statistics(df: pd.DataFrame, group_by: list[str]) -> pd.DataFrame:
         "butteraugli",
         "file_size",
         "bytes_per_pixel",
+        "encoding_time",
+        "encoding_time_per_pixel",
         "compression_ratio",
         "bytes_per_ssimulacra2_per_pixel",
         "bytes_per_psnr_per_pixel",
@@ -207,6 +213,8 @@ METRIC_DIRECTIONS = {
     "butteraugli": False,
     "file_size": False,
     "bytes_per_pixel": False,
+    "encoding_time": False,
+    "encoding_time_per_pixel": False,
     "compression_ratio": True,
     "bytes_per_ssimulacra2_per_pixel": False,
     "bytes_per_psnr_per_pixel": False,
@@ -703,6 +711,161 @@ def plot_bytes_per_pixel(
     plt.close()
 
 
+def plot_encoding_time_per_pixel(
+    stats: pd.DataFrame,
+    x_param: str,
+    output_path: Path,
+    title: str | None = None,
+) -> None:
+    """Plot encoding time per pixel with mean, 5th and 95th percentiles.
+
+    Automatically uses logarithmic scale if the dynamic range is large (>10x).
+
+    Args:
+        stats: Statistics DataFrame
+        x_param: Parameter to use as x-axis
+        output_path: Path to save plot (SVG format)
+        title: Optional custom title
+    """
+    mean_col = "encoding_time_per_pixel_mean"
+    p05_col = "encoding_time_per_pixel_p05"
+    p95_col = "encoding_time_per_pixel_p95"
+
+    if mean_col not in stats.columns:
+        return
+
+    # Determine if log scale should be used based on dynamic range
+    cols_to_check = [mean_col, p05_col, p95_col]
+    cols_present = [col for col in cols_to_check if col in stats.columns]
+    all_values = []
+    for col in cols_present:
+        values = stats[col].dropna()
+        values = values[values > 0]
+        all_values.extend(values.tolist())
+
+    use_log_scale = False
+    if len(all_values) >= 2:
+        min_val = min(all_values)
+        max_val = max(all_values)
+        if min_val > 0:
+            ratio = max_val / min_val
+            use_log_scale = ratio >= 10.0
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Group by other parameters
+    group_cols = [
+        col
+        for col in [
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ]
+        if col in stats.columns and col != x_param and stats[col].nunique() > 1
+    ]
+
+    if group_cols:
+        groups = stats.groupby(group_cols, dropna=False)
+
+        for idx, (name, group) in enumerate(groups):
+            if isinstance(name, tuple):
+                label = "_".join(str(n) for n in name if n is not None)
+            else:
+                label = str(name) if name is not None else "default"
+
+            group = group.sort_values(x_param)
+
+            # Select marker and color
+            marker = MARKERS[idx % len(MARKERS)]
+            color = f"C{idx}"
+
+            # Plot mean (solid line, filled markers)
+            ax.plot(
+                group[x_param],
+                group[mean_col],
+                marker=marker,
+                linestyle="-",
+                color=color,
+                label=f"{label} (mean)",
+                markersize=7,
+            )
+
+            # Plot 5th percentile (dashed line, unfilled) - fastest cases
+            if p05_col in stats.columns:
+                ax.plot(
+                    group[x_param],
+                    group[p05_col],
+                    marker=marker,
+                    linestyle="--",
+                    color=color,
+                    fillstyle="none",
+                    label=f"{label} (5% fastest)",
+                    markersize=7,
+                )
+
+            # Plot 95th percentile (dotted line, unfilled) - slowest cases
+            if p95_col in stats.columns:
+                ax.plot(
+                    group[x_param],
+                    group[p95_col],
+                    marker=marker,
+                    linestyle=":",
+                    color=color,
+                    fillstyle="none",
+                    label=f"{label} (95% slowest)",
+                    markersize=7,
+                )
+    else:
+        stats = stats.sort_values(x_param)
+        ax.plot(
+            stats[x_param], stats[mean_col], marker="o", linestyle="-", label="Mean", markersize=7
+        )
+        if p05_col in stats.columns:
+            ax.plot(
+                stats[x_param],
+                stats[p05_col],
+                marker="o",
+                linestyle="--",
+                fillstyle="none",
+                label="5% fastest",
+                markersize=7,
+            )
+        if p95_col in stats.columns:
+            ax.plot(
+                stats[x_param],
+                stats[p95_col],
+                marker="o",
+                linestyle=":",
+                fillstyle="none",
+                label="95% slowest",
+                markersize=7,
+            )
+
+    # Apply log scale if needed
+    if use_log_scale:
+        ax.set_yscale("log")
+        y_label = "Encoding Time per Pixel (seconds, lower is better) [log scale]"
+    else:
+        y_label = "Encoding Time per Pixel (seconds, lower is better)"
+
+    ax.set_xlabel(x_param.replace("_", " ").title(), fontsize=11)
+    ax.set_ylabel(y_label, fontsize=11)
+    ax.set_title(
+        title or f"Encoding Time per Pixel vs {x_param.replace('_', ' ').title()}",
+        fontsize=12,
+    )
+    ax.legend(fontsize=8, ncol=2)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path, format="svg")
+    plt.close()
+
+
 def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     """Run complete analysis for a study.
 
@@ -710,7 +873,8 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     - CSV with statistics
     - Quality metric plots vs sweep parameter (mean + 5% worst)
     - Quality metric plots vs bytes_per_pixel (rate-distortion curves)
-    - Bytes per pixel plots (mean + 5% + 95%)
+    - Bytes per pixel plots (mean + 5% smallest + 95% largest)
+    - Encoding time per pixel plots (mean + 5% fastest + 95% slowest)
     - Efficiency metric plots vs sweep parameter (mean + 5% worst)
 
     Args:
@@ -768,6 +932,12 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
         plot_path = output_dir / f"{study_id}_bytes_per_pixel_vs_{x_param}.svg"
         plot_bytes_per_pixel(stats, x_param, plot_path)
         print(f"Bytes per pixel plot saved: {plot_path}")
+
+    # Generate encoding time per pixel plot (with p05 and p95)
+    if "encoding_time_per_pixel_mean" in stats.columns:
+        plot_path = output_dir / f"{study_id}_encoding_time_per_pixel_vs_{x_param}.svg"
+        plot_encoding_time_per_pixel(stats, x_param, plot_path)
+        print(f"Encoding time per pixel plot saved: {plot_path}")
 
     # Generate efficiency metric plots vs sweep parameter
     efficiency_metrics = [

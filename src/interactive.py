@@ -37,6 +37,8 @@ METRIC_LABELS: dict[str, str] = {
     "butteraugli": "Butteraugli",
     "file_size": "File Size (bytes)",
     "bytes_per_pixel": "Bytes per Pixel",
+    "encoding_time": "Encoding Time (seconds)",
+    "encoding_time_per_pixel": "Encoding Time per Pixel (seconds)",
     "compression_ratio": "Compression Ratio",
     "bytes_per_ssimulacra2_per_pixel": "Bytes per SSIMULACRA2 per Pixel",
     "bytes_per_psnr_per_pixel": "Bytes per PSNR per Pixel",
@@ -582,6 +584,213 @@ def plot_bytes_per_pixel(
     return fig
 
 
+def _should_use_log_scale(stats: pd.DataFrame, metric_base: str, threshold: float = 10.0) -> bool:
+    """Determine if logarithmic scale should be used based on dynamic range.
+
+    Checks the ratio between maximum and minimum values across mean, p05, and p95
+    columns for the given metric. If any ratio exceeds the threshold, log scale
+    is recommended.
+
+    Args:
+        stats: Statistics DataFrame
+        metric_base: Base metric name (e.g., 'encoding_time_per_pixel')
+        threshold: Ratio threshold for using log scale (default: 10x)
+
+    Returns:
+        True if log scale should be used, False otherwise
+    """
+    cols_to_check = [f"{metric_base}_mean", f"{metric_base}_p05", f"{metric_base}_p95"]
+    cols_present = [col for col in cols_to_check if col in stats.columns]
+
+    if not cols_present:
+        return False
+
+    # Collect all non-null, positive values from relevant columns
+    all_values = []
+    for col in cols_present:
+        values = stats[col].dropna()
+        values = values[values > 0]  # Only positive values for log scale consideration
+        all_values.extend(values.tolist())
+
+    if len(all_values) < 2:
+        return False
+
+    min_val: float = float(min(all_values))
+    max_val: float = float(max(all_values))
+
+    if min_val <= 0:
+        return False
+
+    ratio: float = max_val / min_val
+    return ratio >= threshold
+
+
+def plot_encoding_time_per_pixel(
+    stats: pd.DataFrame,
+    x_param: str,
+    title: str | None = None,
+) -> go.Figure:
+    """Create interactive encoding time per pixel plot with percentile bands.
+
+    Automatically uses logarithmic scale if the dynamic range is large (>10x).
+
+    Args:
+        stats: Statistics DataFrame
+        x_param: Parameter for x-axis
+        title: Optional custom title
+
+    Returns:
+        Plotly Figure object
+    """
+    mean_col = "encoding_time_per_pixel_mean"
+    p05_col = "encoding_time_per_pixel_p05"
+    p95_col = "encoding_time_per_pixel_p95"
+
+    if mean_col not in stats.columns:
+        return go.Figure()
+
+    x_label = x_param.replace("_", " ").title()
+    y_label = "Encoding Time per Pixel (seconds, lower is better)"
+    fig_title = title or f"Encoding Time per Pixel vs {x_label}"
+
+    # Determine if log scale should be used
+    use_log_scale = _should_use_log_scale(stats, "encoding_time_per_pixel")
+
+    layout = _create_figure_layout(fig_title, x_label, y_label)
+    if use_log_scale:
+        layout["yaxis"]["type"] = "log"
+        layout["yaxis"]["title"]["text"] = y_label + " [log scale]"
+
+    fig = go.Figure(layout=layout)
+
+    group_cols = [
+        col
+        for col in [
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ]
+        if col in stats.columns and col != x_param and stats[col].nunique() > 1
+    ]
+
+    if group_cols:
+        groups = stats.groupby(group_cols, dropna=False)
+        for idx, (name, group) in enumerate(groups):
+            label = (
+                "_".join(str(n) for n in name if n is not None)
+                if isinstance(name, tuple)
+                else str(name)
+                if name is not None
+                else "default"
+            )
+            group = group.sort_values(x_param)
+            color = _group_color(label, idx)
+            marker = PLOTLY_MARKERS[idx % len(PLOTLY_MARKERS)]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=group[x_param],
+                    y=group[mean_col],
+                    mode="lines+markers",
+                    name=f"{label} (mean)",
+                    marker={"symbol": marker, "size": 8, "color": color},
+                    line={"color": color, "width": 2},
+                    hovertext=_build_hover_text(group, x_param, "encoding_time_per_pixel", "mean"),
+                    hoverinfo="text",
+                )
+            )
+            if p05_col in stats.columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=group[x_param],
+                        y=group[p05_col],
+                        mode="lines+markers",
+                        name=f"{label} (5% fastest)",
+                        marker={
+                            "symbol": f"{marker}-open",
+                            "size": 8,
+                            "color": color,
+                        },
+                        line={"color": color, "width": 1, "dash": "dash"},
+                        hovertext=_build_hover_text(
+                            group, x_param, "encoding_time_per_pixel", "p05"
+                        ),
+                        hoverinfo="text",
+                    )
+                )
+            if p95_col in stats.columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=group[x_param],
+                        y=group[p95_col],
+                        mode="lines+markers",
+                        name=f"{label} (95% slowest)",
+                        marker={
+                            "symbol": f"{marker}-open",
+                            "size": 8,
+                            "color": color,
+                        },
+                        line={"color": color, "width": 1, "dash": "dot"},
+                        hovertext=_build_hover_text(
+                            group, x_param, "encoding_time_per_pixel", "p95"
+                        ),
+                        hoverinfo="text",
+                    )
+                )
+    else:
+        stats_sorted = stats.sort_values(x_param)
+        fig.add_trace(
+            go.Scatter(
+                x=stats_sorted[x_param],
+                y=stats_sorted[mean_col],
+                mode="lines+markers",
+                name="Mean",
+                marker={"symbol": "circle", "size": 8},
+                line={"width": 2},
+                hovertext=_build_hover_text(
+                    stats_sorted, x_param, "encoding_time_per_pixel", "mean"
+                ),
+                hoverinfo="text",
+            )
+        )
+        if p05_col in stats.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=stats_sorted[x_param],
+                    y=stats_sorted[p05_col],
+                    mode="lines+markers",
+                    name="5% fastest",
+                    marker={"symbol": "circle-open", "size": 8},
+                    line={"width": 1, "dash": "dash"},
+                    hovertext=_build_hover_text(
+                        stats_sorted, x_param, "encoding_time_per_pixel", "p05"
+                    ),
+                    hoverinfo="text",
+                )
+            )
+        if p95_col in stats.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=stats_sorted[x_param],
+                    y=stats_sorted[p95_col],
+                    mode="lines+markers",
+                    name="95% slowest",
+                    marker={"symbol": "circle-open", "size": 8},
+                    line={"width": 1, "dash": "dot"},
+                    hovertext=_build_hover_text(
+                        stats_sorted, x_param, "encoding_time_per_pixel", "p95"
+                    ),
+                    hoverinfo="text",
+                )
+            )
+
+    return fig
+
+
 def plot_efficiency(
     stats: pd.DataFrame,
     x_param: str,
@@ -788,5 +997,10 @@ def generate_study_figures(
     if "bytes_per_pixel_mean" in stats.columns:
         key = f"{study_id}_bytes_per_pixel_vs_{x_param}"
         figures[key] = plot_bytes_per_pixel(stats, x_param)
+
+    # 5. Encoding time per pixel plot
+    if "encoding_time_per_pixel_mean" in stats.columns:
+        key = f"{study_id}_encoding_time_per_pixel_vs_{x_param}"
+        figures[key] = plot_encoding_time_per_pixel(stats, x_param)
 
     return figures

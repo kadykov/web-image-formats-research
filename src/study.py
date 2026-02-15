@@ -194,6 +194,7 @@ class EncodingRecord:
     width: int
     height: int
     source_file_size: int
+    encoding_time: float
     chroma_subsampling: str | None = None
     speed: int | None = None
     effort: int | None = None
@@ -213,6 +214,7 @@ class EncodingRecord:
             "width": self.width,
             "height": self.height,
             "source_file_size": self.source_file_size,
+            "encoding_time": self.encoding_time,
         }
         if self.chroma_subsampling is not None:
             d["chroma_subsampling"] = self.chroma_subsampling
@@ -551,6 +553,7 @@ def _execute_encoding_task(
         width=int(task.megapixels * 1_000_000) if task.megapixels > 0 else 0,
         height=0,  # placeholder, filled in below
         source_file_size=task.source_image.stat().st_size,
+        encoding_time=elapsed,
         chroma_subsampling=task.chroma_subsampling,
         speed=task.speed,
         effort=task.effort,

@@ -404,6 +404,7 @@ class EncodingRecord:
         width: Width of the encoded image in pixels.
         height: Height of the encoded image in pixels.
         source_file_size: Size of the source image file in bytes.
+        encoding_time: Wall-clock time spent encoding the image in seconds.
         chroma_subsampling: Chroma subsampling mode if applicable.
         speed: AVIF encoding speed parameter (0-10, lower is slower/better) if applicable.
         effort: JPEG XL encoding effort parameter (1-10, higher is slower/better) if applicable.
@@ -421,6 +422,7 @@ class EncodingRecord:
     width: int
     height: int
     source_file_size: int
+    encoding_time: float | None = None
     chroma_subsampling: str | None = None
     speed: int | None = None
     effort: int | None = None
@@ -499,6 +501,7 @@ class QualityRecord:
     psnr: float | None
     ssim: float | None
     butteraugli: float | None
+    encoding_time: float | None = None
     chroma_subsampling: str | None = None
     speed: int | None = None
     effort: int | None = None
@@ -546,6 +549,7 @@ class QualityResults:
                     "width": rec.width,
                     "height": rec.height,
                     "source_file_size": rec.source_file_size,
+                    "encoding_time": rec.encoding_time,
                     "ssimulacra2": rec.ssimulacra2,
                     "psnr": rec.psnr,
                     "ssim": rec.ssim,
@@ -609,6 +613,7 @@ def _execute_measurement_task(
                 psnr=None,
                 ssim=None,
                 butteraugli=None,
+                encoding_time=encoding.encoding_time,
                 chroma_subsampling=encoding.chroma_subsampling,
                 speed=encoding.speed,
                 effort=encoding.effort,
@@ -637,6 +642,7 @@ def _execute_measurement_task(
             psnr=metrics.psnr,
             ssim=metrics.ssim,
             butteraugli=metrics.butteraugli,
+            encoding_time=encoding.encoding_time,
             chroma_subsampling=encoding.chroma_subsampling,
             speed=encoding.speed,
             effort=encoding.effort,

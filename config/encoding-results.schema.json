@@ -116,6 +116,11 @@
             "description": "File size of the encoded image in bytes",
             "minimum": 1
           },
+          "encoding_time": {
+            "type": "number",
+            "description": "Wall-clock time spent encoding the image in seconds. Measured during parallel processing, so values represent actual encoding duration per image.",
+            "minimum": 0
+          },
           "extra_args": {
             "type": "object",
             "description": "Any encoder-specific extra arguments that were used",
