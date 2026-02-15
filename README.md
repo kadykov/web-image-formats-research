@@ -95,8 +95,13 @@ just list-report-studies         # List studies available for report generation
 just serve-report <port>         # Serve report locally (default: http://localhost:8000)
 
 # Complete Pipeline
-just pipeline <study-id>         # Run encode + measure + analyze for a study
-just pipeline-clean <study-id>   # Run complete pipeline starting fresh
+just pipeline <study-id> <time-budget>      # Run unified encode+measure with time budget
+just pipeline-all                            # Run all studies with configured time budgets
+just pipeline-save <study-id> <time-budget> # Run pipeline and save encoded artifacts
+just pipeline-analyze <study-id> <time-budget>  # Run pipeline then analyze
+just pipeline-dry-run <study-id> <time-budget>  # Preview what would run
+just pipeline-clean <study-id>              # Remove pipeline output data
+just pipeline-separate <study-id>           # Legacy: run separate encode→measure stages
 
 # Cleanup
 just clean                       # Clean Python cache and build artifacts

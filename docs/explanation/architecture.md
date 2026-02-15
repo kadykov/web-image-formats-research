@@ -2,7 +2,32 @@
 
 ## Pipeline Architecture
 
-The project follows a linear pipeline design with clear separation of concerns:
+The project supports two pipeline workflows:
+
+### Unified Pipeline (Recommended)
+
+The unified pipeline processes images atomically with time-budget control:
+
+```text
+For each image (until time budget exhausted):
+  └─→ Encode (all variants in parallel)
+      └─→ Measure (all variants in parallel)
+          └─→ Save results
+```
+
+**Key features:**
+
+- **Time-budget control**: Set runtime budget instead of guessing `max_images`
+- **Atomic processing**: Each image completes encode+measure before moving to next
+- **Memory-backed storage**: Uses `/dev/shm` for temporary files (reduced disk I/O)
+- **Error isolation**: Failures on one image don't block others
+- **Progress guarantees**: Partial results are always complete and usable
+
+This is the primary workflow for running studies. See `src/pipeline.py` and `scripts/run_pipeline.py`.
+
+### Legacy Separate Pipeline
+
+The traditional linear pipeline separates stages:
 
 ```text
 Dataset Fetching → Preprocessing → Encoding → Quality Measurement → Analysis
@@ -11,6 +36,20 @@ Dataset Fetching → Preprocessing → Encoding → Quality Measurement → Anal
 Each stage is implemented as an independent module that can be used
 standalone or composed into a pipeline. This makes individual components
 easy to test and replace.
+
+**Use cases for separate pipeline:**
+
+- Inspecting encoded files before measurement
+- Running measurement with different settings
+- Debugging encoding issues independently
+- Compatibility with existing workflows
+
+See `scripts/encode_images.py` and `scripts/measure_quality.py` for the separate workflow.
+
+### Which Pipeline to Use?
+
+- **Use unified pipeline** for production research runs with predictable runtime
+- **Use separate pipeline** for debugging, inspection, or custom measurement workflows
 
 ### Data Organization
 

@@ -19,10 +19,10 @@ Reports are fully static (HTML + JavaScript) with no backend required, making th
 Before generating reports, you need quality measurement results:
 
 ```bash
-# Run complete pipeline for a study
-just pipeline format-comparison
+# Run unified pipeline with time budget (includes analysis)
+just pipeline-analyze format-comparison 30m
 
-# Or run stages individually
+# Or run separate stages
 just run-study format-comparison
 just measure-study format-comparison
 just analyze format-comparison

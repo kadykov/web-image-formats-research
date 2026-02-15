@@ -135,6 +135,7 @@ Validated by `config/study.schema.json`.
   "id": "string",
   "name": "string",
   "description": "string (optional)",
+  "time_budget": "number (optional)",
   "dataset": {
     "id": "string",
     "max_images": "integer (optional)"
@@ -171,6 +172,7 @@ The `quality` field supports three formats:
 | `id` | string | Yes | Unique identifier for the study. |
 | `name` | string | No | Human-readable name. Defaults to `id`. |
 | `description` | string | No | Purpose of the study. |
+| `time_budget` | number | No | Default time budget in seconds for unified pipeline runs. Can be overridden via CLI. |
 | `dataset.id` | string | Yes | Dataset identifier from `datasets.json`. |
 | `dataset.max_images` | integer | No | Limit images from dataset (useful for testing). |
 | `preprocessing.resize` | integer[] | No | Target resolutions (longest edge in pixels). |
@@ -186,6 +188,7 @@ The `quality` field supports three formats:
 {
   "id": "avif-quality-sweep",
   "name": "AVIF Quality Sweep",
+  "time_budget": 3600,
   "dataset": { "id": "div2k-valid", "max_images": 10 },
   "encoders": [
     {
@@ -204,6 +207,7 @@ The `quality` field supports three formats:
 {
   "id": "format-comparison",
   "name": "Format Comparison",
+  "time_budget": 1800,
   "dataset": { "id": "div2k-valid", "max_images": 10 },
   "encoders": [
     { "format": "jpeg", "quality": [60, 75, 85, 95] },

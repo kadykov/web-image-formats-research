@@ -109,16 +109,20 @@ The output JSON contains quality measurements for each encoded image:
 
 ## Complete Pipeline
 
-Run encoding and measurement in one command:
+Run encoding and measurement with the unified pipeline:
 
 ```bash
-just pipeline avif-quality-sweep
+# Run for 1 hour with time budget
+just pipeline-analyze avif-quality-sweep 1h
 ```
 
-This executes:
+Or use the legacy separate stages:
 
-1. Encoding: `just run-study avif-quality-sweep`
-2. Quality measurement: `just measure-study avif-quality-sweep`
+```bash
+# Encode then measure separately
+just run-study avif-quality-sweep
+just measure-study avif-quality-sweep
+```
 
 ## Troubleshooting
 

@@ -98,11 +98,41 @@ just fetch div2k-valid
 This downloads 100 high-quality 2K images (~500MB). For more details, see the
 [Fetch Datasets guide](../how-to/fetch-datasets.md).
 
+## Running Your First Study
+
+Now that you have a dataset, run a complete study with the unified pipeline:
+
+```bash
+# List available studies
+just list-studies
+
+# Run a format comparison for 30 minutes
+just pipeline-analyze format-comparison 30m
+```
+
+The unified pipeline will:
+
+1. Process images one-by-one until the 30-minute budget is exhausted
+2. Encode each image in all configured formats (JPEG, WebP, AVIF, JPEG XL)
+3. Measure quality metrics for each encoded variant
+4. Save results to `data/metrics/format-comparison/quality.json`
+5. Run analysis and generate plots in `data/analysis/format-comparison/`
+
+You can view the results interactively:
+
+```bash
+# Generate HTML report
+just report
+
+# Serve locally (opens in browser)
+just serve-report
+```
+
 ## Next Steps
 
-- Learn how to [fetch datasets](../how-to/fetch-datasets.md) for research
-- Read the [How-to guides](../how-to/) for specific tasks like running
-  the full pipeline or adding a new format
+- Learn how to [run the unified pipeline](../how-to/run-pipeline.md) with time budgets
+- See how to [fetch datasets](../how-to/fetch-datasets.md) for research
+- Read the [How-to guides](../how-to/) for specific tasks
 - See the [Reference](../reference/) for detailed module and tool documentation
 - Check the [Explanation](../explanation/) section for design decisions
   and quality metric background
