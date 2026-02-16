@@ -570,7 +570,12 @@ class TestPipelineRunnerIntegration:
             assert m.file_size > 0
 
     def test_run_with_time_budget(self, project_with_dataset: Path) -> None:
-        """Time budget limits number of images processed."""
+        """Time budget limits number of images processed.
+
+        With the worker-per-image model, all available workers are filled
+        initially (up to num_workers images), then budget is checked before
+        submitting additional images. This ensures no idle workers at startup.
+        """
         if not self._tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
@@ -583,13 +588,42 @@ class TestPipelineRunnerIntegration:
         )
 
         runner = PipelineRunner(project_with_dataset)
-        # Tiny budget: should process at least 1 image but likely not all 5
-        # We use 0 seconds — first image always runs, then budget is checked
+        # With 0 second budget and 5 images available, all 5 images are submitted
+        # to fill workers initially. Budget is only checked for additional submissions.
         results = runner.run(config, time_budget=0)
 
-        assert results.dataset["image_count"] >= 1
-        # Should have stopped after first image (budget = 0)
-        assert results.dataset["image_count"] == 1
+        # All 5 images should process (initial batch fills min(num_workers, num_images))
+        assert results.dataset["image_count"] == 5
+
+    def test_run_with_time_budget_completes_inflight(self, project_with_dataset: Path) -> None:
+        """In-flight work completes after budget expires.
+
+        With num_workers=2 and 5 images, initial batch submits 2 images.
+        After first completes, another is submitted. After second completes,
+        budget expires but the third in-flight image still completes.
+        """
+        if not self._tool_available("cjpeg"):
+            pytest.skip("cjpeg not available")
+
+        config = StudyConfig(
+            id="budget-inflight-test",
+            name="Budget In-Flight Test",
+            dataset_id="test-ds",
+            max_images=None,
+            encoders=[EncoderConfig(format="jpeg", quality=[75])],
+        )
+
+        runner = PipelineRunner(project_with_dataset)
+        # Run with only 2 workers and tiny budget to trigger in-flight completion
+        results = runner.run(config, time_budget=0.1, num_workers=2)
+
+        # Should complete at least the initial 2 images, possibly more
+        # if they finish quickly and can submit another before budget expires
+        assert results.dataset["image_count"] >= 2
+        # Should be <= 5 (total available)
+        assert results.dataset["image_count"] <= 5
+        # Verify measurements match image count
+        assert len(results.measurements) == results.dataset["image_count"]
 
     def test_run_save_artifacts(self, project_with_dataset: Path) -> None:
         """Artifacts are saved when flag is set."""

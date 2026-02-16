@@ -1,24 +1,34 @@
 """Merged encode+measure pipeline with time-budget support.
 
-This module provides a unified pipeline that processes images one-by-one,
-encoding and measuring quality in a single pass. This eliminates the need
-to store intermediate encoded files on disk and allows time-budget-based
-processing where the pipeline processes as many images as possible within
-a given time constraint.
+This module provides a unified pipeline that processes images with a
+worker-per-image architecture, encoding and measuring quality in a single
+pass. This eliminates the need to store intermediate encoded files on disk
+and allows time-budget-based processing where the pipeline processes as
+many images as possible within a given time constraint.
+
+Architecture:
+- Each worker processes one complete image at a time (all encoding tasks
+  sequentially)
+- Workers pull the next image from a queue when they finish
+- This keeps all workers fully utilized throughout the pipeline
+- Memory-intensive operations are naturally staggered across workers,
+  reducing peak memory usage
 
 Key advantages over the separate encode → measure workflow:
 - **Time-budget control**: Set a wall-clock time limit instead of guessing
   how many images to process. The pipeline processes as many images as
   possible within the budget.
+- **Full worker utilization**: Workers always have work available, no idle
+  time waiting for other tasks to complete.
+- **Reduced peak memory**: Tasks are staggered across workers rather than
+  synchronized, preventing memory spikes from parallel execution of
+  memory-intensive tools.
 - **Reduced disk IO**: Encoded files are written to temporary storage
   and cleaned up after measurement. Optional ``save_artifacts`` flag
   persists them to disk.
-- **Per-image error isolation**: All external tool operations (encoding +
-  measurement) for one image are grouped. If encoding or measurement
-  fails for an image, the pipeline logs the error and moves on.
-- **Deterministic runtime**: The user knows upfront how long the pipeline
-  will run (the time budget), and the pipeline maximises the number of
-  images processed within it.
+- **Per-image error isolation**: All operations for one image are grouped
+  within a single worker. If encoding or measurement fails, the worker
+  logs the error and moves to the next image.
 """
 
 import multiprocessing
@@ -27,7 +37,7 @@ import re
 import shutil
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, wait
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -138,8 +148,92 @@ def _build_output_name(
 
 
 # ---------------------------------------------------------------------------
-# Atomic encode-and-measure function (top-level for multiprocessing)
+# Image-level processing (top-level for multiprocessing)
 # ---------------------------------------------------------------------------
+
+
+def _process_image(
+    image_path_str: str,
+    config_dict: dict[str, Any],
+    project_root_str: str,
+    resolutions: list[int | None],
+    save_artifacts: bool,
+) -> list[QualityRecord]:
+    """Process a single image through all encoder configurations.
+
+    This function is the unit of work for each worker. It processes
+    all encoding tasks for one image sequentially, which:
+    - Keeps workers fully utilized
+    - Naturally staggers memory-intensive operations across workers
+    - Provides better cache locality
+
+    Args:
+        image_path_str: Absolute path to the source image.
+        config_dict: Serializable dict with study config data.
+        project_root_str: Project root path (for pickling).
+        resolutions: List of resolutions to process (None = original).
+        save_artifacts: Whether to save encoded files.
+
+    Returns:
+        List of QualityRecords for all tasks related to this image.
+    """
+    import tempfile
+
+    from src.preprocessing import ImagePreprocessor
+    from src.study import EncoderConfig
+
+    image_path = Path(image_path_str)
+    project_root = Path(project_root_str)
+    study_id = config_dict["id"]
+
+    # Reconstruct encoder configs
+    encoders = [EncoderConfig(**enc_dict) for enc_dict in config_dict["encoders"]]
+
+    save_artifact_dir = project_root / "data" / "encoded" / study_id if save_artifacts else None
+
+    all_records: list[QualityRecord] = []
+
+    with tempfile.TemporaryDirectory() as prep_tmpdir:
+        for resolution in resolutions:
+            # Preprocess or use original
+            if resolution is not None:
+                res_dir = Path(prep_tmpdir) / f"r{resolution}"
+                preprocessor = ImagePreprocessor(res_dir)
+                output_name = f"{image_path.stem}_r{resolution}.png"
+                source = preprocessor.resize_image(
+                    image_path,
+                    target_size=(resolution, resolution),
+                    output_name=output_name,
+                    keep_aspect_ratio=True,
+                )
+                src_label: str | None = (
+                    f"data/preprocessed/{study_id}"
+                    f"/r{resolution}/{image_path.stem}_r{resolution}.png"
+                )
+            else:
+                source = image_path
+                src_label = None
+
+            # Process all encoders for this resolution
+            for enc in encoders:
+                tasks = _expand_encoder_tasks(
+                    source_image=source,
+                    original_image=image_path,
+                    enc=enc,
+                    resolution=resolution,
+                    save_artifact_dir=save_artifact_dir,
+                    source_image_label=src_label,
+                )
+
+                # Execute tasks sequentially within this worker
+                for task_kw in tasks:
+                    record = _encode_and_measure(
+                        project_root_str=project_root_str,
+                        **task_kw,
+                    )
+                    all_records.append(record)
+
+    return all_records
 
 
 def _encode_and_measure(
@@ -467,12 +561,25 @@ def _expand_encoder_tasks(
 class PipelineRunner:
     """Merged encode+measure pipeline with time-budget support.
 
-    Processes dataset images one-by-one. For each image the runner:
+    Uses a worker-per-image architecture where each worker processes one
+    complete image before moving to the next. For each image, the worker:
 
     1. Preprocesses (resize) for every configured resolution.
-    2. Encodes all parameter combinations in parallel.
+    2. Encodes all parameter combinations sequentially.
     3. Measures quality of each encoded variant.
-    4. Checks the time budget before starting the next image.
+    4. Pulls the next image from the queue if time budget allows.
+
+    This architecture keeps all workers fully utilized and naturally
+    staggers memory-intensive operations across workers, reducing peak
+    memory usage.
+
+    Time budget behavior:
+    - Initial batch fills all available workers (max throughput at start)
+    - Budget is checked before submitting additional images
+    - When budget expires, new submissions stop but in-flight work completes
+    - Note: In-flight images process sequentially on their assigned workers,
+      which may leave some workers idle during the finish phase. A future
+      optimization could switch to task-level parallelism after budget expiry.
 
     Encoded files live in a temporary directory and are discarded
     after measurement unless ``save_artifacts=True``.
@@ -616,97 +723,122 @@ class PipelineRunner:
             print(f"Saving artifacts to: {save_artifact_dir}")
         print()
 
-        # --- Process images one-by-one ----------------------------------------
+        # --- Prepare config dict for serialization ----------------------------
+        # Convert StudyConfig to a dict for pickling (EncoderConfig → dict)
+        config_dict = {
+            "id": config.id,
+            "name": config.name,
+            "encoders": [
+                {
+                    "format": enc.format,
+                    "quality": enc.quality,
+                    "chroma_subsampling": enc.chroma_subsampling,
+                    "speed": enc.speed,
+                    "effort": enc.effort,
+                    "method": enc.method,
+                    "extra_args": enc.extra_args,
+                }
+                for enc in config.encoders
+            ],
+        }
+
+        # --- Process images with worker-per-image model -----------------------
+        # Each worker processes one complete image (all tasks sequentially),
+        # then pulls the next image from the queue. This keeps workers fully
+        # utilized and staggers memory-intensive operations.
         all_records: list[QualityRecord] = []
         start_time = time.monotonic()
         images_processed = 0
 
         mp_ctx = multiprocessing.get_context("spawn")
 
-        with (
-            tempfile.TemporaryDirectory() as prep_tmpdir,
-            ProcessPoolExecutor(max_workers=num_workers, mp_context=mp_ctx) as executor,
-        ):
-            for image_path in all_images:
-                # Time-budget gate (after first image)
-                if time_budget is not None and images_processed > 0:
-                    elapsed = time.monotonic() - start_time
-                    if elapsed >= time_budget:
-                        print(
-                            f"\nTime budget reached "
-                            f"({_format_duration(elapsed)} >= "
-                            f"{_format_duration(time_budget)})"
-                        )
-                        break
+        with ProcessPoolExecutor(max_workers=num_workers, mp_context=mp_ctx) as executor:
+            # Submit initial batch of images (fill all workers)
+            # This ensures maximum throughput and no idle workers at startup.
+            # Time budget is checked when submitting additional images beyond this batch.
+            pending_images = all_images.copy()
 
-                # Build tasks for this image across all resolutions
-                image_tasks: list[dict[str, Any]] = []
-                prep_files: list[Path] = []
+            # Track futures in a set (not dict) so we can add during iteration
+            pending_futures: set[Any] = set()
+            future_to_image: dict[Any, Path] = {}
 
-                for resolution in resolutions:
-                    if resolution is not None:
-                        res_dir = Path(prep_tmpdir) / f"r{resolution}"
-                        source = self._preprocess_image(image_path, resolution, res_dir)
-                        prep_files.append(source)
-                        # Label for the output record (stable, not a temp path)
-                        src_label: str | None = (
-                            f"data/preprocessed/{config.id}"
-                            f"/r{resolution}/{image_path.stem}_r{resolution}.png"
-                        )
-                    else:
-                        source = image_path
-                        src_label = None  # will default to relative path
+            initial_count = min(num_workers, len(pending_images))
 
-                    for enc in config.encoders:
-                        image_tasks.extend(
-                            _expand_encoder_tasks(
-                                source_image=source,
-                                original_image=image_path,
-                                enc=enc,
-                                resolution=resolution,
-                                save_artifact_dir=save_artifact_dir,
-                                source_image_label=src_label,
-                            )
-                        )
-
-                # Submit all tasks to the pool
-                total = len(image_tasks)
-                futures = {
-                    executor.submit(
-                        _encode_and_measure,
-                        project_root_str=str(self.project_root),
-                        **kw,
-                    ): kw
-                    for kw in image_tasks
-                }
-
-                # Collect results
-                image_records: list[QualityRecord] = []
-                for future in as_completed(futures):
-                    record = future.result()
-                    image_records.append(record)
-
-                all_records.extend(image_records)
-                images_processed += 1
-
-                # Progress
-                elapsed = time.monotonic() - start_time
-                errors = sum(1 for r in image_records if r.measurement_error is not None)
-                err_str = f" | {errors} errors" if errors else ""
-                budget_str = ""
-                if time_budget is not None:
-                    remaining = max(0.0, time_budget - elapsed)
-                    budget_str = f" | {_format_duration(remaining)} remaining"
-                print(
-                    f"  [{images_processed}/{len(all_images)}] "
-                    f"{image_path.name}: {total} tasks{err_str} "
-                    f"[{_format_duration(elapsed)} elapsed{budget_str}]"
+            for _ in range(initial_count):
+                img_path = pending_images.pop(0)
+                future = executor.submit(
+                    _process_image,
+                    image_path_str=str(img_path),
+                    config_dict=config_dict,
+                    project_root_str=str(self.project_root),
+                    resolutions=resolutions,
+                    save_artifacts=save_artifacts,
                 )
+                pending_futures.add(future)
+                future_to_image[future] = img_path
 
-                # Clean up preprocessed files for this image
-                for pf in prep_files:
-                    if pf.exists():
-                        pf.unlink()
+            # Process completed images and submit new ones as workers become available
+            budget_exceeded = False
+            while pending_futures:
+                # Wait for next completion
+                done, pending_futures = wait(pending_futures, return_when="FIRST_COMPLETED")
+
+                for future in done:
+                    img_path = future_to_image[future]
+                    image_records = future.result()
+
+                    all_records.extend(image_records)
+                    images_processed += 1
+
+                    # Progress
+                    elapsed = time.monotonic() - start_time
+                    total_tasks = len(image_records)
+                    errors = sum(1 for r in image_records if r.measurement_error is not None)
+                    err_str = f" | {errors} errors" if errors else ""
+                    budget_str = ""
+                    if time_budget is not None:
+                        remaining = max(0.0, time_budget - elapsed)
+                        budget_str = f" | {_format_duration(remaining)} remaining"
+
+                    # Show if this is post-budget work being completed
+                    status_prefix = "  "
+                    if budget_exceeded:
+                        status_prefix = "  (finishing) "
+
+                    print(
+                        f"{status_prefix}[{images_processed}/{len(all_images)}] "
+                        f"{img_path.name}: {total_tasks} tasks{err_str} "
+                        f"[{_format_duration(elapsed)} elapsed{budget_str}]"
+                    )
+
+                    # Check time budget and submit next image if available
+                    # Budget is only checked for images beyond the initial worker-filling batch
+                    # Once budget is exceeded, stop submitting but continue collecting in-flight work
+                    if pending_images and not budget_exceeded:
+                        if time_budget is None or (time.monotonic() - start_time) < time_budget:
+                            next_img = pending_images.pop(0)
+                            next_future = executor.submit(
+                                _process_image,
+                                image_path_str=str(next_img),
+                                config_dict=config_dict,
+                                project_root_str=str(self.project_root),
+                                resolutions=resolutions,
+                                save_artifacts=save_artifacts,
+                            )
+                            pending_futures.add(next_future)
+                            future_to_image[next_future] = next_img
+                        elif not budget_exceeded:
+                            # Budget exhausted, stop submitting new work
+                            # but continue collecting results from in-flight images
+                            print(
+                                f"\nTime budget reached "
+                                f"({_format_duration(time.monotonic() - start_time)} >= "
+                                f"{_format_duration(time_budget)})"
+                            )
+                            print(
+                                f"  Waiting for {len(pending_futures)} in-flight images to complete..."
+                            )
+                            budget_exceeded = True
 
         elapsed_total = time.monotonic() - start_time
 
