@@ -70,7 +70,8 @@ just fetch liu4k-v2-train
 
 This downloads 1600 high-quality 4K-6K lossless PNG images (~60GB) from Google Drive, stored as multi-part zip archives.
 
-**Note:** 
+**Note:**
+
 - All LIU4K datasets use **CC BY-NC-ND 4.0** license (attribution required, non-commercial, no derivatives)
 - Google Drive downloads may occasionally fail due to access restrictions or quota limits
 - **LIU4K v1** downloads as a single zip archive (automatically extracted with Python's zipfile)
@@ -78,6 +79,7 @@ This downloads 1600 high-quality 4K-6K lossless PNG images (~60GB) from Google D
 - If automatic download fails, manually download from Google Drive and place in `data/datasets/`
 
 **System Requirement for v2:** LIU4K v2 datasets use multi-part zip archives (.zip, .z01, .z02, etc.) and require **7z** to be installed. The dev container includes 7z by default. If running outside the container, install with:
+
 ```bash
 # Debian/Ubuntu
 sudo apt-get install p7zip-full

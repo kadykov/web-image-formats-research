@@ -5,8 +5,6 @@ import zipfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
-
 from src.dataset import DatasetConfig, DatasetFetcher
 
 
@@ -432,4 +430,3 @@ def test_dropbox_url_conversion_with_params(tmp_path: Path) -> None:
         # Verify URL was modified to add &dl=1
         called_url = mock_download.call_args[0][0]
         assert "&dl=1" in called_url
-

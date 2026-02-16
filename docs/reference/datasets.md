@@ -186,23 +186,28 @@ just fetch uhd-iqa-full  # Full dataset with quality ratings
 ## Recommendations by Use Case
 
 ### Development & Testing
+
 - **DIV2K Validation** (100 images, 2K, 449MB) - Fastest, most manageable
 - **LIU4K v1 Validation** (80 images, 4K, 1.3GB) - Best for 4K dev/testing
 
 ### Production Research
+
 - **2K Displays**: DIV2K Training (800 images, 2K, 3.5GB)
 - **4K Displays**: LIU4K v1 Training (800 images, 4K, 10GB)
 - **4K-6K Displays**: LIU4K v2 Validation or Training (400-1600 images, advanced)
 
 ### Large-Scale Studies
+
 - **UHD-IQA Full** (6073 images, 4K, 10.7GB) - Despite JPEG, useful for scale
 - **LIU4K v2 Training** (1600 images, 4K-6K, 60GB) - Very large, high-res
 
 ### Format Comparison Research
+
 - **Prefer DIV2K or LIU4K v1/v2** (lossless) - Avoid pre-existing compression artifacts
 - **Avoid UHD-IQA for format research** - JPEG artifacts may bias results
 
 ### License Considerations
+
 - **Commercial use**: Use DIV2K or UHD-IQA (though DIV2K license unclear)
 - **Non-commercial research**: All datasets available
 - **Unrestricted/Public domain**: UHD-IQA only (CC0)

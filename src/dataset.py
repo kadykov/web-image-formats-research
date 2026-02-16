@@ -369,9 +369,7 @@ class DatasetFetcher:
                 # Extract directly to the dataset directory
                 with zipfile.ZipFile(zip_file, "r") as zip_ref:
                     members = zip_ref.namelist()
-                    with tqdm(
-                        total=len(members), desc=f"Extracting {archive_name}"
-                    ) as pbar:
+                    with tqdm(total=len(members), desc=f"Extracting {archive_name}") as pbar:
                         for member in members:
                             zip_ref.extract(member, dataset_dir)
                             pbar.update(1)
@@ -467,11 +465,15 @@ class DatasetFetcher:
                     if config.post_process == "extract_multipart_zips":
                         print("\nPost-processing: Extracting multi-part zip archives...")
                         if not self.extract_multipart_zips(dataset_dir):
-                            print("Warning: Post-processing failed, but dataset may still be usable")
+                            print(
+                                "Warning: Post-processing failed, but dataset may still be usable"
+                            )
                     elif config.post_process == "extract_zips":
                         print("\nPost-processing: Extracting zip archives...")
                         if not self.extract_zips(dataset_dir):
-                            print("Warning: Post-processing failed, but dataset may still be usable")
+                            print(
+                                "Warning: Post-processing failed, but dataset may still be usable"
+                            )
 
                     # Verify images
                     image_extensions = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".jxl"]

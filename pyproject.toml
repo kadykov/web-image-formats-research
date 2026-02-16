@@ -73,6 +73,8 @@ module = [
     "pandas.*",
     "numpy.*",
     "plotly.*",
+    "gdown",
+    "gdown.*",
 ]
 ignore_missing_imports = true
 
