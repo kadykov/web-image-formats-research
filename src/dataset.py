@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+import gdown
 import requests
 from tqdm import tqdm
 
@@ -33,6 +34,9 @@ class DatasetConfig:
     rename_to: str | None = None
     license: str | None = None
     source: str | None = None
+    storage_type: str = "direct"  # direct, google_drive, dropbox, dropbox_folder
+    folder_id: str | None = None  # For Google Drive folder downloads
+    post_process: str | None = None  # Post-processing action: extract_multipart_zips
 
     @classmethod
     def from_dict(cls, data: dict) -> "DatasetConfig":
@@ -58,6 +62,9 @@ class DatasetConfig:
             rename_to=data.get("rename_to"),
             license=data.get("license"),
             source=data.get("source"),
+            storage_type=data.get("storage_type", "direct"),
+            folder_id=data.get("folder_id"),
+            post_process=data.get("post_process"),
         )
 
 
@@ -158,6 +165,63 @@ class DatasetFetcher:
             print(f"Failed to download {url}: {e}")
             return False
 
+    def download_from_google_drive(
+        self, url: str, output_path: Path, description: str | None = None, is_folder: bool = False
+    ) -> bool:
+        """Download a file or folder from Google Drive.
+
+        Args:
+            url: Google Drive URL or file ID
+            output_path: Path where the file/folder will be saved
+            description: Optional description for download
+            is_folder: Whether this is a folder download
+
+        Returns:
+            True if download succeeded, False otherwise
+        """
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            desc = description or "Downloading from Google Drive"
+            print(f"{desc}...")
+
+            if is_folder:
+                # Download entire folder
+                gdown.download_folder(url, output=str(output_path), quiet=False, use_cookies=False)
+            else:
+                # Download single file
+                gdown.download(url, str(output_path), quiet=False, fuzzy=True)
+
+            return output_path.exists()
+        except Exception as e:
+            print(f"Failed to download from Google Drive: {e}")
+            print("Note: Google Drive downloads may fail due to access restrictions.")
+            print("Consider downloading manually if automatic download fails.")
+            return False
+
+    def download_from_dropbox(
+        self, url: str, output_path: Path, description: str | None = None
+    ) -> bool:
+        """Download a file from Dropbox.
+
+        Args:
+            url: Dropbox sharing URL
+            output_path: Path where the file will be saved
+            description: Optional description for the progress bar
+
+        Returns:
+            True if download succeeded, False otherwise
+        """
+        # Convert Dropbox sharing link to direct download link
+        # Change dl=0 to dl=1 or add ?dl=1
+        if "dl=0" in url:
+            direct_url = url.replace("dl=0", "dl=1")
+        elif "?" in url:
+            direct_url = url + "&dl=1"
+        else:
+            direct_url = url + "?dl=1"
+
+        return self.download_file(direct_url, output_path, description)
+
     def download_image(self, url: str, output_path: Path) -> bool:
         """Download a single image from URL.
 
@@ -210,6 +274,128 @@ class DatasetFetcher:
             print(f"Failed to extract {archive_path}: {e}")
             return False
 
+    def extract_multipart_zips(self, dataset_dir: Path) -> bool:
+        """Extract multi-part zip archives in a directory.
+
+        LIU4K v2 datasets use multi-part zips (.zip, .z01, .z02, etc.) organized by category.
+        This method finds and extracts all such archives.
+
+        Args:
+            dataset_dir: Directory containing multi-part zip files
+
+        Returns:
+            True if all extractions succeeded, False otherwise
+        """
+        try:
+            import subprocess
+
+            # Find all .zip files (the last part of multi-part archives)
+            zip_files = sorted(dataset_dir.glob("*.zip"))
+
+            if not zip_files:
+                print(f"No .zip files found in {dataset_dir}")
+                return True  # Not an error if no zips to extract
+
+            print(f"Found {len(zip_files)} multi-part archives to extract")
+
+            for zip_file in zip_files:
+                category_name = zip_file.stem  # e.g., "Animal" from "Animal.zip"
+                print(f"Extracting {category_name}...")
+
+                # Extract to a subdirectory named after the category
+                extract_to = dataset_dir / category_name
+                extract_to.mkdir(exist_ok=True)
+
+                # Use 7z to extract multi-part archives
+                # 7z automatically handles .z01, .z02, etc. when you point it to .zip
+                cmd = ["7z", "x", "-y", f"-o{extract_to}", str(zip_file)]
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                )
+
+                if result.returncode != 0:
+                    print(f"✗ Failed to extract {category_name}")
+                    print(f"Error: {result.stderr}")
+                    return False
+
+                # Count extracted files
+                extracted_files = list(extract_to.rglob("*"))
+                extracted_count = len([f for f in extracted_files if f.is_file()])
+                print(f"✓ Extracted {extracted_count} files to {category_name}/")
+
+            # Clean up archive files after successful extraction
+            print("\nCleaning up archive files...")
+            archive_files = list(dataset_dir.glob("*.zip")) + list(dataset_dir.glob("*.z*"))
+            for archive_file in archive_files:
+                archive_file.unlink()
+                print(f"  Removed {archive_file.name}")
+            print(f"✓ Removed {len(archive_files)} archive file(s)")
+
+            return True
+        except Exception as e:
+            print(f"Failed to extract multi-part zips: {e}")
+            return False
+
+    def extract_zips(self, dataset_dir: Path) -> bool:
+        """Extract single-file zip archives in a directory.
+
+        LIU4K v1 datasets use single zip files containing all images.
+        This method finds and extracts all such archives.
+
+        Args:
+            dataset_dir: Directory containing zip files
+
+        Returns:
+            True if all extractions succeeded, False otherwise
+        """
+        try:
+            import zipfile
+
+            # Find all .zip files
+            zip_files = sorted(dataset_dir.glob("*.zip"))
+
+            if not zip_files:
+                print(f"No .zip files found in {dataset_dir}")
+                return True  # Not an error if no zips to extract
+
+            print(f"Found {len(zip_files)} archive(s) to extract")
+
+            for zip_file in zip_files:
+                archive_name = zip_file.stem
+                print(f"Extracting {archive_name}...")
+
+                # Extract directly to the dataset directory
+                with zipfile.ZipFile(zip_file, "r") as zip_ref:
+                    members = zip_ref.namelist()
+                    with tqdm(
+                        total=len(members), desc=f"Extracting {archive_name}"
+                    ) as pbar:
+                        for member in members:
+                            zip_ref.extract(member, dataset_dir)
+                            pbar.update(1)
+
+                # Count extracted files
+                image_extensions = [".png", ".jpg", ".jpeg"]
+                image_files = []
+                for ext in image_extensions:
+                    image_files.extend(list(dataset_dir.rglob(f"*{ext}")))
+
+                print(f"✓ Extracted {len(members)} items, found {len(image_files)} images")
+
+            # Clean up archive files after successful extraction
+            print("\nCleaning up archive files...")
+            for zip_file in zip_files:
+                zip_file.unlink()
+                print(f"  Removed {zip_file.name}")
+            print(f"✓ Removed {len(zip_files)} archive file(s)")
+
+            return True
+        except Exception as e:
+            print(f"Failed to extract zip archives: {e}")
+            return False
+
     def fetch_dataset(
         self,
         dataset_id: str,
@@ -250,6 +436,12 @@ class DatasetFetcher:
 
         # Determine archive filename from URL
         url_path = config.url.split("/")[-1]
+        if not url_path or config.storage_type == "google_drive":
+            # For Google Drive or unclear URLs, use dataset ID as filename
+            if config.type == "zip":
+                url_path = f"{dataset_id}.zip"
+            else:
+                url_path = f"{dataset_id}.{config.type}"
         archive_path = self.base_dir / url_path
 
         # Download archive
@@ -257,9 +449,53 @@ class DatasetFetcher:
         print(f"  Size: ~{config.size_mb} MB")
         print(f"  Images: {config.image_count}")
         print(f"  Format: {config.format}")
+        if config.storage_type != "direct":
+            print(f"  Storage: {config.storage_type}")
         print()
 
-        if not self.download_file(config.url, archive_path, description=config.name):
+        # Use appropriate download method based on storage type
+        download_success = False
+        if config.storage_type == "google_drive":
+            if config.folder_id:
+                # Download entire folder
+                download_success = self.download_from_google_drive(
+                    config.url, dataset_dir, description=config.name, is_folder=True
+                )
+                # For folder downloads, handle post-processing and verification
+                if download_success and dataset_dir.exists():
+                    # Apply post-processing if specified
+                    if config.post_process == "extract_multipart_zips":
+                        print("\nPost-processing: Extracting multi-part zip archives...")
+                        if not self.extract_multipart_zips(dataset_dir):
+                            print("Warning: Post-processing failed, but dataset may still be usable")
+                    elif config.post_process == "extract_zips":
+                        print("\nPost-processing: Extracting zip archives...")
+                        if not self.extract_zips(dataset_dir):
+                            print("Warning: Post-processing failed, but dataset may still be usable")
+
+                    # Verify images
+                    image_extensions = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".jxl"]
+                    image_files = []
+                    for ext in image_extensions:
+                        image_files.extend(list(dataset_dir.rglob(f"*{ext}")))
+
+                    print(f"\nSuccessfully fetched {config.name}")
+                    print(f"Location: {dataset_dir}")
+                    print(f"Images: {len(image_files)}")
+                    return dataset_dir
+            else:
+                # Download single archive file
+                download_success = self.download_from_google_drive(
+                    config.url, archive_path, description=config.name
+                )
+        elif config.storage_type == "dropbox":
+            download_success = self.download_from_dropbox(
+                config.url, archive_path, description=config.name
+            )
+        else:  # direct URL
+            download_success = self.download_file(config.url, archive_path, description=config.name)
+
+        if not download_success:
             return None
 
         # Extract archive

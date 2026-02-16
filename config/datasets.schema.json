@@ -26,12 +26,12 @@
           },
           "type": {
             "type": "string",
-            "description": "Archive type",
-            "enum": ["zip", "tar", "tar.gz", "tgz"]
+            "description": "Archive type or folder for Google Drive",
+            "enum": ["zip", "tar", "tar.gz", "tgz", "folder"]
           },
           "url": {
             "type": "string",
-            "description": "Download URL for the dataset",
+            "description": "Download URL for the dataset (supports direct URLs, Google Drive, Dropbox)",
             "format": "uri"
           },
           "size_mb": {
@@ -67,6 +67,21 @@
           "source": {
             "type": "string",
             "description": "Organization or project providing the dataset"
+          },
+          "storage_type": {
+            "type": "string",
+            "description": "Storage provider type (default: direct)",
+            "enum": ["direct", "google_drive", "dropbox"],
+            "default": "direct"
+          },
+          "folder_id": {
+            "type": "string",
+            "description": "Folder ID for Google Drive folder downloads"
+          },
+          "post_process": {
+            "type": "string",
+            "description": "Post-processing action to apply after download",
+            "enum": ["extract_zips", "extract_multipart_zips"]
           }
         }
       }

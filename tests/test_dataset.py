@@ -5,6 +5,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from src.dataset import DatasetConfig, DatasetFetcher
 
 
@@ -70,6 +72,47 @@ def test_dataset_config_from_dict() -> None:
     assert config.id == "test-id"
     assert config.name == "Test Name"
     assert config.size_mb == 100
+
+
+def test_dataset_config_from_dict_with_cloud_storage() -> None:
+    """Test DatasetConfig creation with cloud storage fields."""
+    data = {
+        "id": "test-gdrive",
+        "name": "Test Google Drive",
+        "description": "Test dataset on Google Drive",
+        "type": "folder",
+        "url": "https://drive.google.com/drive/folders/test123",
+        "size_mb": 500,
+        "image_count": 200,
+        "resolution": "4K",
+        "format": "PNG",
+        "storage_type": "google_drive",
+        "folder_id": "test123",
+    }
+    config = DatasetConfig.from_dict(data)
+    assert config.id == "test-gdrive"
+    assert config.storage_type == "google_drive"
+    assert config.folder_id == "test123"
+    assert config.type == "folder"
+
+
+def test_dataset_config_defaults() -> None:
+    """Test DatasetConfig defaults for optional fields."""
+    data = {
+        "id": "minimal",
+        "name": "Minimal",
+        "description": "Minimal config",
+        "type": "zip",
+        "url": "http://example.com/test.zip",
+        "size_mb": 10,
+        "image_count": 5,
+        "resolution": "1K",
+        "format": "JPEG",
+    }
+    config = DatasetConfig.from_dict(data)
+    assert config.storage_type == "direct"  # default value
+    assert config.folder_id is None
+    assert config.extracted_folder is None
 
 
 def test_dataset_fetcher_initialization(tmp_path: Path) -> None:
@@ -272,3 +315,121 @@ def test_fetch_dataset_invalid_id(tmp_path: Path) -> None:
     result = fetcher.fetch_dataset("nonexistent-dataset")
 
     assert result is None
+
+
+@patch("src.dataset.gdown")
+def test_download_from_google_drive_file(mock_gdown: Mock, tmp_path: Path) -> None:
+    """Test downloading a file from Google Drive."""
+    config_file = create_test_config(tmp_path)
+    fetcher = DatasetFetcher(tmp_path / "datasets", config_file=config_file)
+
+    output_path = tmp_path / "test.zip"
+    mock_gdown.download.return_value = str(output_path)
+
+    # Create the file to simulate successful download
+    output_path.touch()
+
+    result = fetcher.download_from_google_drive(
+        "https://drive.google.com/file/d/test123/view", output_path, is_folder=False
+    )
+
+    assert result is True
+    mock_gdown.download.assert_called_once()
+
+
+@patch("src.dataset.gdown")
+def test_download_from_google_drive_folder(mock_gdown: Mock, tmp_path: Path) -> None:
+    """Test downloading a folder from Google Drive."""
+    config_file = create_test_config(tmp_path)
+    fetcher = DatasetFetcher(tmp_path / "datasets", config_file=config_file)
+
+    output_path = tmp_path / "test_folder"
+    mock_gdown.download_folder.return_value = ["file1.png", "file2.png"]
+
+    # Create the folder to simulate successful download
+    output_path.mkdir()
+
+    result = fetcher.download_from_google_drive(
+        "https://drive.google.com/drive/folders/test123", output_path, is_folder=True
+    )
+
+    assert result is True
+    mock_gdown.download_folder.assert_called_once()
+
+
+@patch("src.dataset.gdown")
+def test_download_from_google_drive_failure(mock_gdown: Mock, tmp_path: Path) -> None:
+    """Test Google Drive download failure handling."""
+    config_file = create_test_config(tmp_path)
+    fetcher = DatasetFetcher(tmp_path / "datasets", config_file=config_file)
+
+    output_path = tmp_path / "test.zip"
+    mock_gdown.download.side_effect = Exception("Download failed")
+
+    result = fetcher.download_from_google_drive(
+        "https://drive.google.com/file/d/test123/view", output_path
+    )
+
+    assert result is False
+
+
+@patch("src.dataset.requests.get")
+def test_download_from_dropbox(mock_get: Mock, tmp_path: Path) -> None:
+    """Test downloading from Dropbox."""
+    config_file = create_test_config(tmp_path)
+
+    # Mock successful download
+    mock_response = Mock()
+    mock_response.headers.get.return_value = "1024"
+    mock_response.iter_content.return_value = [b"test" * 256]
+    mock_response.raise_for_status.return_value = None
+    mock_get.return_value = mock_response
+
+    fetcher = DatasetFetcher(tmp_path / "datasets", config_file=config_file)
+    output_path = tmp_path / "test.zip"
+
+    # Test with dl=0 URL
+    result = fetcher.download_from_dropbox(
+        "https://www.dropbox.com/s/test123/file.zip?dl=0", output_path
+    )
+
+    assert result is True
+    # Verify URL was converted to dl=1
+    called_url = mock_get.call_args[0][0]
+    assert "dl=1" in called_url
+    assert "dl=0" not in called_url
+
+
+def test_dropbox_url_conversion_no_params(tmp_path: Path) -> None:
+    """Test Dropbox URL conversion when URL has no parameters."""
+    config_file = create_test_config(tmp_path)
+    fetcher = DatasetFetcher(tmp_path / "datasets", config_file=config_file)
+
+    with patch.object(fetcher, "download_file") as mock_download:
+        mock_download.return_value = True
+        output_path = tmp_path / "test.zip"
+
+        fetcher.download_from_dropbox("https://www.dropbox.com/s/test123/file.zip", output_path)
+
+        # Verify URL was modified to add dl=1
+        called_url = mock_download.call_args[0][0]
+        assert "?dl=1" in called_url
+
+
+def test_dropbox_url_conversion_with_params(tmp_path: Path) -> None:
+    """Test Dropbox URL conversion when URL already has parameters."""
+    config_file = create_test_config(tmp_path)
+    fetcher = DatasetFetcher(tmp_path / "datasets", config_file=config_file)
+
+    with patch.object(fetcher, "download_file") as mock_download:
+        mock_download.return_value = True
+        output_path = tmp_path / "test.zip"
+
+        fetcher.download_from_dropbox(
+            "https://www.dropbox.com/s/test123/file.zip?key=value", output_path
+        )
+
+        # Verify URL was modified to add &dl=1
+        called_url = mock_download.call_args[0][0]
+        assert "&dl=1" in called_url
+
