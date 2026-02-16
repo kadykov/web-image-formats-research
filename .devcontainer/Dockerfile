@@ -1,5 +1,11 @@
 FROM mcr.microsoft.com/devcontainers/python:3-3.13-trixie
 
+# Version variables for dependencies
+ARG JPEG_XL_VERSION=v0.11.2
+ARG DAV1D_VERSION=1.5.3
+ARG LIBAOM_VERSION=v3.13.1
+ARG LIBAVIF_VERSION=v1.3.0
+
 # Install system dependencies and build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     just \
@@ -31,23 +37,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libheif-plugin-dav1d \
     # JPEG tools
     libjpeg-turbo-progs \
+    libjpeg-dev \
+    # Brotli (required for libjxl) and other build deps
+    libbrotli-dev \
     # General image processing libraries
     libpng-dev \
     libtiff-dev \
     libyuv-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install JPEG XL tools from static binaries
-# This includes cjxl, djxl, and other tools
-RUN curl -L https://github.com/libjxl/libjxl/releases/download/v0.11.1/jxl-linux-x86_64-static-v0.11.1.tar.gz -o /tmp/jxl.tar.gz && \
-    mkdir -p /tmp/jxl-extract && \
-    tar -xzf /tmp/jxl.tar.gz -C /tmp/jxl-extract --strip-components=1 && \
-    cp /tmp/jxl-extract/* /usr/local/bin/ && \
-    rm -rf /tmp/jxl-extract /tmp/jxl.tar.gz && \
-    chmod +x /usr/local/bin/*
+# Build and install libjxl (JPEG XL) from source — fallback when prebuilt artifacts are unavailable
+# Clones the tagged release, initializes submodules, builds tools, and installs them
+RUN git clone --depth 1 --branch ${JPEG_XL_VERSION} https://github.com/libjxl/libjxl.git /tmp/libjxl && \
+    cd /tmp/libjxl && \
+    git submodule update --init --recursive --depth 1 || true && \
+    mkdir -p build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_TESTING=OFF \
+          -DJPEGXL_ENABLE_DEVTOOLS=ON \
+          -DJPEGXL_ENABLE_TOOLS=ON \
+          -GNinja \
+          .. && \
+    ninja && \
+    cmake --install . && \
+    ldconfig && \
+    cd / && rm -rf /tmp/libjxl
 
 # Build and install dav1d decoder
-RUN git clone --depth 1 --branch 1.5.0 https://code.videolan.org/videolan/dav1d.git /tmp/dav1d && \
+RUN git clone --depth 1 --branch ${DAV1D_VERSION} https://code.videolan.org/videolan/dav1d.git /tmp/dav1d && \
     cd /tmp/dav1d && \
     mkdir -p build && cd build && \
     meson setup --buildtype=release .. && \
@@ -57,7 +74,7 @@ RUN git clone --depth 1 --branch 1.5.0 https://code.videolan.org/videolan/dav1d.
     cd / && rm -rf /tmp/dav1d
 
 # Build and install libaom encoder
-RUN git clone --depth 1 --branch v3.11.0 https://aomedia.googlesource.com/aom /tmp/aom && \
+RUN git clone --depth 1 --branch ${LIBAOM_VERSION} https://aomedia.googlesource.com/aom /tmp/aom && \
     cd /tmp/aom && \
     mkdir -p build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release \
@@ -72,7 +89,7 @@ RUN git clone --depth 1 --branch v3.11.0 https://aomedia.googlesource.com/aom /t
     cd / && rm -rf /tmp/aom
 
 # Build and install libavif with system dav1d and libaom
-RUN git clone --depth 1 --branch v1.1.1 https://github.com/AOMediaCodec/libavif.git /tmp/libavif && \
+RUN git clone --depth 1 --branch ${LIBAVIF_VERSION} https://github.com/AOMediaCodec/libavif.git /tmp/libavif && \
     cd /tmp/libavif && \
     mkdir -p build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release \
