@@ -5,9 +5,7 @@ including SSIMULACRA2, PSNR, SSIM, and Butteraugli. It also provides
 utilities for loading encoding results and running batch measurements.
 
 Quality measurement tools often have limited format support, so encoded
-images are converted to PNG before measurement. To minimize disk IO,
-temporary files are stored in memory-backed storage (/dev/shm on Linux)
-when available.
+images are converted to PNG before measurement.
 
 Important: Quality measurements compare encoded images against their
 source_image (the preprocessed version used for encoding), NOT the
@@ -25,18 +23,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-
-def _get_tmpdir() -> str | None:
-    """Get the best temporary directory for storing converted images.
-
-    Returns /dev/shm (memory-backed) on Linux systems for faster IO,
-    or None to use the system default.
-    """
-    shm_path = Path("/dev/shm")
-    if shm_path.exists() and shm_path.is_dir():
-        return str(shm_path)
-    return None
 
 
 def get_measurement_tool_version(tool: str) -> str | None:
@@ -171,7 +157,7 @@ class QualityMeasurer:
         """Measure SSIMULACRA2 score between two images.
 
         Both images are converted to PNG if needed, as ssimulacra2 has
-        limited format support. Uses memory-backed temp storage for speed.
+        limited format support.
 
         Args:
             original: Path to the original image
@@ -181,7 +167,7 @@ class QualityMeasurer:
             SSIMULACRA2 score (higher is better, 100 = lossless)
         """
         try:
-            with tempfile.TemporaryDirectory(dir=_get_tmpdir()) as tmpdir:
+            with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir_path = Path(tmpdir)
 
                 # Convert both images to PNG if they're not already PNG
@@ -217,7 +203,6 @@ class QualityMeasurer:
         """Measure PSNR between two images using FFmpeg.
 
         FFmpeg has good format support, but we convert to PNG for consistency.
-        Uses memory-backed temp storage for speed.
 
         Args:
             original: Path to the original image
@@ -227,7 +212,7 @@ class QualityMeasurer:
             PSNR value in dB (higher is better)
         """
         try:
-            with tempfile.TemporaryDirectory(dir=_get_tmpdir()) as tmpdir:
+            with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir_path = Path(tmpdir)
 
                 # Convert both images to PNG if they're not already PNG
@@ -272,7 +257,6 @@ class QualityMeasurer:
         """Measure SSIM between two images using FFmpeg.
 
         FFmpeg has good format support, but we convert to PNG for consistency.
-        Uses memory-backed temp storage for speed.
 
         Args:
             original: Path to the original image
@@ -282,7 +266,7 @@ class QualityMeasurer:
             SSIM value (0-1, higher is better)
         """
         try:
-            with tempfile.TemporaryDirectory(dir=_get_tmpdir()) as tmpdir:
+            with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir_path = Path(tmpdir)
 
                 # Convert both images to PNG if they're not already PNG
@@ -327,7 +311,7 @@ class QualityMeasurer:
         """Measure Butteraugli distance between two images.
 
         Both images are converted to PNG if needed, as butteraugli has
-        limited format support. Uses memory-backed temp storage for speed.
+        limited format support.
 
         Args:
             original: Path to the original image
@@ -337,7 +321,7 @@ class QualityMeasurer:
             Butteraugli distance (lower is better, <1.0 = excellent)
         """
         try:
-            with tempfile.TemporaryDirectory(dir=_get_tmpdir()) as tmpdir:
+            with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir_path = Path(tmpdir)
 
                 # Convert both images to PNG if they're not already PNG

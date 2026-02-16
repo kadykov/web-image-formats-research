@@ -10,9 +10,9 @@ Key advantages over the separate encode → measure workflow:
 - **Time-budget control**: Set a wall-clock time limit instead of guessing
   how many images to process. The pipeline processes as many images as
   possible within the budget.
-- **Reduced disk IO**: Encoded files are written to memory-backed storage
-  (/dev/shm) by default and cleaned up after measurement. Optional
-  ``save_artifacts`` flag persists them to disk.
+- **Reduced disk IO**: Encoded files are written to temporary storage
+  and cleaned up after measurement. Optional ``save_artifacts`` flag
+  persists them to disk.
 - **Per-image error isolation**: All external tool operations (encoding +
   measurement) for one image are grouped. If encoding or measurement
   fails for an image, the pipeline logs the error and moves on.
@@ -46,14 +46,6 @@ from src.study import EncoderConfig, StudyConfig
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _get_tmpdir() -> str | None:
-    """Return /dev/shm if available, else ``None`` (system default)."""
-    shm = Path("/dev/shm")
-    if shm.exists() and shm.is_dir():
-        return str(shm)
-    return None
 
 
 def _make_rel(path: Path, root: Path) -> str:
@@ -171,8 +163,8 @@ def _encode_and_measure(
     submitted to a :class:`~concurrent.futures.ProcessPoolExecutor` with
     the ``"spawn"`` multiprocessing context.
 
-    Encoded files are written to a temporary directory (preferably
-    ``/dev/shm``) and automatically cleaned up after measurement.
+    Encoded files are written to a temporary directory and
+    automatically cleaned up after measurement.
 
     Args:
         source_image: Absolute path to the image to encode (may be
@@ -223,7 +215,7 @@ def _encode_and_measure(
         resolution=resolution,
     )
 
-    with tempfile.TemporaryDirectory(dir=_get_tmpdir()) as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         encoder = ImageEncoder(Path(tmpdir))
 
         # --- Encode -----------------------------------------------------------
@@ -482,9 +474,8 @@ class PipelineRunner:
     3. Measures quality of each encoded variant.
     4. Checks the time budget before starting the next image.
 
-    Encoded files live in a temporary directory (``/dev/shm`` when
-    available) and are discarded after measurement unless
-    ``save_artifacts=True``.
+    Encoded files live in a temporary directory and are discarded
+    after measurement unless ``save_artifacts=True``.
     """
 
     def __init__(self, project_root: Path) -> None:
@@ -633,7 +624,7 @@ class PipelineRunner:
         mp_ctx = multiprocessing.get_context("spawn")
 
         with (
-            tempfile.TemporaryDirectory(dir=_get_tmpdir()) as prep_tmpdir,
+            tempfile.TemporaryDirectory() as prep_tmpdir,
             ProcessPoolExecutor(max_workers=num_workers, mp_context=mp_ctx) as executor,
         ):
             for image_path in all_images:
