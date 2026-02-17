@@ -5,7 +5,7 @@
   "description": "Study how WebP encoding method affects quality and file size. Tests method settings from 0 (fastest) to 6 (slowest/best) at representative quality levels to find the optimal method/quality tradeoff.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 30
+    "max_images": 10
   },
   "encoders": [
     {

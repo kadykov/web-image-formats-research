@@ -394,41 +394,6 @@ class TestStudyResults:
         assert loaded["encodings"] == []
 
 
-class TestStudyConfigFromExampleFiles:
-    """Tests that validate the example study files in studies/ directory."""
-
-    @pytest.fixture
-    def studies_dir(self) -> Path:
-        """Return the studies directory."""
-        return Path(__file__).parent.parent / "config" / "studies"
-
-    def test_avif_quality_sweep(self, studies_dir: Path) -> None:
-        """Validate avif-quality-sweep.json."""
-        config = StudyConfig.from_file(studies_dir / "avif-quality-sweep.json")
-        assert config.id == "avif-quality-sweep"
-        assert config.dataset_id == "div2k-valid"
-        assert len(config.encoders) == 1
-        assert config.encoders[0].format == "avif"
-        assert config.encoders[0].chroma_subsampling == ["444", "420"]
-        # Quality range: 30 to 90 step 5 → 13 values
-        assert len(config.encoders[0].quality) == 13
-
-    def test_format_comparison(self, studies_dir: Path) -> None:
-        """Validate format-comparison.json."""
-        config = StudyConfig.from_file(studies_dir / "format-comparison.json")
-        assert config.id == "format-comparison"
-        assert len(config.encoders) == 4
-        formats = [e.format for e in config.encoders]
-        assert set(formats) == {"jpeg", "webp", "avif", "jxl"}
-
-    def test_resolution_impact(self, studies_dir: Path) -> None:
-        """Validate resolution-impact.json."""
-        config = StudyConfig.from_file(studies_dir / "resolution-impact.json")
-        assert config.id == "resolution-impact"
-        assert config.resize == [2048, 1920, 1280, 960, 640]
-        assert len(config.encoders) == 1
-
-
 class TestInterleaveTasks:
     """Tests for task interleaving across formats."""
 

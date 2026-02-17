@@ -5,7 +5,7 @@
   "description": "Study how input resolution affects compression efficiency across different image formats (JPEG, WebP, AVIF, JPEG XL). Tests the same images at multiple downscaled resolutions to understand resolution-dependent performance characteristics.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 30
+    "max_images": 10
   },
   "preprocessing": {
     "resize": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]

@@ -5,7 +5,7 @@
   "description": "Compare all four formats (JPEG, WebP, AVIF, JPEG XL) at the same quality levels using the DIV2K validation set.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 30
+    "max_images": 10
   },
   "encoders": [
     {
