@@ -15,10 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# Add src to path for local imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from study import StudyConfig, StudyRunner
+from src.study import StudyConfig, StudyRunner
 
 
 def _resolve_study_path(study_arg: str, studies_dir: Path, project_root: Path) -> Path | None:

@@ -14,10 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# Add src to path for local imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from quality import EncodingResults, QualityMeasurementRunner  # noqa: E402
+from src.quality import EncodingResults, QualityMeasurementRunner
 
 
 def main() -> int:

@@ -26,11 +26,8 @@ import json
 import sys
 from pathlib import Path
 
-# Add src to path for local imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from pipeline import PipelineRunner, parse_time_budget  # noqa: E402
-from study import StudyConfig  # noqa: E402
+from src.pipeline import PipelineRunner, parse_time_budget
+from src.study import StudyConfig
 
 
 def _resolve_study_path(study_arg: str, studies_dir: Path, project_root: Path) -> Path | None:

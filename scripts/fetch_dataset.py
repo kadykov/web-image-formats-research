@@ -9,10 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# Add src to path for local imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from dataset import DatasetFetcher
+from src.dataset import DatasetFetcher
 
 
 def list_datasets(fetcher: DatasetFetcher) -> None:
