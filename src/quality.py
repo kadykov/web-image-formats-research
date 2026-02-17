@@ -741,7 +741,7 @@ class QualityMeasurementRunner:
                 versions[tool] = version
 
         # Collect encoder versions (if available from encoding results)
-        from encoder import get_encoder_version  # type: ignore[import-untyped]
+        from src.encoder import get_encoder_version
 
         for encoder in ["cjpeg", "cwebp", "avifenc", "cjxl"]:
             version = get_encoder_version(encoder)
