@@ -21,6 +21,9 @@ results/*
 datasets/*
 !datasets/.gitkeep
 
+# Release assets
+release-assets/*
+
 # IDE
 *.swp
 *.swo

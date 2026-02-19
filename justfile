@@ -223,6 +223,24 @@ serve-report PORT="8000":
     @echo "Serving report at http://localhost:{{PORT}}"
     python3 -m http.server {{PORT}} --directory data/report
 
+# Release Scripts
+
+# Generate release notes from study results
+release-notes:
+    python3 scripts/generate_release_notes.py
+
+# Generate release notes to a file
+release-notes-to OUTPUT:
+    python3 scripts/generate_release_notes.py --output {{OUTPUT}}
+
+# Prepare release assets (zip + CSV files)
+release-assets:
+    python3 scripts/prepare_release_assets.py
+
+# Prepare release assets to a custom directory
+release-assets-to OUTPUT_DIR:
+    python3 scripts/prepare_release_assets.py --output-dir {{OUTPUT_DIR}}
+
 # Verify all tools are available
 verify-tools:
     @echo "Checking image encoding tools..."

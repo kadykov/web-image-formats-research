@@ -5,9 +5,9 @@ import starlight from '@astrojs/starlight';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://kadykov.github.io',
-	// Use base path only when GITHUB_PAGES env var is set (for production deploys)
+	// Use base path for GitHub Pages deployment (docs live at /web-image-formats-research/docs/)
 	// For local dev/preview, leave it empty so assets load correctly
-	base: process.env.GITHUB_PAGES === 'true' ? '/web-image-formats-research' : undefined,
+	base: process.env.GITHUB_PAGES === 'true' ? '/web-image-formats-research/docs' : undefined,
 	integrations: [
 		starlight({
 			title: 'Web Image Formats Research',
