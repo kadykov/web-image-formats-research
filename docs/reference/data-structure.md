@@ -1,4 +1,7 @@
-# Reference: Data Directory Structure
+---
+title: "Data directory structure"
+description: "Layout and file naming conventions for the `data/` directory and pipeline outputs."
+---
 
 This reference describes the data directory organization and file storage conventions.
 
@@ -432,6 +435,6 @@ Each stage:
 
 ## See Also
 
-- [Configuration Files Reference](configuration.md) - Config file formats
-- [Data Architecture Explanation](../explanation/data-architecture.md) - Design decisions
-- [How to Fetch Datasets](../how-to/fetch-datasets.md) - Practical usage
+- [Configuration Files Reference](configuration) - Config file formats
+- [Data Architecture Explanation](../explanation/data-architecture) - Design decisions
+- [How to Fetch Datasets](../how-to/fetch-datasets) - Practical usage

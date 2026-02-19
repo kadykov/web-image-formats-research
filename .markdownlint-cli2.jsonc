@@ -1,0 +1,31 @@
+{
+  // Rule configuration (replaces .markdownlint.json)
+  "config": {
+    // MD013: line length — disabled (long lines acceptable in documentation)
+    "MD013": false,
+    // MD033: inline HTML — disabled (used in markdown for formatting)
+    "MD033": false,
+    // MD041: first line heading — disabled (frontmatter title serves this role)
+    "MD041": false,
+    // MD024: duplicate headings — allowed if they are not siblings
+    "MD024": { "siblings_only": true },
+    // MD060: table pipe style — disabled (generated API docs use varied table styles)
+    "MD060": false
+  },
+
+  // Ignore generated and third-party content
+  "ignores": [
+    // Node.js dependencies at any depth
+    "**/node_modules/**",
+    // Astro build output
+    "docs-site/dist/**",
+    // Generated documentation (rebuilt from docs/ and src/ by generate_docs.py)
+    "docs-site/src/content/docs/**",
+    // Coverage reports
+    "htmlcov/**",
+    // MkDocs build output (legacy)
+    "site/**",
+    // Study data files
+    "data/**"
+  ]
+}

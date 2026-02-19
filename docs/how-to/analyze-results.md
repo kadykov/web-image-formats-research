@@ -1,10 +1,13 @@
-# How to Analyze Study Results
+---
+title: "Analyze study results"
+description: "Step-by-step instructions to generate plots, compute statistics, and interpret study results."
+---
 
 This guide explains how to analyze quality measurement results and generate plots for a study.
 
 ## Prerequisites
 
-- Completed quality measurements for a study (see [How to Measure Quality](measure-quality.md))
+- Completed quality measurements for a study (see [How to Measure Quality](measure-quality))
 - The study must have a `quality.json` file in `data/metrics/<study-id>/`
 
 ## Basic Usage
@@ -206,7 +209,7 @@ Check the CSV statistics file - any metric with data will have a corresponding p
 
 ## See Also
 
-- [How to Run the Pipeline](run-pipeline.md) - Complete workflow from encoding to analysis
-- [How to Measure Quality](measure-quality.md) - Quality measurement step
-- [Configuration Reference](../reference/configuration.md) - Study configuration options
-- [Data Structure Reference](../reference/data-structure.md) - Understanding output formats
+- [How to Run the Pipeline](run-pipeline) - Complete workflow from encoding to analysis
+- [How to Measure Quality](measure-quality) - Quality measurement step
+- [Configuration Reference](../reference/configuration) - Study configuration options
+- [Data Structure Reference](../reference/data-structure) - Understanding output formats

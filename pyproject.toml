@@ -23,6 +23,7 @@ dev = [
     "ruff>=0.1.0",
     "types-requests>=2.31.0",
     "types-tqdm>=4.66.0",
+    "lazydocs>=0.4.8",
 ]
 
 [build-system]

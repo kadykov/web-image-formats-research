@@ -1,4 +1,7 @@
-# How to Generate Interactive HTML Reports
+---
+title: "Generate reports"
+description: "How to build interactive HTML study reports from analysis outputs and publish them to the docs site."
+---
 
 This guide explains how to generate interactive HTML reports from quality measurement results.
 
@@ -268,6 +271,6 @@ just serve-report 8080
 
 ## Related Documentation
 
-- [How to Analyze Results](analyze-results.md) — Generate static matplotlib figures
-- [How to Measure Quality](measure-quality.md) — Run quality measurements
-- [Architecture](../explanation/architecture.md) — Overall system design
+- [How to Analyze Results](analyze-results) — Generate static matplotlib figures
+- [How to Measure Quality](measure-quality) — Run quality measurements
+- [Architecture](../explanation/architecture) — Overall system design

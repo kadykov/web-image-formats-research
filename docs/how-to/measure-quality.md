@@ -1,10 +1,13 @@
-# How to Measure Quality
+---
+title: "Measure image quality"
+description: "How to run objective quality metrics (PSNR, SSIM, SSIMULACRA2, Butteraugli) and interpret the output."
+---
 
 This guide shows how to measure perceptual quality metrics for encoded images.
 
 ## Prerequisites
 
-- Encoded images from a study run (see [Run Pipeline](run-pipeline.md))
+- Encoded images from a study run (see [Run Pipeline](run-pipeline))
 - Quality measurement tools installed (`ssimulacra2`, `butteraugli_main`, `ffmpeg`)
 
 Verify tools are available:
@@ -165,6 +168,6 @@ Check the summary at the end for failed measurements.
 
 ## Next Steps
 
-- [Analyze Results](../explanation/architecture.md) — Visualize and compare metrics
-- [Data Structure](../reference/data-structure.md) — Understand the output format
-- [Configuration Reference](../reference/configuration.md) — Study and metric configuration
+- [Analyze Results](../explanation/architecture) — Visualize and compare metrics
+- [Data Structure](../reference/data-structure) — Understand the output format
+- [Configuration Reference](../reference/configuration) — Study and metric configuration

@@ -1,4 +1,7 @@
-# Reference: Configuration Files
+---
+title: "Configuration reference"
+description: "Detailed reference for `config/` files and schemas (datasets, studies, encoders, analysis)."
+---
 
 This reference describes all configuration files used in the project.
 

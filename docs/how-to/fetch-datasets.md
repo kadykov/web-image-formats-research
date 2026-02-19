@@ -1,4 +1,7 @@
-# How to Fetch Datasets
+---
+title: "Fetch datasets"
+description: "Commands and configuration for downloading, extracting and organizing datasets used in studies."
+---
 
 This guide explains how to download and manage image datasets for the research project using the configuration-based fetching system.
 

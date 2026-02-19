@@ -1,4 +1,7 @@
-# Getting Started
+---
+title: "Getting started"
+description: "Quickstart to set up the dev environment, run the pipeline on a small dataset, and generate your first report."
+---
 
 This tutorial walks you through setting up the development environment
 and running your first image format comparison.
@@ -96,7 +99,7 @@ just fetch div2k-valid
 ```
 
 This downloads 100 high-quality 2K images (~500MB). For more details, see the
-[Fetch Datasets guide](../how-to/fetch-datasets.md).
+[Fetch Datasets guide](../how-to/fetch-datasets).
 
 ## Running Your First Study
 
@@ -130,8 +133,8 @@ just serve-report
 
 ## Next Steps
 
-- Learn how to [run the unified pipeline](../how-to/run-pipeline.md) with time budgets
-- See how to [fetch datasets](../how-to/fetch-datasets.md) for research
+- Learn how to [run the unified pipeline](../how-to/run-pipeline) with time budgets
+- See how to [fetch datasets](../how-to/fetch-datasets) for research
 - Read the [How-to guides](../how-to/) for specific tasks
 - See the [Reference](../reference/) for detailed module and tool documentation
 - Check the [Explanation](../explanation/) section for design decisions

@@ -1,4 +1,7 @@
-# Project Architecture: Data and Configuration Organization
+---
+title: "Data architecture and configuration"
+description: "How datasets, preprocessing, encoded outputs and configuration files are organized for the pipeline."
+---
 
 This document explains the architectural decisions behind the project's data and configuration organization.
 

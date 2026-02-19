@@ -1,4 +1,7 @@
-# Reference: Project Modules
+---
+title: "Code modules reference"
+description: "Overview of Python modules in `src/`, their responsibilities, and key public APIs for integration."
+---
 
 ## Pipeline Overview
 

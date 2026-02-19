@@ -27,7 +27,7 @@ with a focus on AVIF and comparative analysis against JPEG, WebP, and JPEG XL.
    just check  # Runs lint, typecheck, and tests
    ```
 
-See the [Getting Started tutorial](docs/tutorials/getting-started.md) for detailed setup instructions.
+See the [Getting Started tutorial](docs/tutorials/getting-started) for detailed setup instructions.
 
 ## Project Structure
 
@@ -108,6 +108,12 @@ just clean                       # Clean Python cache and build artifacts
 just clean-study <study-id>      # Remove all data for a specific study
 just clean-studies               # Remove all study data (preserves datasets)
 just clean-all-data              # Remove ALL data including datasets (careful!)
+
+# Documentation
+just docs-generate               # Generate docs from source files and Python docstrings
+just docs-dev                    # Start documentation development server (http://localhost:4321)
+just docs-build                  # Build optimized documentation site
+just docs-preview                # Preview built documentation
 ```
 
 ## Documentation
@@ -118,6 +124,20 @@ This project follows the [Diátaxis](https://diataxis.fr/) documentation framewo
 - [**How-to guides**](docs/how-to/) — Solutions for specific tasks
 - [**Reference**](docs/reference/) — Technical details and API descriptions
 - [**Explanation**](docs/explanation/) — Background concepts and design decisions
+
+### Building Documentation
+
+The documentation is generated using [Astro Starlight](https://starlight.astro.build/) for optimal performance:
+
+```bash
+# Generate and preview locally
+just docs-dev
+
+# Build for production
+just docs-build
+```
+
+The documentation includes automatically generated API reference from Python docstrings. See [docs-site/DOCS_SETUP.md](docs-site/DOCS_SETUP.md) for details.
 
 ## License
 

@@ -1,4 +1,7 @@
-# How-to: Run CI Locally
+---
+title: "Run CI locally"
+description: "Run the same lint, typecheck and test checks locally that the CI pipeline runs."
+---
 
 Before pushing, you can run the same checks that CI performs.
 

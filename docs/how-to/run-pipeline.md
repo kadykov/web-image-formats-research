@@ -1,4 +1,7 @@
-# How-to: Run the Unified Pipeline
+---
+title: "Run the processing pipeline"
+description: "How to run the unified pipeline (fetch → preprocess → encode → measure → analyze) with examples and time-budget options."
+---
 
 This guide shows how to run image encoding studies using the unified pipeline with time-budget control.
 
@@ -191,7 +194,7 @@ The separate pipeline is useful when you need to:
 
 ## Related Documentation
 
-- [Fetch Datasets](fetch-datasets.md) — Download image datasets
-- [Configuration Reference](../reference/configuration.md) — Study configuration with time budgets
-- [Architecture](../explanation/architecture.md) — Pipeline design rationale
-- [Data Structure](../reference/data-structure.md) — Output formats
+- [Fetch Datasets](fetch-datasets) — Download image datasets
+- [Configuration Reference](../reference/configuration) — Study configuration with time budgets
+- [Architecture](../explanation/architecture) — Pipeline design rationale
+- [Data Structure](../reference/data-structure) — Output formats

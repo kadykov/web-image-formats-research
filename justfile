@@ -38,7 +38,7 @@ format-code:
 
 # Format markdown files
 format-markdown:
-    npx markdownlint-cli2 --fix "**/*.md"
+    cd {{justfile_directory()}} && npx markdownlint-cli2 --fix "**/*.md"
 
 # Check formatting without making changes
 format-code-check:
@@ -46,7 +46,7 @@ format-code-check:
 
 # Check markdown formatting
 format-markdown-check:
-    npx markdownlint-cli2 "**/*.md"
+    cd {{justfile_directory()}} && npx markdownlint-cli2 "**/*.md"
 
 # Check formatting for both code and markdown
 format-check: format-code-check format-markdown-check
@@ -241,3 +241,54 @@ verify-tools:
     @python3 -c "import numpy" 2>/dev/null && echo "✓ NumPy" || echo "✗ NumPy missing"
     @python3 -c "import pandas" 2>/dev/null && echo "✓ Pandas" || echo "✗ Pandas missing"
     @python3 -c "import matplotlib" 2>/dev/null && echo "✓ Matplotlib" || echo "✗ Matplotlib missing"
+
+# Documentation Commands
+
+# Generate documentation content from Python docstrings and markdown files
+docs-generate:
+    python3 scripts/generate_docs.py
+
+# Install documentation site dependencies
+docs-install:
+    cd docs-site && npm install
+
+# Start local documentation development server
+docs-dev:
+    @echo "Starting documentation development server..."
+    @echo "Visit http://localhost:4321"
+    cd docs-site && npm run dev
+
+# Build documentation site for production (with GitHub Pages path)
+docs-build:
+    @just docs-generate
+    cd docs-site && npm run build
+
+# Build documentation site for local testing (without base path)
+docs-build-local:
+    @just docs-generate
+    cd docs-site && npm run build:local
+
+# Preview production build locally
+docs-preview:
+    @echo "Starting documentation preview server..."
+    @echo "Visit http://localhost:4321"
+    cd docs-site && npm run preview
+
+# Build and preview documentation
+docs-build-preview: docs-build docs-preview
+
+# Clean documentation build artifacts
+docs-clean:
+    rm -rf docs-site/dist/
+    rm -rf docs-site/.astro/
+    rm -rf docs-site/src/content/docs/*
+    @echo "Documentation build artifacts cleaned"
+
+# Full documentation workflow: regenerate and build
+docs-rebuild: docs-clean docs-generate docs-build
+
+# Serve documentation from dist directory (useful for testing production build)
+docs-serve PORT="8000":
+    @echo "Serving documentation at http://localhost:{{PORT}}"
+    @test -d docs-site/dist || (echo "❌ No build found. Run 'just docs-build-local' first." && exit 1)
+    python3 -m http.server {{PORT}} --directory docs-site/dist

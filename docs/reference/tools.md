@@ -1,4 +1,7 @@
-# Reference: Image Encoding and Measurement Tools
+---
+title: "Tools: encoders & metrics"
+description: "Summary of supported encoders, measurement tools and recommended CLI commands for experiments."
+---
 
 ## Image Encoders
 

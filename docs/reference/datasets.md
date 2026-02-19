@@ -1,4 +1,7 @@
-# Dataset Support and Roadmap
+---
+title: "Datasets: supported & roadmap"
+description: "Lists supported datasets, their properties and the roadmap for adding new datasets."
+---
 
 This document outlines the current and planned dataset support for the research project.
 

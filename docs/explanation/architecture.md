@@ -1,4 +1,7 @@
-# Explanation: Architecture and Design Decisions
+---
+title: "Project architecture and design"
+description: "Overview of the project's architecture, core components, and rationale behind key design decisions."
+---
 
 ## Pipeline Architecture
 
