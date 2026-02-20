@@ -67,6 +67,9 @@ def copy_docs(docs_dir: Path, content_dir: Path) -> None:
     """
     print("\n📋 Copying existing documentation...")
 
+    # Ensure the content directory exists (not committed to git; created fresh in CI)
+    content_dir.mkdir(parents=True, exist_ok=True)
+
     # Create an index.md from README.md
     readme_file = docs_dir.parent / "README.md"
     if readme_file.exists():
