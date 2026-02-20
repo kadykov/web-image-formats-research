@@ -174,7 +174,7 @@ def _build_study_section(data: dict, study_config: dict | None) -> list[str]:
         lines.append(f"{description}\n")
 
     # Parameters swept
-    lines.append("**Parameters swept:**\n")
+    lines.append("Parameters swept:\n")
     if study_config and study_config.get("encoders"):
         for encoder in study_config["encoders"]:
             lines.append(_format_encoder_from_config(encoder))
@@ -195,7 +195,7 @@ def _build_study_section(data: dict, study_config: dict | None) -> list[str]:
     result_parts = [f"{len(successful)} successful measurements across {unique_images} images"]
     if failed_count > 0:
         result_parts.append(f"{failed_count} failed")
-    lines.append(f"**Results:** {', '.join(result_parts)}\n")
+    lines.append(f"Results: {', '.join(result_parts)}\n")
 
     return lines
 
