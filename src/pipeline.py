@@ -158,6 +158,7 @@ def _process_image(
     project_root_str: str,
     resolutions: list[int | None],
     save_artifacts: bool,
+    save_artifact_dir_str: str | None = None,
 ) -> list[QualityRecord]:
     """Process a single image through all encoder configurations.
 
@@ -173,6 +174,11 @@ def _process_image(
         project_root_str: Project root path (for pickling).
         resolutions: List of resolutions to process (None = original).
         save_artifacts: Whether to save encoded files.
+        save_artifact_dir_str: Override the artifact directory. When
+            set, encoded files are saved here instead of the default
+            ``data/encoded/<study_id>/`` path.  This is used by the
+            ``save_worst_image`` pipeline option to route each image's
+            files to a per-image staging directory.
 
     Returns:
         List of QualityRecords for all tasks related to this image.
@@ -189,7 +195,13 @@ def _process_image(
     # Reconstruct encoder configs
     encoders = [EncoderConfig(**enc_dict) for enc_dict in config_dict["encoders"]]
 
-    save_artifact_dir = project_root / "data" / "encoded" / study_id if save_artifacts else None
+    # Determine artifact save directory
+    if save_artifact_dir_str is not None:
+        save_artifact_dir: Path | None = Path(save_artifact_dir_str)
+    elif save_artifacts:
+        save_artifact_dir = project_root / "data" / "encoded" / study_id
+    else:
+        save_artifact_dir = None
 
     all_records: list[QualityRecord] = []
 
@@ -496,6 +508,32 @@ def _error_record(
 
 
 # ---------------------------------------------------------------------------
+# Worst-image detection
+# ---------------------------------------------------------------------------
+
+
+def _find_worst_original(records: list[QualityRecord]) -> str | None:
+    """Return the ``original_image`` path with the worst average SSIMULACRA2.
+
+    Groups records by ``original_image`` and returns the one whose mean
+    SSIMULACRA2 is lowest.  Returns ``None`` if no valid scores exist.
+    """
+    image_scores: dict[str, list[float]] = {}
+    for rec in records:
+        if rec.measurement_error is None and rec.ssimulacra2 is not None:
+            key = rec.original_image
+            if key not in image_scores:
+                image_scores[key] = []
+            image_scores[key].append(rec.ssimulacra2)
+
+    if not image_scores:
+        return None
+
+    image_avgs = {img: sum(s) / len(s) for img, s in image_scores.items()}
+    return min(image_avgs, key=lambda k: image_avgs[k])
+
+
+# ---------------------------------------------------------------------------
 # Task generation helpers
 # ---------------------------------------------------------------------------
 
@@ -589,6 +627,11 @@ class PipelineRunner:
         self.project_root = project_root
         self.data_dir = project_root / "data"
 
+        # Worst-image tracking state (used by _update_worst_image)
+        self._worst_staging_dir: Path | None = None
+        self._worst_avg_score: float = float("inf")
+        self._worst_original_key: str | None = None
+
     # ------------------------------------------------------------------
     # Image collection
     # ------------------------------------------------------------------
@@ -642,6 +685,113 @@ class PipelineRunner:
         return versions
 
     # ------------------------------------------------------------------
+    # Worst-image tracking helpers
+    # ------------------------------------------------------------------
+
+    def _update_worst_image(
+        self,
+        image_records: list[QualityRecord],
+        img_path: Path,
+        staging_base: Path,
+    ) -> None:
+        """Compare a newly-completed image against the current worst.
+
+        If the new image has a lower average SSIMULACRA2 than the
+        current worst, its staging directory is kept and the old worst's
+        directory is deleted.  Otherwise the new image's staging
+        directory is deleted immediately.
+
+        Internal state is stored in ``_worst_staging_dir``,
+        ``_worst_avg_score``, and ``_worst_original_key`` attributes
+        on the ``PipelineRunner`` instance (set/read only during ``run``).
+        """
+        scores = [
+            r.ssimulacra2
+            for r in image_records
+            if r.ssimulacra2 is not None and r.measurement_error is None
+        ]
+        if not scores:
+            # No valid scores, remove staging dir
+            candidate_dir = staging_base / img_path.stem
+            shutil.rmtree(candidate_dir, ignore_errors=True)
+            return
+
+        avg = sum(scores) / len(scores)
+        candidate_dir = staging_base / img_path.stem
+
+        if avg < self._worst_avg_score:
+            # This image is the new worst – keep its assets, drop old
+            if self._worst_staging_dir is not None:
+                shutil.rmtree(self._worst_staging_dir, ignore_errors=True)
+            self._worst_staging_dir = candidate_dir
+            self._worst_avg_score = avg
+            self._worst_original_key = (
+                image_records[0].original_image if image_records else None
+            )
+        else:
+            # Not worse – discard immediately
+            shutil.rmtree(candidate_dir, ignore_errors=True)
+
+    def _finalize_worst_image(
+        self,
+        study_id: str,
+        staging_base: Path,
+        all_records: list[QualityRecord],
+    ) -> None:
+        """Move the worst image's artifacts to the final location.
+
+        Moves files from the staging directory to
+        ``data/encoded/<study_id>/`` and updates corresponding
+        ``encoded_path`` fields in *all_records* in-place.  Records for
+        non-worst images have their ``encoded_path`` cleared.
+        """
+        # Build the staging-base prefix so we can recognise *any* staging path
+        staging_base_prefix = _make_rel(staging_base, self.project_root)
+
+        if self._worst_staging_dir is None or not self._worst_staging_dir.exists():
+            # Nothing to keep – clear all staging paths and clean up
+            for rec in all_records:
+                if rec.encoded_path and rec.encoded_path.startswith(staging_base_prefix):
+                    rec.encoded_path = ""
+            shutil.rmtree(staging_base, ignore_errors=True)
+            return
+
+        final_dir = self.data_dir / "encoded" / study_id
+
+        # Prefix for the worst image's staging subdir only
+        worst_prefix = _make_rel(self._worst_staging_dir, self.project_root)
+        final_prefix = _make_rel(final_dir, self.project_root)
+
+        # Move files from worst staging dir → final location
+        for src_file in self._worst_staging_dir.rglob("*"):
+            if src_file.is_file():
+                rel = src_file.relative_to(self._worst_staging_dir)
+                dest = final_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src_file), str(dest))
+
+        # Update encoded_path in records:
+        # - Worst image: staging path → final path
+        # - Other images: staging path → "" (files already deleted)
+        for rec in all_records:
+            if not rec.encoded_path:
+                continue
+            if rec.encoded_path.startswith(worst_prefix):
+                rec.encoded_path = rec.encoded_path.replace(
+                    worst_prefix, final_prefix, 1
+                )
+            elif rec.encoded_path.startswith(staging_base_prefix):
+                rec.encoded_path = ""
+
+        print(f"\n  Worst image artifacts saved to: {final_dir}")
+        if self._worst_original_key:
+            print(f"  Worst image: {self._worst_original_key} "
+                  f"(avg SSIMULACRA2: {self._worst_avg_score:.2f})")
+
+        # Cleanup staging base
+        shutil.rmtree(staging_base, ignore_errors=True)
+
+    # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
 
@@ -651,6 +801,7 @@ class PipelineRunner:
         *,
         time_budget: float | None = None,
         save_artifacts: bool = False,
+        save_worst_image: bool = False,
         num_workers: int | None = None,
     ) -> QualityResults:
         """Run the merged encode+measure pipeline.
@@ -664,6 +815,11 @@ class PipelineRunner:
                 ``None`` means process all available images.
             save_artifacts: If ``True``, persist encoded files to
                 ``data/encoded/<study_id>/``.
+            save_worst_image: If ``True``, re-encode the worst-quality
+                source image (by average SSIMULACRA2) and persist its
+                encoded files to ``data/encoded/<study_id>/``.  This is
+                cheaper than ``save_artifacts`` (only one image) and
+                provides the files needed by the visual-comparison tool.
             num_workers: Parallel workers (default: CPU count).
 
         Returns:
@@ -721,6 +877,8 @@ class PipelineRunner:
         print(f"Workers: {num_workers}")
         if save_artifacts:
             print(f"Saving artifacts to: {save_artifact_dir}")
+        if save_worst_image and not save_artifacts:
+            print("Saving worst image artifacts (streaming)")
         print()
 
         # --- Prepare config dict for serialization ----------------------------
@@ -750,7 +908,34 @@ class PipelineRunner:
         start_time = time.monotonic()
         images_processed = 0
 
+        # --- Worst-image tracking state (streaming) --------------------------
+        # When save_worst_image is True, each worker saves its encoded files
+        # to a per-image staging directory.  After each worker completes, the
+        # main process compares its average SSIMULACRA2 with the current
+        # worst and immediately deletes the staging directory of the loser.
+        track_worst = save_worst_image and not save_artifacts
+        staging_base: Path | None = None
+
+        # Reset worst-image tracking state
+        self._worst_staging_dir = None
+        self._worst_avg_score = float("inf")
+        self._worst_original_key = None
+
+        if track_worst:
+            staging_base = self.data_dir / "encoded" / f".staging-{config.id}"
+            if staging_base.exists():
+                shutil.rmtree(staging_base)
+            staging_base.mkdir(parents=True)
+
         mp_ctx = multiprocessing.get_context("spawn")
+
+        # Helper to build per-image staging dir path
+        def _img_staging(img_path: Path) -> str | None:
+            if staging_base is None:
+                return None
+            d = staging_base / img_path.stem
+            d.mkdir(parents=True, exist_ok=True)
+            return str(d)
 
         with ProcessPoolExecutor(max_workers=num_workers, mp_context=mp_ctx) as executor:
             # Submit initial batch of images (fill all workers)
@@ -773,6 +958,7 @@ class PipelineRunner:
                     project_root_str=str(self.project_root),
                     resolutions=resolutions,
                     save_artifacts=save_artifacts,
+                    save_artifact_dir_str=_img_staging(img_path),
                 )
                 pending_futures.add(future)
                 future_to_image[future] = img_path
@@ -789,6 +975,14 @@ class PipelineRunner:
 
                     all_records.extend(image_records)
                     images_processed += 1
+
+                    # --- Worst-image streaming update -------------------------
+                    if track_worst and staging_base is not None:
+                        self._update_worst_image(
+                            image_records,
+                            img_path,
+                            staging_base,
+                        )
 
                     # Progress
                     elapsed = time.monotonic() - start_time
@@ -824,6 +1018,7 @@ class PipelineRunner:
                                 project_root_str=str(self.project_root),
                                 resolutions=resolutions,
                                 save_artifacts=save_artifacts,
+                                save_artifact_dir_str=_img_staging(next_img),
                             )
                             pending_futures.add(next_future)
                             future_to_image[next_future] = next_img
@@ -841,6 +1036,10 @@ class PipelineRunner:
                             budget_exceeded = True
 
         elapsed_total = time.monotonic() - start_time
+
+        # --- Finalize worst-image artifacts -----------------------------------
+        if track_worst and staging_base is not None:
+            self._finalize_worst_image(config.id, staging_base, all_records)
 
         # --- Assemble results -------------------------------------------------
         tool_versions = self._collect_tool_versions()
