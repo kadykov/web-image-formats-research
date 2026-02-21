@@ -47,6 +47,18 @@ class ComparisonConfig:
         metric: Primary metric used to find the worst measurement.
         max_columns: Maximum number of images per row in the grid.
         label_font_size: Font size for labels in the comparison grid.
+        region_strategy: How to select the worst fragment.  One of:
+
+            * ``"worst"`` *(default)* — use the distortion map of the
+              single worst parameter combination.
+            * ``"average"`` — average the distortion maps across **all**
+              parameter combinations; the fragment with the highest mean
+              distortion is chosen.  Identifies regions that are
+              challenging for every encoding variant.
+            * ``"variance"`` — compute the per-pixel variance across all
+              distortion maps and choose the fragment with the highest
+              variance.  Highlights regions where quality differs most
+              between parameter combinations.
     """
 
     crop_size: int = 128
@@ -54,6 +66,7 @@ class ComparisonConfig:
     metric: str = "ssimulacra2"
     max_columns: int = 6
     label_font_size: int = 14
+    region_strategy: str = "worst"
 
 
 @dataclass
@@ -88,6 +101,8 @@ class ComparisonResult:
         region: The detected worst region coordinates.
         output_images: List of generated comparison image paths.
         varying_parameters: Parameters that vary across measurements.
+        region_strategy: The strategy used to select the worst region
+            (``"worst"``, ``"average"``, or ``"variance"``).
     """
 
     study_id: str
@@ -98,6 +113,7 @@ class ComparisonResult:
     region: WorstRegion
     output_images: list[Path] = field(default_factory=list)
     varying_parameters: list[str] = field(default_factory=list)
+    region_strategy: str = "worst"
 
 
 def load_quality_results(quality_json_path: Path) -> dict:
@@ -366,6 +382,65 @@ def generate_distortion_map(
     return output_map
 
 
+def _find_worst_region_in_array(
+    arr: np.ndarray,
+    crop_size: int,
+) -> WorstRegion:
+    """Find the worst region in a 2-D distortion value array.
+
+    Core sliding-window computation shared by :func:`find_worst_region` and
+    :func:`compute_aggregate_distortion_maps`.  Works with any float array,
+    whether it comes from a raw PFM file, an averaged map, or a variance map.
+
+    Args:
+        arr: 2-D float array of shape ``(H, W)`` with per-pixel distortion
+            values.  Higher values mean more distortion.
+        crop_size: Side length of the square sliding window in pixels.
+
+    Returns:
+        :class:`WorstRegion` for the window position with the highest sum.
+    """
+    h, w = arr.shape
+
+    if h < crop_size or w < crop_size:
+        actual_h = min(h, crop_size)
+        actual_w = min(w, crop_size)
+        return WorstRegion(
+            x=0,
+            y=0,
+            width=actual_w,
+            height=actual_h,
+            avg_distortion=float(np.mean(arr)),
+        )
+
+    # Use integral image (summed area table) for efficient sliding window
+    integral = np.cumsum(np.cumsum(arr, axis=0), axis=1)
+    padded = np.zeros((h + 1, w + 1), dtype=np.float64)
+    padded[1:, 1:] = integral
+
+    y_max = h - crop_size + 1
+    x_max = w - crop_size + 1
+
+    window_sums = (
+        padded[crop_size:h + 1, crop_size:w + 1]
+        - padded[:y_max, crop_size:w + 1]
+        - padded[crop_size:h + 1, :x_max]
+        + padded[:y_max, :x_max]
+    )
+
+    max_idx = np.argmax(window_sums)
+    best_y, best_x = np.unravel_index(max_idx, window_sums.shape)
+    avg_distortion = float(window_sums[best_y, best_x] / (crop_size * crop_size))
+
+    return WorstRegion(
+        x=int(best_x),
+        y=int(best_y),
+        width=crop_size,
+        height=crop_size,
+        avg_distortion=avg_distortion,
+    )
+
+
 def find_worst_region(
     distortion_map_path: Path,
     crop_size: int = 128,
@@ -396,56 +471,9 @@ def find_worst_region(
         arr = _read_pfm(distortion_map_path)
     else:
         with Image.open(distortion_map_path) as img:
-            # Fallback: grayscale luminance as distortion proxy
             gray = img.convert("L")
             arr = np.array(gray, dtype=np.float64)
-
-    h, w = arr.shape
-
-    if h < crop_size or w < crop_size:
-        # Image smaller than crop: use the whole image
-        actual_h = min(h, crop_size)
-        actual_w = min(w, crop_size)
-        return WorstRegion(
-            x=0,
-            y=0,
-            width=actual_w,
-            height=actual_h,
-            avg_distortion=float(np.mean(arr)),
-        )
-
-    # Use integral image (summed area table) for efficient sliding window
-    integral = np.cumsum(np.cumsum(arr, axis=0), axis=1)
-
-    # Compute sum for each crop_size x crop_size window
-    # pad integral image with zeros on top and left
-    padded = np.zeros((h + 1, w + 1), dtype=np.float64)
-    padded[1:, 1:] = integral
-
-    # Window sums using the integral image
-    y_max = h - crop_size + 1
-    x_max = w - crop_size + 1
-
-    window_sums = (
-        padded[crop_size:h + 1, crop_size:w + 1]
-        - padded[:y_max, crop_size:w + 1]
-        - padded[crop_size:h + 1, :x_max]
-        + padded[:y_max, :x_max]
-    )
-
-    # Find position of maximum sum
-    max_idx = np.argmax(window_sums)
-    best_y, best_x = np.unravel_index(max_idx, window_sums.shape)
-
-    avg_distortion = float(window_sums[best_y, best_x] / (crop_size * crop_size))
-
-    return WorstRegion(
-        x=int(best_x),
-        y=int(best_y),
-        width=crop_size,
-        height=crop_size,
-        avg_distortion=avg_distortion,
-    )
+    return _find_worst_region_in_array(arr, crop_size)
 
 
 def crop_and_zoom(
@@ -767,6 +795,86 @@ def _get_or_encode(
     return encode_image(source_path, measurement, output_dir)
 
 
+def compute_aggregate_distortion_maps(
+    source_path: Path,
+    measurements: list[dict],
+    output_dir: Path,
+    project_root: Path,
+    encoded_dir: Path,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute per-pixel average and variance distortion across all variants.
+
+    For each measurement in ``measurements`` this function:
+
+    1. Obtains the encoded image (saved artifact or re-encodes on the fly).
+    2. Runs ``butteraugli_main --rawdistmap`` to get per-pixel float
+       distortion values.
+    3. Stacks all resulting maps and returns the mean and variance arrays.
+
+    The **average map** captures regions that are consistently difficult
+    for every parameter combination.  The **variance map** captures
+    regions where quality varies most across parameter combinations — a
+    high-variance pixel is encoded well by some settings but badly by
+    others.
+
+    Args:
+        source_path: Path to the source (original) image.
+        measurements: List of measurement dicts for the source image.
+        output_dir: Directory where per-variant distortion maps will be
+            written (under a ``distmaps/`` subdirectory).
+        project_root: Project root for resolving saved artifact paths.
+        encoded_dir: Directory for re-encoded files produced on the fly.
+
+    Returns:
+        ``(avg_map, var_map)`` — two float64 arrays of shape ``(H, W)``.
+
+    Raises:
+        RuntimeError: If no distortion maps could be produced for any variant.
+    """
+    distmaps_dir = output_dir / "distmaps"
+    distmaps_dir.mkdir(parents=True, exist_ok=True)
+
+    arrays: list[np.ndarray] = []
+
+    for m in measurements:
+        fmt = m["format"]
+        quality = m["quality"]
+        suffix = f"{fmt}_q{quality}"
+        for param in ("chroma_subsampling", "speed", "effort", "method"):
+            if m.get(param) is not None:
+                suffix += f"_{param}{m[param]}"
+
+        enc_path = _get_or_encode(source_path, m, encoded_dir, project_root)
+        if enc_path is None:
+            print(f"    Warning: could not obtain encoded image for {fmt} q{quality}")
+            continue
+
+        distmap_png = distmaps_dir / f"distmap_{suffix}.png"
+        raw_pfm = distmaps_dir / f"distmap_{suffix}.pfm"
+        try:
+            generate_distortion_map(source_path, enc_path, distmap_png, raw_pfm)
+        except RuntimeError as exc:
+            print(f"    Warning: distortion map failed for {fmt} q{quality}: {exc}")
+            continue
+
+        if not raw_pfm.exists():
+            print(f"    Warning: raw PFM not produced for {fmt} q{quality}")
+            continue
+
+        try:
+            arrays.append(_read_pfm(raw_pfm))
+        except ValueError as exc:
+            print(f"    Warning: could not read PFM for {fmt} q{quality}: {exc}")
+            continue
+
+    if not arrays:
+        msg = "No distortion maps could be computed for any variant"
+        raise RuntimeError(msg)
+
+    stacked = np.stack(arrays, axis=0)  # (N, H, W)
+    return stacked.mean(axis=0), stacked.var(axis=0)
+
+
 def generate_comparison(
     quality_json_path: Path,
     output_dir: Path,
@@ -861,16 +969,31 @@ def generate_comparison(
     # 4. Generate distortion map for the worst measurement
     distmap_path = output_dir / "distortion_map.png"
     raw_distmap_path = output_dir / "distortion_map_raw.pfm"
-    print("  Generating distortion map...")
+    print("  Generating distortion map for worst variant...")
     generate_distortion_map(source_path, worst_encoded, distmap_path, raw_distmap_path)
 
-    # 5. Find the worst region using the raw PFM map when available
-    # (true float values) or fall back to the colour PNG
-    region_map = raw_distmap_path if raw_distmap_path.exists() else distmap_path
-    region = find_worst_region(region_map, crop_size=config.crop_size)
-    print(f"  Worst region: ({region.x}, {region.y}) "
-          f"{region.width}x{region.height} "
-          f"avg_distortion={region.avg_distortion:.2f}")
+    # 5. Find the worst region using the configured strategy
+    strategy = config.region_strategy
+    if strategy in ("average", "variance"):
+        print(f"  Computing aggregate distortion maps across all "
+              f"{len(source_measurements)} variants (strategy: {strategy})...")
+        avg_map, var_map = compute_aggregate_distortion_maps(
+            source_path, source_measurements, output_dir, project_root, encoded_dir,
+        )
+        np.save(output_dir / "distortion_map_average.npy", avg_map)
+        np.save(output_dir / "distortion_map_variance.npy", var_map)
+        agg_arr = avg_map if strategy == "average" else var_map
+        region = _find_worst_region_in_array(agg_arr, crop_size=config.crop_size)
+        print(f"  Worst region ({strategy}): ({region.x}, {region.y}) "
+              f"{region.width}x{region.height} "
+              f"score={region.avg_distortion:.4f}")
+    else:
+        # "worst" (default): distortion map of the single worst combo
+        region_map = raw_distmap_path if raw_distmap_path.exists() else distmap_path
+        region = find_worst_region(region_map, crop_size=config.crop_size)
+        print(f"  Worst region: ({region.x}, {region.y}) "
+              f"{region.width}x{region.height} "
+              f"avg_distortion={region.avg_distortion:.2f}")
 
     # 6. Determine varying parameters
     varying = determine_varying_parameters(source_measurements)
@@ -988,6 +1111,7 @@ def generate_comparison(
         region=region,
         output_images=output_images,
         varying_parameters=varying,
+        region_strategy=strategy,
     )
 
 
