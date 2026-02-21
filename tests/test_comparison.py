@@ -4,6 +4,7 @@ import json
 import shutil
 import struct
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -15,10 +16,12 @@ from src.comparison import (
     WorstRegion,
     _build_label,
     _build_metric_label,
+    _find_worst_region_in_array,
     _get_or_encode,
     _read_pfm,
     _resolve_encoded_path,
     assemble_comparison_grid,
+    compute_aggregate_distortion_maps,
     crop_and_zoom,
     determine_varying_parameters,
     encode_image,
@@ -468,6 +471,128 @@ def test_read_pfm_invalid_magic(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tests: _find_worst_region_in_array
+# ---------------------------------------------------------------------------
+
+
+def test_find_worst_region_in_array_finds_hotspot() -> None:
+    """_find_worst_region_in_array locates the hot-spot in a float array."""
+    arr = np.zeros((64, 64), dtype=np.float64)
+    arr[20:30, 40:50] = 10.0  # hot-spot at col 40-50, row 20-30
+    region = _find_worst_region_in_array(arr, crop_size=16)
+    assert 24 <= region.x <= 50
+    assert 4 <= region.y <= 30
+    assert region.width == 16
+    assert region.height == 16
+    assert region.avg_distortion > 0
+
+
+def test_find_worst_region_in_array_small_image() -> None:
+    """Returns whole image when smaller than crop_size."""
+    arr = np.full((20, 30), 5.0, dtype=np.float64)
+    region = _find_worst_region_in_array(arr, crop_size=64)
+    assert region.x == 0
+    assert region.y == 0
+    assert region.width == 30
+    assert region.height == 20
+    assert abs(region.avg_distortion - 5.0) < 1e-9
+
+
+def test_find_worst_region_in_array_uniform() -> None:
+    """Any position is equally valid for a uniform array."""
+    arr = np.full((128, 128), 3.0, dtype=np.float64)
+    region = _find_worst_region_in_array(arr, crop_size=32)
+    assert region.width == 32
+    assert region.height == 32
+    assert abs(region.avg_distortion - 3.0) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Tests: compute_aggregate_distortion_maps
+# ---------------------------------------------------------------------------
+
+
+def test_compute_aggregate_distortion_maps_unit(
+    tmp_path: Path,
+) -> None:
+    """Unit test: mocks encoder and distortion-map tools to test aggregation.
+
+    Verifies that the function correctly stacks the per-variant arrays,
+    and that the results (avg, var) have the expected shapes and values.
+    """
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    source_path = source_dir / "image2.png"
+    Image.new("RGB", (8, 8), color=(128, 128, 128)).save(source_path)
+
+    encoded_dir = tmp_path / "encoded"
+    encoded_dir.mkdir()
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    # Two measurements (same format, different quality) for image2
+    measurements = [
+        {"source_image": "image2.png", "format": "jpeg", "quality": 50,
+         "encoded_path": ""},
+        {"source_image": "image2.png", "format": "jpeg", "quality": 80,
+         "encoded_path": ""},
+    ]
+
+    # Synthetic PFM arrays that the mock will write
+    arr1 = np.full((8, 8), 4.0, dtype=np.float32)
+    arr2 = np.full((8, 8), 2.0, dtype=np.float32)
+
+    def fake_gen_distortion_map(
+        _original: Path,
+        _compressed: Path,
+        output_map: Path,
+        raw_output_map: Path | None = None,
+    ) -> Path:
+        # Write a synthetic PFM so _read_pfm can load it
+        if raw_output_map is not None:
+            arr = arr1 if "q50" in str(raw_output_map) else arr2
+            _write_pfm_grayscale(raw_output_map, arr)
+        return output_map
+
+    fake_enc = tmp_path / "fake.jpg"
+    fake_enc.write_bytes(b"fake")
+
+    with (
+        patch("src.comparison._get_or_encode", return_value=fake_enc),
+        patch("src.comparison.generate_distortion_map",
+              side_effect=fake_gen_distortion_map),
+    ):
+        avg_map, var_map = compute_aggregate_distortion_maps(
+            source_path, measurements, output_dir,
+            project_root=tmp_path, encoded_dir=encoded_dir,
+        )
+
+    assert avg_map.shape == (8, 8)
+    assert var_map.shape == (8, 8)
+    # Average of 4.0 and 2.0 = 3.0
+    np.testing.assert_allclose(avg_map, 3.0, rtol=1e-5)
+    # Variance of [4.0, 2.0] = 1.0
+    np.testing.assert_allclose(var_map, 1.0, rtol=1e-5)
+
+
+def test_compute_aggregate_distortion_maps_no_maps(
+    tmp_path: Path,
+) -> None:
+    """RuntimeError is raised when every variant fails."""
+    with (
+        patch("src.comparison._get_or_encode", return_value=None),
+        pytest.raises(RuntimeError, match="No distortion maps"),
+    ):
+        compute_aggregate_distortion_maps(
+            source_path=tmp_path / "img.png",
+            measurements=[{"format": "jpeg", "quality": 50, "encoded_path": ""}],
+            output_dir=tmp_path / "out",
+            project_root=tmp_path,
+            encoded_dir=tmp_path / "enc",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Tests: crop_and_zoom
 # ---------------------------------------------------------------------------
 
@@ -686,6 +811,14 @@ def test_comparison_config_defaults() -> None:
     assert config.metric == "ssimulacra2"
     assert config.max_columns == 6
     assert config.label_font_size == 14
+    assert config.region_strategy == "worst"
+
+
+def test_comparison_config_region_strategy() -> None:
+    """Test all supported region_strategy values."""
+    for strategy in ("worst", "average", "variance"):
+        config = ComparisonConfig(region_strategy=strategy)
+        assert config.region_strategy == strategy
 
 
 def test_comparison_config_custom() -> None:
@@ -712,6 +845,22 @@ def test_comparison_result() -> None:
     assert result.study_id == "test"
     assert result.region.x == 10
     assert len(result.output_images) == 1
+    assert result.region_strategy == "worst"  # default
+
+
+def test_comparison_result_region_strategy() -> None:
+    """ComparisonResult records the region strategy used."""
+    region = WorstRegion(x=0, y=0, width=64, height=64, avg_distortion=1.0)
+    result = ComparisonResult(
+        study_id="test",
+        worst_source_image="img.png",
+        worst_metric_value=60.0,
+        worst_format="avif",
+        worst_quality=60,
+        region=region,
+        region_strategy="average",
+    )
+    assert result.region_strategy == "average"
 
 
 # ---------------------------------------------------------------------------

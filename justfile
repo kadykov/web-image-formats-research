@@ -178,6 +178,10 @@ compare-to STUDY OUTPUT_DIR:
 compare-metric STUDY METRIC:
     python3 scripts/generate_comparison.py {{STUDY}} --metric {{METRIC}}
 
+# Generate comparison using an aggregate region strategy (average or variance)
+compare-strategy STUDY STRATEGY:
+    python3 scripts/generate_comparison.py {{STUDY}} --region-strategy {{STRATEGY}}
+
 # List studies available for visual comparison
 list-comparisons:
     python3 scripts/generate_comparison.py --list

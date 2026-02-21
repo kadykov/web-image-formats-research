@@ -93,6 +93,20 @@ Examples:
     )
 
     parser.add_argument(
+        "--region-strategy",
+        type=str,
+        default="worst",
+        choices=["worst", "average", "variance"],
+        help=(
+            "Strategy to select the worst fragment (default: worst). "
+            "'worst' uses the distortion map of the single worst parameter "
+            "combination.  'average' averages maps across all variants to "
+            "find the region that is consistently bad.  'variance' chooses "
+            "the region with the highest variation across variants."
+        ),
+    )
+
+    parser.add_argument(
         "--list",
         action="store_true",
         help="List available studies with quality measurements",
@@ -155,6 +169,7 @@ Examples:
         zoom_factor=args.zoom,
         metric=args.metric,
         max_columns=args.max_columns,
+        region_strategy=args.region_strategy,
     )
 
     # Generate comparison
@@ -169,6 +184,7 @@ Examples:
         print(f"  Worst image: {result.worst_source_image}")
         print(f"  Worst format: {result.worst_format} q{result.worst_quality}")
         print(f"  {config.metric}: {result.worst_metric_value:.2f}")
+        print(f"  Region strategy: {result.region_strategy}")
         print(f"  Region: ({result.region.x}, {result.region.y}) "
               f"{result.region.width}x{result.region.height}")
         print(f"  Output images: {len(result.output_images)}")
