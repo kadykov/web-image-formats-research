@@ -174,6 +174,12 @@ examples:
         help="Save encoded image files to data/encoded/<study>/",
     )
     parser.add_argument(
+        "--save-worst-image",
+        action="store_true",
+        help="Save encoded files for the worst-quality image only "
+        "(for use with visual comparison tool)",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Override output path for quality results JSON "
@@ -232,6 +238,7 @@ examples:
             config,
             time_budget=time_budget,
             save_artifacts=args.save_artifacts,
+            save_worst_image=args.save_worst_image,
             num_workers=args.workers,
         )
     except (FileNotFoundError, ValueError) as e:

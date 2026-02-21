@@ -160,6 +160,28 @@ analyze-to STUDY OUTPUT_DIR:
 list-analyzed:
     python3 scripts/analyze_study.py --list
 
+# Visual Comparison
+
+# Generate visual comparison for a study (find worst region, create grid)
+compare STUDY:
+    python3 scripts/generate_comparison.py {{STUDY}}
+
+# Generate comparison with custom crop size and zoom
+compare-with STUDY CROP_SIZE ZOOM:
+    python3 scripts/generate_comparison.py {{STUDY}} --crop-size {{CROP_SIZE}} --zoom {{ZOOM}}
+
+# Generate comparison to custom output directory
+compare-to STUDY OUTPUT_DIR:
+    python3 scripts/generate_comparison.py {{STUDY}} --output {{OUTPUT_DIR}}
+
+# Generate comparison using a specific metric to find worst case
+compare-metric STUDY METRIC:
+    python3 scripts/generate_comparison.py {{STUDY}} --metric {{METRIC}}
+
+# List studies available for visual comparison
+list-comparisons:
+    python3 scripts/generate_comparison.py --list
+
 # Run merged encode+measure pipeline with time budget
 pipeline STUDY TIME_BUDGET:
     python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}}
@@ -171,6 +193,11 @@ pipeline-all STUDY:
 # Run pipeline and save encoded artifacts to disk
 pipeline-save STUDY TIME_BUDGET:
     python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}} --save-artifacts
+
+# Run pipeline and save encoded files for the worst-quality image (for visual comparison)
+pipeline-compare STUDY TIME_BUDGET:
+    python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}} --save-worst-image
+    just compare {{STUDY}}
 
 # Run pipeline then analyze results
 pipeline-analyze STUDY TIME_BUDGET:
