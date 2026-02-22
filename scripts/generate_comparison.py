@@ -73,8 +73,8 @@ Examples:
     parser.add_argument(
         "--zoom",
         type=int,
-        default=2,
-        help="Zoom factor for crops (default: 2 for 200%%)",
+        default=3,
+        help="Zoom factor for crops (default: 3 for 300%%)",
     )
 
     parser.add_argument(
@@ -88,14 +88,14 @@ Examples:
     parser.add_argument(
         "--max-columns",
         type=int,
-        default=6,
-        help="Maximum images per row in the comparison grid (default: 6)",
+        default=4,
+        help="Maximum images per row in the comparison grid (default: 4)",
     )
 
     parser.add_argument(
         "--region-strategy",
         type=str,
-        default="worst",
+        default="average",
         choices=["worst", "average", "variance"],
         help=(
             "Strategy to select the worst fragment (default: worst). "
@@ -185,11 +185,15 @@ Examples:
         print(f"  Worst format: {result.worst_format} q{result.worst_quality}")
         print(f"  {config.metric}: {result.worst_metric_value:.2f}")
         print(f"  Region strategy: {result.region_strategy}")
-        print(f"  Region: ({result.region.x}, {result.region.y}) "
-              f"{result.region.width}x{result.region.height}")
+        print(
+            f"  Region: ({result.region.x}, {result.region.y}) "
+            f"{result.region.width}x{result.region.height}"
+        )
         print(f"  Output images: {len(result.output_images)}")
         for img in result.output_images:
             print(f"    - {img}")
+        print(f"  Distortion map: {output_dir / 'distortion_map_viridis.png'}")
+        print(f"  Original annotated: {output_dir / 'original_annotated.png'}")
         return 0
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)

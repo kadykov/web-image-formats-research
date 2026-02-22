@@ -162,7 +162,7 @@ list-analyzed:
 
 # Visual Comparison
 
-# Generate visual comparison for a study (find worst region, create grid)
+# Generate visual comparison for a study (average region strategy by default)
 compare STUDY:
     python3 scripts/generate_comparison.py {{STUDY}}
 

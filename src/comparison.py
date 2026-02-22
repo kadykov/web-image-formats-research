@@ -31,6 +31,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 from PIL import Image
 
@@ -43,7 +44,7 @@ class ComparisonConfig:
 
     Attributes:
         crop_size: Size of the crop region in original pixels (before zoom).
-        zoom_factor: Factor to scale the crop (e.g., 2 for 200% zoom).
+        zoom_factor: Factor to scale the crop (e.g., 3 for 300% zoom).
         metric: Primary metric used to find the worst measurement.
         max_columns: Maximum number of images per row in the grid.
         label_font_size: Font size for labels in the comparison grid.
@@ -62,11 +63,11 @@ class ComparisonConfig:
     """
 
     crop_size: int = 128
-    zoom_factor: int = 2
+    zoom_factor: int = 3
     metric: str = "ssimulacra2"
-    max_columns: int = 6
-    label_font_size: int = 14
-    region_strategy: str = "worst"
+    max_columns: int = 4
+    label_font_size: int = 22
+    region_strategy: str = "average"
 
 
 @dataclass
@@ -169,10 +170,7 @@ def find_worst_measurement(
     higher_is_better = {"ssimulacra2", "psnr", "ssim"}
 
     valid = [
-        m
-        for m in measurements
-        if m.get("measurement_error") is None
-        and m.get(metric) is not None
+        m for m in measurements if m.get("measurement_error") is None and m.get(metric) is not None
     ]
 
     if not valid:
@@ -323,28 +321,22 @@ def _read_pfm(pfm_path: Path) -> np.ndarray:
 def generate_distortion_map(
     original: Path,
     compressed: Path,
-    output_map: Path,
-    raw_output_map: Path | None = None,
+    output_pfm: Path,
 ) -> Path:
-    """Generate a Butteraugli spatial distortion map.
+    """Generate a raw Butteraugli distortion map as a PFM file.
 
-    Uses ``butteraugli_main --distmap`` to produce a false-colour PNG
-    heatmap for display, and optionally ``--rawdistmap`` to write a PFM
-    file containing the actual per-pixel float distortion values (for
-    use by :func:`find_worst_region`).
+    Uses ``butteraugli_main --rawdistmap`` to produce a PFM file
+    containing the actual per-pixel float distortion values.  The false-
+    colour PNG normally written by ``--distmap`` is redirected to a
+    throw-away file inside a temporary directory and discarded.
 
     Args:
         original: Path to the original reference image.
         compressed: Path to the compressed/encoded image.
-        output_map: Path where the false-colour distortion map PNG will
-            be written.
-        raw_output_map: Optional path for the raw PFM distortion map.
-            When provided, ``--rawdistmap`` is passed to
-            ``butteraugli_main`` so the caller can use true float values
-            for region detection instead of analysing the colour map.
+        output_pfm: Path where the raw PFM distortion map will be written.
 
     Returns:
-        Path to the generated false-colour distortion map PNG.
+        Path to the generated PFM file (same as ``output_pfm``).
 
     Raises:
         RuntimeError: If butteraugli_main fails.
@@ -362,24 +354,25 @@ def generate_distortion_map(
             comp_png = tmpdir_path / "compressed.png"
             _to_png(compressed, comp_png)
 
-        output_map.parent.mkdir(parents=True, exist_ok=True)
+        output_pfm.parent.mkdir(parents=True, exist_ok=True)
+        # butteraugli_main requires at least --distmap; route it to a
+        # throw-away file inside the temp directory.
         cmd = [
             "butteraugli_main",
             str(orig_png),
             str(comp_png),
             "--distmap",
-            str(output_map),
+            str(tmpdir_path / "distmap_unused.png"),
+            "--rawdistmap",
+            str(output_pfm),
         ]
-        if raw_output_map is not None:
-            raw_output_map.parent.mkdir(parents=True, exist_ok=True)
-            cmd += ["--rawdistmap", str(raw_output_map)]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             msg = f"butteraugli_main failed: {result.stderr}"
             raise RuntimeError(msg)
 
-    return output_map
+    return output_pfm
 
 
 def _find_worst_region_in_array(
@@ -422,9 +415,9 @@ def _find_worst_region_in_array(
     x_max = w - crop_size + 1
 
     window_sums = (
-        padded[crop_size:h + 1, crop_size:w + 1]
-        - padded[:y_max, crop_size:w + 1]
-        - padded[crop_size:h + 1, :x_max]
+        padded[crop_size : h + 1, crop_size : w + 1]
+        - padded[:y_max, crop_size : w + 1]
+        - padded[crop_size : h + 1, :x_max]
         + padded[:y_max, :x_max]
     )
 
@@ -442,44 +435,30 @@ def _find_worst_region_in_array(
 
 
 def find_worst_region(
-    distortion_map_path: Path,
+    pfm_path: Path,
     crop_size: int = 128,
 ) -> WorstRegion:
-    """Find the region with highest distortion in a Butteraugli distortion map.
+    """Find the region with the highest distortion in a raw Butteraugli PFM file.
 
-    Slides a window of ``crop_size × crop_size`` over the distortion map
-    and finds the position with the highest average distortion value.
-
-    Two input formats are supported:
-
-    * **PFM** (``.pfm``): the raw floating-point distortion map produced
-      by ``butteraugli_main --rawdistmap``.  Each pixel holds the actual
-      perceptual distortion value, so this is the preferred input.
-    * **PNG**: the false-colour heatmap produced by
-      ``butteraugli_main --distmap``.  The luminance channel is used as
-      a proxy for distortion intensity.  This is less accurate because
-      the false-colour palette is non-linear.
+    Reads the per-pixel float distortion values from a PFM file produced by
+    ``butteraugli_main --rawdistmap`` and delegates the sliding-window search
+    to :func:`_find_worst_region_in_array`.
 
     Args:
-        distortion_map_path: Path to the distortion map (``.pfm`` or image).
-        crop_size: Size of the sliding window in pixels.
+        pfm_path: Path to a ``.pfm`` raw distortion map.
+        crop_size: Side length of the square sliding window in pixels.
 
     Returns:
         :class:`WorstRegion` with coordinates and average distortion score.
     """
-    if distortion_map_path.suffix.lower() == ".pfm":
-        arr = _read_pfm(distortion_map_path)
-    else:
-        with Image.open(distortion_map_path) as img:
-            gray = img.convert("L")
-            arr = np.array(gray, dtype=np.float64)
+    arr = _read_pfm(pfm_path)
     return _find_worst_region_in_array(arr, crop_size)
 
 
 def crop_and_zoom(
     image_path: Path,
     region: WorstRegion,
-    zoom_factor: int = 2,
+    zoom_factor: int = 3,
     output_path: Path | None = None,
 ) -> Image.Image:
     """Crop a region from an image and zoom with nearest-neighbor interpolation.
@@ -487,7 +466,7 @@ def crop_and_zoom(
     Args:
         image_path: Path to the image file
         region: Region to crop
-        zoom_factor: Scale factor (e.g., 2 for 200%)
+        zoom_factor: Scale factor (e.g., 3 for 300%)
         output_path: Optional path to save the result
 
     Returns:
@@ -603,8 +582,8 @@ def _build_metric_label(measurement: dict) -> str:
 def assemble_comparison_grid(
     crops: list[tuple[Path, str, str]],
     output_path: Path,
-    max_columns: int = 6,
-    label_font_size: int = 14,
+    max_columns: int = 4,
+    label_font_size: int = 22,
 ) -> Path:
     """Assemble cropped images into a labeled grid using ImageMagick montage.
 
@@ -725,8 +704,11 @@ def encode_image(
         speed = measurement.get("speed") or 4
         chroma = measurement.get("chroma_subsampling")
         result = encoder.encode_avif(
-            source_path, quality, speed=speed,
-            chroma_subsampling=chroma, output_name=output_name,
+            source_path,
+            quality,
+            speed=speed,
+            chroma_subsampling=chroma,
+            output_name=output_name,
         )
     elif fmt == "jxl":
         effort = measurement.get("effort") or 7
@@ -831,8 +813,8 @@ def compute_aggregate_distortion_maps(
     Raises:
         RuntimeError: If no distortion maps could be produced for any variant.
     """
-    distmaps_dir = output_dir / "distmaps"
-    distmaps_dir.mkdir(parents=True, exist_ok=True)
+    pfms_dir = output_dir / "pfms"
+    pfms_dir.mkdir(parents=True, exist_ok=True)
 
     arrays: list[np.ndarray] = []
 
@@ -849,16 +831,11 @@ def compute_aggregate_distortion_maps(
             print(f"    Warning: could not obtain encoded image for {fmt} q{quality}")
             continue
 
-        distmap_png = distmaps_dir / f"distmap_{suffix}.png"
-        raw_pfm = distmaps_dir / f"distmap_{suffix}.pfm"
+        raw_pfm = pfms_dir / f"distmap_{suffix}.pfm"
         try:
-            generate_distortion_map(source_path, enc_path, distmap_png, raw_pfm)
+            generate_distortion_map(source_path, enc_path, raw_pfm)
         except RuntimeError as exc:
             print(f"    Warning: distortion map failed for {fmt} q{quality}: {exc}")
-            continue
-
-        if not raw_pfm.exists():
-            print(f"    Warning: raw PFM not produced for {fmt} q{quality}")
             continue
 
         try:
@@ -927,7 +904,8 @@ def generate_comparison(
 
     # Get measurements for this source image
     source_measurements = [
-        m for m in measurements
+        m
+        for m in measurements
         if m["source_image"] == worst_source
         and m.get("measurement_error") is None
         and m.get(config.metric) is not None
@@ -940,8 +918,10 @@ def generate_comparison(
     # Find the single worst measurement for this image (for distortion map)
     worst_m = find_worst_measurement(source_measurements, metric=config.metric)
     worst_metric_value = worst_m[config.metric]
-    print(f"  Worst measurement: {worst_m['format']} q{worst_m['quality']} "
-          f"({config.metric}={worst_metric_value:.2f})")
+    print(
+        f"  Worst measurement: {worst_m['format']} q{worst_m['quality']} "
+        f"({config.metric}={worst_metric_value:.2f})"
+    )
 
     # 3. Obtain the encoded image for the worst measurement
     source_path = project_root / worst_m["source_image"]
@@ -950,142 +930,119 @@ def generate_comparison(
         msg = f"Source image not found: {source_path}"
         raise FileNotFoundError(msg)
 
-    encoded_dir = output_dir / "encoded"
-    encoded_dir.mkdir(parents=True, exist_ok=True)
+    # All intermediate files live in a single temporary directory that is
+    # cleaned up automatically when generate_comparison returns.
+    with tempfile.TemporaryDirectory() as _work:
+        work = Path(_work)
+        encoded_dir = work / "encoded"
+        encoded_dir.mkdir()
+        crops_dir = work / "crops"
+        crops_dir.mkdir()
 
-    # Check for pre-existing encoded files (from save_worst_image pipeline option)
-    has_saved_artifacts = _resolve_encoded_path(worst_m, project_root) is not None
-    if has_saved_artifacts:
-        print("  Using saved encoded artifacts from pipeline")
-    else:
-        print("  Re-encoding on the fly (no saved artifacts found)")
-
-    print("  Obtaining worst measurement encoded image...")
-    worst_encoded = _get_or_encode(source_path, worst_m, encoded_dir, project_root)
-    if worst_encoded is None:
-        msg = f"Failed to obtain encoded {worst_m['format']} q{worst_m['quality']}"
-        raise RuntimeError(msg)
-
-    # 4. Generate distortion map for the worst measurement
-    distmap_path = output_dir / "distortion_map.png"
-    raw_distmap_path = output_dir / "distortion_map_raw.pfm"
-    print("  Generating distortion map for worst variant...")
-    generate_distortion_map(source_path, worst_encoded, distmap_path, raw_distmap_path)
-
-    # 5. Find the worst region using the configured strategy
-    strategy = config.region_strategy
-    if strategy in ("average", "variance"):
-        print(f"  Computing aggregate distortion maps across all "
-              f"{len(source_measurements)} variants (strategy: {strategy})...")
-        avg_map, var_map = compute_aggregate_distortion_maps(
-            source_path, source_measurements, output_dir, project_root, encoded_dir,
-        )
-        np.save(output_dir / "distortion_map_average.npy", avg_map)
-        np.save(output_dir / "distortion_map_variance.npy", var_map)
-        agg_arr = avg_map if strategy == "average" else var_map
-        region = _find_worst_region_in_array(agg_arr, crop_size=config.crop_size)
-        print(f"  Worst region ({strategy}): ({region.x}, {region.y}) "
-              f"{region.width}x{region.height} "
-              f"score={region.avg_distortion:.4f}")
-    else:
-        # "worst" (default): distortion map of the single worst combo
-        region_map = raw_distmap_path if raw_distmap_path.exists() else distmap_path
-        region = find_worst_region(region_map, crop_size=config.crop_size)
-        print(f"  Worst region: ({region.x}, {region.y}) "
-              f"{region.width}x{region.height} "
-              f"avg_distortion={region.avg_distortion:.2f}")
-
-    # 6. Determine varying parameters
-    varying = determine_varying_parameters(source_measurements)
-    print(f"  Varying parameters: {varying}")
-
-    # 7. Crop and zoom the original image first
-    crops_dir = output_dir / "crops"
-    crops_dir.mkdir(parents=True, exist_ok=True)
-
-    original_crop_path = crops_dir / "original.png"
-    crop_and_zoom(
-        source_path, region, zoom_factor=config.zoom_factor,
-        output_path=original_crop_path,
-    )
-
-    # 8. Re-encode and crop each parameter variant
-    crop_entries: list[tuple[Path, str, str]] = [
-        (original_crop_path, "Original", "Reference"),
-    ]
-
-    # Sort measurements for consistent ordering
-    sort_keys = ["format", "quality"]
-    for param in ["chroma_subsampling", "speed", "effort", "method", "resolution"]:
-        if param in varying:
-            sort_keys.append(param)
-
-    sorted_measurements = sorted(
-        source_measurements,
-        key=lambda m: tuple(m.get(k, 0) or 0 for k in sort_keys),
-    )
-
-    print(f"  Obtaining {len(sorted_measurements)} variants...")
-    for m in sorted_measurements:
-        enc_path = _get_or_encode(source_path, m, encoded_dir, project_root)
-        if enc_path is None:
-            continue
-
-        label = _build_label(m, varying)
-        metric_label = _build_metric_label(m)
-
-        # Create a safe filename from the label
-        safe_name = label.replace(" ", "_").replace("=", "-")
-        crop_path = crops_dir / f"{safe_name}.png"
-
-        crop_and_zoom(
-            enc_path, region, zoom_factor=config.zoom_factor,
-            output_path=crop_path,
-        )
-        crop_entries.append((crop_path, label, metric_label))
-
-    print(f"  Cropped {len(crop_entries)} images (including original)")
-
-    # 9. Assemble comparison grids
-    output_images: list[Path] = []
-
-    # If few enough images, make a single grid
-    if len(crop_entries) <= config.max_columns * 3:
-        grid_path = output_dir / "comparison.png"
-        assemble_comparison_grid(
-            crop_entries,
-            grid_path,
-            max_columns=config.max_columns,
-            label_font_size=config.label_font_size,
-        )
-        output_images.append(grid_path)
-        print(f"  Generated comparison grid: {grid_path}")
-    else:
-        # Split by first varying parameter (typically format)
-        if varying:
-            split_param = varying[0]
-            groups: dict[str, list[tuple[Path, str, str]]] = {}
-            # Keep original in every group
-            original_entry = crop_entries[0]
-
-            for entry, m in zip(crop_entries[1:], sorted_measurements, strict=False):
-                group_key = str(m.get(split_param, "unknown"))
-                if group_key not in groups:
-                    groups[group_key] = [original_entry]
-                groups[group_key].append(entry)
-
-            for group_name, group_entries in sorted(groups.items()):
-                grid_path = output_dir / f"comparison_{split_param}_{group_name}.png"
-                assemble_comparison_grid(
-                    group_entries,
-                    grid_path,
-                    max_columns=config.max_columns,
-                    label_font_size=config.label_font_size,
-                )
-                output_images.append(grid_path)
-                print(f"  Generated comparison grid: {grid_path}")
+        # Check for pre-existing encoded files (from save_worst_image pipeline option)
+        has_saved_artifacts = _resolve_encoded_path(worst_m, project_root) is not None
+        if has_saved_artifacts:
+            print("  Using saved encoded artifacts from pipeline")
         else:
-            # No varying params, just output what we have
+            print("  Re-encoding on the fly (no saved artifacts found)")
+
+        print("  Obtaining worst measurement encoded image...")
+        worst_encoded = _get_or_encode(source_path, worst_m, encoded_dir, project_root)
+        if worst_encoded is None:
+            msg = f"Failed to obtain encoded {worst_m['format']} q{worst_m['quality']}"
+            raise RuntimeError(msg)
+
+        # 4. Generate raw distortion map for the worst measurement
+        raw_distmap_path = work / "distortion_map.pfm"
+        print("  Generating distortion map for worst variant...")
+        generate_distortion_map(source_path, worst_encoded, raw_distmap_path)
+
+        # 5. Find the worst region using the configured strategy
+        strategy = config.region_strategy
+        if strategy in ("average", "variance"):
+            print(
+                f"  Computing aggregate distortion maps across all "
+                f"{len(source_measurements)} variants (strategy: {strategy})..."
+            )
+            avg_map, var_map = compute_aggregate_distortion_maps(
+                source_path,
+                source_measurements,
+                work,
+                project_root,
+                encoded_dir,
+            )
+            distortion_arr = avg_map if strategy == "average" else var_map
+            region = _find_worst_region_in_array(distortion_arr, crop_size=config.crop_size)
+            print(
+                f"  Worst region ({strategy}): ({region.x}, {region.y}) "
+                f"{region.width}x{region.height} "
+                f"score={region.avg_distortion:.4f}"
+            )
+        else:
+            # "worst": raw PFM of the single worst parameter combination
+            distortion_arr = _read_pfm(raw_distmap_path)
+            region = _find_worst_region_in_array(distortion_arr, crop_size=config.crop_size)
+            print(
+                f"  Worst region: ({region.x}, {region.y}) "
+                f"{region.width}x{region.height} "
+                f"avg_distortion={region.avg_distortion:.2f}"
+            )
+
+        # 6. Determine varying parameters
+        varying = determine_varying_parameters(source_measurements)
+        print(f"  Varying parameters: {varying}")
+
+        # 7. Crop and zoom the original image first
+        original_crop_path = crops_dir / "original.png"
+        crop_and_zoom(
+            source_path,
+            region,
+            zoom_factor=config.zoom_factor,
+            output_path=original_crop_path,
+        )
+
+        # 8. Re-encode and crop each parameter variant
+        crop_entries: list[tuple[Path, str, str]] = [
+            (original_crop_path, "Original", "Reference"),
+        ]
+
+        # Sort measurements for consistent ordering
+        sort_keys = ["format", "quality"]
+        for param in ["chroma_subsampling", "speed", "effort", "method", "resolution"]:
+            if param in varying:
+                sort_keys.append(param)
+
+        sorted_measurements = sorted(
+            source_measurements,
+            key=lambda m: tuple(m.get(k, 0) or 0 for k in sort_keys),
+        )
+
+        print(f"  Obtaining {len(sorted_measurements)} variants...")
+        for m in sorted_measurements:
+            enc_path = _get_or_encode(source_path, m, encoded_dir, project_root)
+            if enc_path is None:
+                continue
+
+            label = _build_label(m, varying)
+            metric_label = _build_metric_label(m)
+
+            safe_name = label.replace(" ", "_").replace("=", "-")
+            crop_path = crops_dir / f"{safe_name}.png"
+
+            crop_and_zoom(
+                enc_path,
+                region,
+                zoom_factor=config.zoom_factor,
+                output_path=crop_path,
+            )
+            crop_entries.append((crop_path, label, metric_label))
+
+        print(f"  Cropped {len(crop_entries)} images (including original)")
+
+        # 9. Assemble comparison grids (written directly to output_dir)
+        output_images: list[Path] = []
+
+        if len(crop_entries) <= config.max_columns * 3:
             grid_path = output_dir / "comparison.png"
             assemble_comparison_grid(
                 crop_entries,
@@ -1094,9 +1051,47 @@ def generate_comparison(
                 label_font_size=config.label_font_size,
             )
             output_images.append(grid_path)
+            print(f"  Generated comparison grid: {grid_path}")
+        else:
+            # Split by first varying parameter (typically format)
+            if varying:
+                split_param = varying[0]
+                groups: dict[str, list[tuple[Path, str, str]]] = {}
+                original_entry = crop_entries[0]
 
-    # Save the distortion map overlay with the crop region marked
-    _save_annotated_distmap(distmap_path, region, output_dir / "distortion_map_annotated.png")
+                for entry, m in zip(crop_entries[1:], sorted_measurements, strict=False):
+                    group_key = str(m.get(split_param, "unknown"))
+                    if group_key not in groups:
+                        groups[group_key] = [original_entry]
+                    groups[group_key].append(entry)
+
+                for group_name, group_entries in sorted(groups.items()):
+                    grid_path = output_dir / f"comparison_{split_param}_{group_name}.png"
+                    assemble_comparison_grid(
+                        group_entries,
+                        grid_path,
+                        max_columns=config.max_columns,
+                        label_font_size=config.label_font_size,
+                    )
+                    output_images.append(grid_path)
+                    print(f"  Generated comparison grid: {grid_path}")
+            else:
+                grid_path = output_dir / "comparison.png"
+                assemble_comparison_grid(
+                    crop_entries,
+                    grid_path,
+                    max_columns=config.max_columns,
+                    label_font_size=config.label_font_size,
+                )
+                output_images.append(grid_path)
+
+        # 10. Write final visualization outputs
+        _visualize_distortion_map(
+            distortion_arr,
+            region,
+            output_dir / "distortion_map.png",
+        )
+        _save_annotated_original(source_path, region, output_dir / "original_annotated.png")
 
     print("\nComparison complete!")
     print(f"  Output directory: {output_dir}")
@@ -1115,32 +1110,26 @@ def generate_comparison(
     )
 
 
-def _save_annotated_distmap(
-    distmap_path: Path,
+def _draw_annotation_on_image(
+    image_path: Path,
     region: WorstRegion,
     output_path: Path,
 ) -> None:
-    """Save the distortion map with the worst region highlighted.
+    """Draw a high-contrast dashed rectangle on an image using ImageMagick.
 
-    Draws a high-contrast dashed rectangle over the selected crop region.
-    The annotation uses a thick white solid outer border followed by a
-    thin dashed black inner border so it remains visible on the
-    pink/red false-colour butteraugli heatmap.
+    Uses a thick white solid outer border followed by a thin dashed black
+    inner border so the annotation remains visible against any background.
 
     Args:
-        distmap_path: Path to the original distortion map (PNG).
-        region: The worst region coordinates.
-        output_path: Path where the annotated map will be saved.
+        image_path: Source image file (any format ImageMagick can read).
+        region: The region to annotate.
+        output_path: Destination path (can equal ``image_path`` for in-place).
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     x1, y1 = region.x, region.y
     x2, y2 = region.x + region.width, region.y + region.height
 
-    # Single -draw call using MVG inline attributes:
-    #   1. Solid white 5 px border  (visible on dark / saturated regions)
-    #   2. Dashed black 2 px border (visible on light / pale regions)
-    # stroke-dasharray applies to subsequent geometry only.
     draw_cmd = (
         f"fill none "
         f"stroke white stroke-width 5 "
@@ -1149,14 +1138,55 @@ def _save_annotated_distmap(
         f"stroke black stroke-width 2 "
         f"rectangle {x1},{y1} {x2},{y2}"
     )
-    cmd = [
-        "magick",
-        str(distmap_path),
-        "-draw",
-        draw_cmd,
-        str(output_path),
-    ]
+    cmd = ["magick", str(image_path), "-draw", draw_cmd, str(output_path)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        # Non-critical, just warn
-        print(f"  Warning: Could not annotate distortion map: {result.stderr}")
+        print(f"  Warning: Could not annotate image: {result.stderr}")
+
+
+def _visualize_distortion_map(
+    arr: np.ndarray,
+    region: WorstRegion,
+    output_path: Path,
+) -> None:
+    """Render a distortion array as a viridis-coloured image with region annotation.
+
+    The *viridis* colormap is perceptually uniform, colorblind-safe, and
+    grayscale-compatible: dark-blue pixels have low distortion and bright-yellow
+    pixels have high distortion.  The selected fragment is annotated with the
+    same high-contrast dashed rectangle as :func:`_draw_annotation_on_image`.
+
+    Args:
+        arr: 2-D float array of distortion values (any scale; will be
+            normalised to ``[0, 1]`` before colouring).
+        region: The region to annotate.
+        output_path: Destination PNG path.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    arr_min, arr_max = float(arr.min()), float(arr.max())
+    if arr_max > arr_min:
+        normalised = (arr - arr_min) / (arr_max - arr_min)
+    else:
+        normalised = np.zeros_like(arr, dtype=np.float64)
+
+    rgba = matplotlib.colormaps["viridis"](normalised)  # (H, W, 4) in [0, 1]
+    rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
+    Image.fromarray(rgb, mode="RGB").save(output_path)
+
+    _draw_annotation_on_image(output_path, region, output_path)
+
+
+def _save_annotated_original(
+    source_path: Path,
+    region: WorstRegion,
+    output_path: Path,
+) -> None:
+    """Save a copy of the source image with the selected region annotated.
+
+    Args:
+        source_path: Path to the original source image.
+        region: The region to annotate.
+        output_path: Destination image path.
+    """
+    _draw_annotation_on_image(source_path, region, output_path)
