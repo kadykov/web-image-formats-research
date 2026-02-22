@@ -725,9 +725,7 @@ class PipelineRunner:
                 shutil.rmtree(self._worst_staging_dir, ignore_errors=True)
             self._worst_staging_dir = candidate_dir
             self._worst_avg_score = avg
-            self._worst_original_key = (
-                image_records[0].original_image if image_records else None
-            )
+            self._worst_original_key = image_records[0].original_image if image_records else None
         else:
             # Not worse – discard immediately
             shutil.rmtree(candidate_dir, ignore_errors=True)
@@ -777,16 +775,16 @@ class PipelineRunner:
             if not rec.encoded_path:
                 continue
             if rec.encoded_path.startswith(worst_prefix):
-                rec.encoded_path = rec.encoded_path.replace(
-                    worst_prefix, final_prefix, 1
-                )
+                rec.encoded_path = rec.encoded_path.replace(worst_prefix, final_prefix, 1)
             elif rec.encoded_path.startswith(staging_base_prefix):
                 rec.encoded_path = ""
 
         print(f"\n  Worst image artifacts saved to: {final_dir}")
         if self._worst_original_key:
-            print(f"  Worst image: {self._worst_original_key} "
-                  f"(avg SSIMULACRA2: {self._worst_avg_score:.2f})")
+            print(
+                f"  Worst image: {self._worst_original_key} "
+                f"(avg SSIMULACRA2: {self._worst_avg_score:.2f})"
+            )
 
         # Cleanup staging base
         shutil.rmtree(staging_base, ignore_errors=True)

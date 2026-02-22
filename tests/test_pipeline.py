@@ -834,9 +834,7 @@ class TestPipelineRunnerIntegration:
             assert len(records_with_path) == 2
             assert len(records_without_path) == 2
 
-    def test_save_worst_image_noop_with_save_artifacts(
-        self, project_with_dataset: Path
-    ) -> None:
+    def test_save_worst_image_noop_with_save_artifacts(self, project_with_dataset: Path) -> None:
         """save_worst_image is skipped when save_artifacts is already True."""
         if not self._tool_available("cjpeg"):
             pytest.skip("cjpeg not available")

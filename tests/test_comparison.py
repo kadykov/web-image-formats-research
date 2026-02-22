@@ -37,6 +37,7 @@ from src.comparison import (
 # PFM helpers
 # ---------------------------------------------------------------------------
 
+
 def _write_pfm_grayscale(path: Path, data: np.ndarray) -> None:
     """Write a grayscale PFM (Pf) file with little-endian float32."""
     height, width = data.shape
@@ -64,9 +65,11 @@ def _write_pfm_color(path: Path, data: np.ndarray) -> None:
                 r, g, b = data[row, col]
                 fh.write(struct.pack("<3f", float(r), float(g), float(b)))
 
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def tmp_output(tmp_path: Path) -> Path:
@@ -251,24 +254,22 @@ def sample_rgb_image(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sample_distortion_map(tmp_path: Path) -> Path:
-    """Create a sample distortion heatmap image.
+    """Create a sample raw PFM distortion map.
 
-    Simulates a Butteraugli distortion map with a hot region at (80, 60).
+    Simulates a Butteraugli rawdistmap with a hot region at (80, 60).
     """
-    arr = np.zeros((256, 256), dtype=np.uint8)
-    # Create a hot spot (high distortion region)
-    arr[60:90, 80:110] = 200
-    # Add some moderate distortion elsewhere
-    arr[10:30, 10:30] = 50
-    img = Image.fromarray(arr, mode="L")
-    path = tmp_path / "distmap.png"
-    img.save(path)
+    arr = np.zeros((256, 256), dtype=np.float32)
+    arr[60:90, 80:110] = 5.0  # hot-spot
+    arr[10:30, 10:30] = 1.0  # moderate distortion elsewhere
+    path = tmp_path / "distmap.pfm"
+    _write_pfm_grayscale(path, arr)
     return path
 
 
 # ---------------------------------------------------------------------------
 # Tests: load_quality_results
 # ---------------------------------------------------------------------------
+
 
 def test_load_quality_results(quality_json_file: Path) -> None:
     """Test loading quality results from JSON."""
@@ -296,6 +297,7 @@ def test_load_quality_results_no_measurements(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Tests: find_worst_measurement
 # ---------------------------------------------------------------------------
+
 
 def test_find_worst_measurement_ssimulacra2(sample_quality_data: dict) -> None:
     """Test finding worst measurement by SSIMULACRA2 (lowest score)."""
@@ -339,6 +341,7 @@ def test_find_worst_measurement_none_metric(sample_quality_data: dict) -> None:
 # Tests: find_worst_source_image
 # ---------------------------------------------------------------------------
 
+
 def test_find_worst_source_image_ssimulacra2(sample_quality_data: dict) -> None:
     """Test finding worst source image by average SSIMULACRA2."""
     # image1 avg: (55 + 75 + 70 + 85) / 4 = 71.25
@@ -359,8 +362,9 @@ def test_find_worst_source_image_butteraugli(sample_quality_data: dict) -> None:
 # Tests: find_worst_region
 # ---------------------------------------------------------------------------
 
+
 def test_find_worst_region(sample_distortion_map: Path) -> None:
-    """Test finding the worst region in a distortion map."""
+    """Test finding the worst region in a raw PFM distortion map."""
     region = find_worst_region(sample_distortion_map, crop_size=32)
     # The hot spot is at (80, 60) with size 30x30
     # A 32x32 window should overlap the hot spot
@@ -373,10 +377,9 @@ def test_find_worst_region(sample_distortion_map: Path) -> None:
 
 def test_find_worst_region_small_image(tmp_path: Path) -> None:
     """Test finding worst region when image is smaller than crop size."""
-    arr = np.full((64, 64), 100, dtype=np.uint8)
-    img = Image.fromarray(arr, mode="L")
-    path = tmp_path / "small.png"
-    img.save(path)
+    arr = np.full((64, 64), 3.0, dtype=np.float32)
+    path = tmp_path / "small.pfm"
+    _write_pfm_grayscale(path, arr)
 
     region = find_worst_region(path, crop_size=128)
     assert region.x == 0
@@ -386,16 +389,15 @@ def test_find_worst_region_small_image(tmp_path: Path) -> None:
 
 
 def test_find_worst_region_uniform(tmp_path: Path) -> None:
-    """Test with a uniform image (any region should be equivalent)."""
-    arr = np.full((256, 256), 128, dtype=np.uint8)
-    img = Image.fromarray(arr, mode="L")
-    path = tmp_path / "uniform.png"
-    img.save(path)
+    """Test with a uniform map (any region should be equivalent)."""
+    arr = np.full((256, 256), 2.5, dtype=np.float32)
+    path = tmp_path / "uniform.pfm"
+    _write_pfm_grayscale(path, arr)
 
     region = find_worst_region(path, crop_size=64)
     assert region.width == 64
     assert region.height == 64
-    assert abs(region.avg_distortion - 128.0) < 0.01
+    assert abs(region.avg_distortion - 2.5) < 0.01
 
 
 def test_find_worst_region_pfm(tmp_path: Path) -> None:
@@ -421,8 +423,7 @@ def test_find_worst_region_pfm(tmp_path: Path) -> None:
 
 def test_read_pfm_grayscale(tmp_path: Path) -> None:
     """_read_pfm returns correct values for a Pf (grayscale) PFM file."""
-    arr = np.array([[1.0, 2.0, 3.0],
-                    [4.0, 5.0, 6.0]], dtype=np.float32)
+    arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
     pfm_path = tmp_path / "gray.pfm"
     _write_pfm_grayscale(pfm_path, arr)
 
@@ -434,18 +435,16 @@ def test_read_pfm_grayscale(tmp_path: Path) -> None:
 def test_read_pfm_color(tmp_path: Path) -> None:
     """_read_pfm returns max-across-channels for PF (colour) PFM files."""
     # Shape (2, 2, 3)
-    arr = np.array([[[1.0, 2.0, 0.5],
-                     [0.1, 0.2, 0.3]],
-                    [[3.0, 1.0, 2.0],
-                     [0.0, 0.0, 4.0]]], dtype=np.float32)
+    arr = np.array(
+        [[[1.0, 2.0, 0.5], [0.1, 0.2, 0.3]], [[3.0, 1.0, 2.0], [0.0, 0.0, 4.0]]], dtype=np.float32
+    )
     pfm_path = tmp_path / "color.pfm"
     _write_pfm_color(pfm_path, arr)
 
     result = _read_pfm(pfm_path)
     assert result.shape == (2, 2)
     # max across channels per pixel
-    expected = np.array([[2.0, 0.3],
-                         [3.0, 4.0]], dtype=np.float64)
+    expected = np.array([[2.0, 0.3], [3.0, 4.0]], dtype=np.float64)
     np.testing.assert_allclose(result, expected, rtol=1e-5)
 
 
@@ -532,10 +531,8 @@ def test_compute_aggregate_distortion_maps_unit(
 
     # Two measurements (same format, different quality) for image2
     measurements = [
-        {"source_image": "image2.png", "format": "jpeg", "quality": 50,
-         "encoded_path": ""},
-        {"source_image": "image2.png", "format": "jpeg", "quality": 80,
-         "encoded_path": ""},
+        {"source_image": "image2.png", "format": "jpeg", "quality": 50, "encoded_path": ""},
+        {"source_image": "image2.png", "format": "jpeg", "quality": 80, "encoded_path": ""},
     ]
 
     # Synthetic PFM arrays that the mock will write
@@ -545,26 +542,26 @@ def test_compute_aggregate_distortion_maps_unit(
     def fake_gen_distortion_map(
         _original: Path,
         _compressed: Path,
-        output_map: Path,
-        raw_output_map: Path | None = None,
+        output_pfm: Path,
     ) -> Path:
         # Write a synthetic PFM so _read_pfm can load it
-        if raw_output_map is not None:
-            arr = arr1 if "q50" in str(raw_output_map) else arr2
-            _write_pfm_grayscale(raw_output_map, arr)
-        return output_map
+        arr = arr1 if "q50" in str(output_pfm) else arr2
+        _write_pfm_grayscale(output_pfm, arr)
+        return output_pfm
 
     fake_enc = tmp_path / "fake.jpg"
     fake_enc.write_bytes(b"fake")
 
     with (
         patch("src.comparison._get_or_encode", return_value=fake_enc),
-        patch("src.comparison.generate_distortion_map",
-              side_effect=fake_gen_distortion_map),
+        patch("src.comparison.generate_distortion_map", side_effect=fake_gen_distortion_map),
     ):
         avg_map, var_map = compute_aggregate_distortion_maps(
-            source_path, measurements, output_dir,
-            project_root=tmp_path, encoded_dir=encoded_dir,
+            source_path,
+            measurements,
+            output_dir,
+            project_root=tmp_path,
+            encoded_dir=encoded_dir,
         )
 
     assert avg_map.shape == (8, 8)
@@ -596,6 +593,7 @@ def test_compute_aggregate_distortion_maps_no_maps(
 # Tests: crop_and_zoom
 # ---------------------------------------------------------------------------
 
+
 def test_crop_and_zoom(sample_rgb_image: Path, tmp_output: Path) -> None:
     """Test cropping and zooming a region."""
     region = WorstRegion(x=100, y=100, width=56, height=56, avg_distortion=100.0)
@@ -626,6 +624,7 @@ def test_crop_and_zoom_clamps_to_bounds(sample_rgb_image: Path) -> None:
 # Tests: determine_varying_parameters
 # ---------------------------------------------------------------------------
 
+
 def test_determine_varying_parameters(sample_quality_data: dict) -> None:
     """Test detecting varying parameters."""
     varying = determine_varying_parameters(sample_quality_data["measurements"])
@@ -648,6 +647,7 @@ def test_determine_varying_parameters_single_format() -> None:
 # ---------------------------------------------------------------------------
 # Tests: label building
 # ---------------------------------------------------------------------------
+
 
 def test_build_label() -> None:
     """Test building a descriptive label."""
@@ -684,6 +684,7 @@ def test_build_metric_label_missing() -> None:
 # ---------------------------------------------------------------------------
 # Tests: assemble_comparison_grid (requires ImageMagick)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def crop_images(tmp_path: Path) -> list[tuple[Path, str, str]]:
@@ -743,12 +744,13 @@ def test_assemble_comparison_grid_wraps_rows(
 # Tests: generate_distortion_map (requires butteraugli_main)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(
     not shutil.which("butteraugli_main"),
     reason="butteraugli_main not available",
 )
 def test_generate_distortion_map(tmp_path: Path) -> None:
-    """Test generating a Butteraugli distortion map."""
+    """Test generating a raw Butteraugli PFM distortion map."""
     # Create original and a slightly different compressed version
     original = Image.new("RGB", (64, 64), color=(128, 128, 128))
     original_path = tmp_path / "original.png"
@@ -758,43 +760,14 @@ def test_generate_distortion_map(tmp_path: Path) -> None:
     compressed_path = tmp_path / "compressed.png"
     compressed.save(compressed_path)
 
-    output_map = tmp_path / "distmap.png"
-    result = generate_distortion_map(original_path, compressed_path, output_map)
+    output_pfm = tmp_path / "distmap.pfm"
+    result = generate_distortion_map(original_path, compressed_path, output_pfm)
 
-    assert result == output_map
-    assert output_map.exists()
-
-    with Image.open(output_map) as img:
-        assert img.width == 64
-        assert img.height == 64
-
-
-@pytest.mark.skipif(
-    not shutil.which("butteraugli_main"),
-    reason="butteraugli_main not available",
-)
-def test_generate_distortion_map_raw(tmp_path: Path) -> None:
-    """Test generating both colour and raw PFM distortion maps."""
-    original = Image.new("RGB", (64, 64), color=(128, 128, 128))
-    original_path = tmp_path / "original.png"
-    original.save(original_path)
-
-    compressed = Image.new("RGB", (64, 64), color=(130, 126, 132))
-    compressed_path = tmp_path / "compressed.png"
-    compressed.save(compressed_path)
-
-    output_map = tmp_path / "distmap.png"
-    raw_map = tmp_path / "distmap_raw.pfm"
-    result = generate_distortion_map(
-        original_path, compressed_path, output_map, raw_output_map=raw_map
-    )
-
-    assert result == output_map
-    assert output_map.exists()
-    assert raw_map.exists()
+    assert result == output_pfm
+    assert output_pfm.exists()
 
     # PFM should be readable and contain float values
-    arr = _read_pfm(raw_map)
+    arr = _read_pfm(output_pfm)
     assert arr.shape == (64, 64)
     assert arr.dtype == np.float64
 
@@ -803,15 +776,16 @@ def test_generate_distortion_map_raw(tmp_path: Path) -> None:
 # Tests: ComparisonConfig and ComparisonResult
 # ---------------------------------------------------------------------------
 
+
 def test_comparison_config_defaults() -> None:
     """Test default configuration values."""
     config = ComparisonConfig()
     assert config.crop_size == 128
-    assert config.zoom_factor == 2
+    assert config.zoom_factor == 3
     assert config.metric == "ssimulacra2"
-    assert config.max_columns == 6
-    assert config.label_font_size == 14
-    assert config.region_strategy == "worst"
+    assert config.max_columns == 4
+    assert config.label_font_size == 22
+    assert config.region_strategy == "average"
 
 
 def test_comparison_config_region_strategy() -> None:
@@ -867,6 +841,7 @@ def test_comparison_result_region_strategy() -> None:
 # Tests: full generate_comparison (integration, requires tools)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(
     not shutil.which("butteraugli_main") or not shutil.which("montage"),
     reason="butteraugli_main and/or montage not available",
@@ -909,10 +884,7 @@ def test_generate_comparison_integration(
     # Use only JPEG measurements (always available, no special decoder needed)
     jpeg_only_data = {
         **sample_quality_data,
-        "measurements": [
-            m for m in sample_quality_data["measurements"]
-            if m["format"] == "jpeg"
-        ],
+        "measurements": [m for m in sample_quality_data["measurements"] if m["format"] == "jpeg"],
     }
 
     # Write quality.json
@@ -938,18 +910,18 @@ def test_generate_comparison_integration(
     for img_path in result.output_images:
         assert img_path.exists()
 
-    # Check that distortion map was created
+    # Check that visualization outputs were created
     assert (output_dir / "distortion_map.png").exists()
-    assert (output_dir / "distortion_map_annotated.png").exists()
-    # Check that encoded images were produced
-    assert (output_dir / "encoded").exists()
-    # Check crops directory
-    assert (output_dir / "crops").exists()
+    assert (output_dir / "original_annotated.png").exists()
+    # Intermediate files (encoded, crops) are in a temp dir and cleaned up
+    assert not (output_dir / "encoded").exists()
+    assert not (output_dir / "crops").exists()
 
 
 # ---------------------------------------------------------------------------
 # Tests: encode_image
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(
     not shutil.which("cjpeg"),
@@ -1076,9 +1048,7 @@ def test_get_or_encode_uses_existing(tmp_path: Path) -> None:
     not shutil.which("cjpeg"),
     reason="cjpeg not available",
 )
-def test_get_or_encode_falls_back_to_encoding(
-    sample_rgb_image: Path, tmp_output: Path
-) -> None:
+def test_get_or_encode_falls_back_to_encoding(sample_rgb_image: Path, tmp_output: Path) -> None:
     """Falls back to re-encoding when no saved artifact exists."""
     measurement = {"encoded_path": "", "format": "jpeg", "quality": 75}
     project_root = tmp_output / "project"
