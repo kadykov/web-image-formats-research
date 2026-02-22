@@ -50,12 +50,10 @@ class ComparisonConfig:
         label_font_size: Font size for labels in the comparison grid.
         region_strategy: How to select the worst fragment.  One of:
 
-            * ``"worst"`` *(default)* — use the distortion map of the
-              single worst parameter combination.
-            * ``"average"`` — average the distortion maps across **all**
-              parameter combinations; the fragment with the highest mean
-              distortion is chosen.  Identifies regions that are
-              challenging for every encoding variant.
+            * ``"average"`` *(default)* — average the distortion maps
+              across **all** parameter combinations; the fragment with
+              the highest mean distortion is chosen.  Identifies regions
+              that are challenging for every encoding variant.
             * ``"variance"`` — compute the per-pixel variance across all
               distortion maps and choose the fragment with the highest
               variance.  Highlights regions where quality differs most
@@ -114,7 +112,7 @@ class ComparisonResult:
         output_images: List of generated comparison image paths.
         varying_parameters: Parameters that vary across measurements.
         region_strategy: The strategy used to select the worst region
-            (``"worst"``, ``"average"``, or ``"variance"``).
+            (``"average"`` or ``"variance"``).
     """
 
     study_id: str
@@ -125,7 +123,7 @@ class ComparisonResult:
     region: WorstRegion
     output_images: list[Path] = field(default_factory=list)
     varying_parameters: list[str] = field(default_factory=list)
-    region_strategy: str = "worst"
+    region_strategy: str = "average"
 
 
 def load_quality_results(quality_json_path: Path) -> dict:
@@ -656,6 +654,9 @@ def assemble_comparison_grid(
             labeled_paths.append(str(labeled_path))
 
         # Use montage to create the grid
+        lossless_args = (
+            ["-define", "webp:lossless=true"] if output_path.suffix.lower() == ".webp" else []
+        )
         cmd = [
             "montage",
             *labeled_paths,
@@ -667,6 +668,7 @@ def assemble_comparison_grid(
             "white",
             "-font",
             "DejaVu-Sans",
+            *lossless_args,
             str(output_path),
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -967,48 +969,40 @@ def generate_comparison(
             msg = f"Failed to obtain encoded {worst_m['format']} q{worst_m['quality']}"
             raise RuntimeError(msg)
 
-        # 4 & 5. Generate distortion map(s) and locate the worst region.
-        #
-        # precomputed_distmaps maps id(measurement_dict) → distortion array so
-        # the main measurement loop can reuse already-computed arrays instead
-        # of calling butteraugli_main a second time for every variant.
-        precomputed_distmaps: dict[int, np.ndarray] = {}
+        # 4 & 5. Compute aggregate distortion maps across all variants and
+        # locate the worst region using the configured strategy.
         strategy = config.region_strategy
+        if strategy not in ("average", "variance"):
+            msg = f"Unknown region_strategy {strategy!r}. Must be 'average' or 'variance'."
+            raise ValueError(msg)
 
-        if strategy == "worst":
-            raw_distmap_path = work / "distortion_map.pfm"
-            print("  Generating distortion map for worst variant...")
-            generate_distortion_map(source_path, worst_encoded, raw_distmap_path)
-            worst_distmap_arr = _read_pfm(raw_distmap_path)
-            precomputed_distmaps[id(worst_m)] = worst_distmap_arr
-            distortion_arr = worst_distmap_arr
-            region = _find_worst_region_in_array(distortion_arr, crop_size=config.crop_size)
-            print(
-                f"  Worst region: ({region.x}, {region.y}) "
-                f"{region.width}x{region.height} "
-                f"avg_distortion={region.avg_distortion:.2f}"
-            )
-        else:  # "average" or "variance"
-            print(
-                f"  Computing aggregate distortion maps across all "
-                f"{len(source_measurements)} variants (strategy: {strategy})..."
-            )
-            avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
-                source_path,
-                source_measurements,
-                work,
-                project_root,
-                encoded_dir,
-            )
-            for arr, m_dict in variant_pairs:
-                precomputed_distmaps[id(m_dict)] = arr
-            distortion_arr = avg_map if strategy == "average" else var_map
-            region = _find_worst_region_in_array(distortion_arr, crop_size=config.crop_size)
-            print(
-                f"  Worst region ({strategy}): ({region.x}, {region.y}) "
-                f"{region.width}x{region.height} "
-                f"score={region.avg_distortion:.4f}"
-            )
+        print(
+            f"  Computing aggregate distortion maps across all "
+            f"{len(source_measurements)} variants (strategy: {strategy})..."
+        )
+        avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
+            source_path,
+            source_measurements,
+            work,
+            project_root,
+            encoded_dir,
+        )
+        precomputed_distmaps: dict[int, np.ndarray] = {
+            id(m_dict): arr for arr, m_dict in variant_pairs
+        }
+        avg_region = _find_worst_region_in_array(avg_map, crop_size=config.crop_size)
+        var_region = _find_worst_region_in_array(var_map, crop_size=config.crop_size)
+        region = avg_region if strategy == "average" else var_region
+        print(
+            f"  Worst region (avg):  ({avg_region.x}, {avg_region.y}) "
+            f"{avg_region.width}x{avg_region.height} "
+            f"score={avg_region.avg_distortion:.4f}"
+        )
+        print(
+            f"  Worst region (var):  ({var_region.x}, {var_region.y}) "
+            f"{var_region.width}x{var_region.height} "
+            f"score={var_region.avg_distortion:.4f}"
+        )
 
         # 6. Determine varying parameters
         varying = determine_varying_parameters(source_measurements)
@@ -1084,7 +1078,7 @@ def generate_comparison(
         output_images: list[Path] = []
 
         if len(crop_entries) <= config.max_columns * 3:
-            grid_path = output_dir / "comparison.png"
+            grid_path = output_dir / "comparison.webp"
             assemble_comparison_grid(
                 crop_entries,
                 grid_path,
@@ -1107,7 +1101,7 @@ def generate_comparison(
                     groups[group_key].append(entry)
 
                 for group_name, group_entries in sorted(groups.items()):
-                    grid_path = output_dir / f"comparison_{split_param}_{group_name}.png"
+                    grid_path = output_dir / f"comparison_{split_param}_{group_name}.webp"
                     assemble_comparison_grid(
                         group_entries,
                         grid_path,
@@ -1117,7 +1111,7 @@ def generate_comparison(
                     output_images.append(grid_path)
                     print(f"  Generated comparison grid: {grid_path}")
             else:
-                grid_path = output_dir / "comparison.png"
+                grid_path = output_dir / "comparison.webp"
                 assemble_comparison_grid(
                     crop_entries,
                     grid_path,
@@ -1163,7 +1157,7 @@ def generate_comparison(
                 distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
 
             if len(distmap_crop_entries) <= config.max_columns * 3:
-                dm_grid_path = output_dir / "distortion_map_comparison.png"
+                dm_grid_path = output_dir / "distortion_map_comparison.webp"
                 assemble_comparison_grid(
                     distmap_crop_entries,
                     dm_grid_path,
@@ -1186,7 +1180,7 @@ def generate_comparison(
                         dm_groups[group_key].append(dm_entry)
                     for group_name, group_entries in sorted(dm_groups.items()):
                         dm_grid_path = output_dir / (
-                            f"distortion_map_comparison_{split_param}_{group_name}.png"
+                            f"distortion_map_comparison_{split_param}_{group_name}.webp"
                         )
                         assemble_comparison_grid(
                             group_entries,
@@ -1195,11 +1189,9 @@ def generate_comparison(
                             label_font_size=config.label_font_size,
                         )
                         output_images.append(dm_grid_path)
-                        print(
-                            f"  Generated distortion map comparison grid: {dm_grid_path}"
-                        )
+                        print(f"  Generated distortion map comparison grid: {dm_grid_path}")
                 else:
-                    dm_grid_path = output_dir / "distortion_map_comparison.png"
+                    dm_grid_path = output_dir / "distortion_map_comparison.webp"
                     assemble_comparison_grid(
                         distmap_crop_entries,
                         dm_grid_path,
@@ -1208,13 +1200,29 @@ def generate_comparison(
                     )
                     output_images.append(dm_grid_path)
 
-        # 10. Write final visualization outputs
+        # 10. Write aggregate distortion map visualizations.
+        # Each map is annotated with its own strategy's region so viewers
+        # immediately see which area each strategy highlights.
+        # avg uses cyan annotation; var uses orange.  Both outputs are
+        # lossless WebP.  viridis_r: bright yellow = low value (good).
         _visualize_distortion_map(
-            distortion_arr,
-            region,
-            output_dir / "distortion_map.png",
+            avg_map,
+            avg_region,
+            output_dir / "distortion_map_average.webp",
+            dash_color="cyan",
         )
-        _save_annotated_original(source_path, region, output_dir / "original_annotated.png")
+        _visualize_distortion_map(
+            var_map,
+            var_region,
+            output_dir / "distortion_map_variance.webp",
+            dash_color="orange",
+        )
+        _save_annotated_original_dual(
+            source_path,
+            avg_region,
+            var_region,
+            output_dir / "original_annotated.webp",
+        )
 
     print("\nComparison complete!")
     print(f"  Output directory: {output_dir}")
@@ -1285,16 +1293,24 @@ def _draw_annotation_on_image(
     image_path: Path,
     region: WorstRegion,
     output_path: Path,
+    *,
+    dash_color: str = "black",
+    label: str | None = None,
 ) -> None:
     """Draw a high-contrast dashed rectangle on an image using ImageMagick.
 
-    Uses a thick white solid outer border followed by a thin dashed black
+    Uses a thick white solid outer border followed by a thin dashed coloured
     inner border so the annotation remains visible against any background.
+    When *label* is supplied a short text badge is drawn at the top-left
+    corner of the rectangle on a white semi-transparent background.
 
     Args:
         image_path: Source image file (any format ImageMagick can read).
         region: The region to annotate.
         output_path: Destination path (can equal ``image_path`` for in-place).
+        dash_color: Colour of the inner dashed border and label text.
+        label: Optional short text rendered inside a badge at the top-left
+            corner of the rectangle.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1306,10 +1322,21 @@ def _draw_annotation_on_image(
         f"stroke white stroke-width 5 "
         f"rectangle {x1},{y1} {x2},{y2} "
         f"stroke-dasharray 10,6 "
-        f"stroke black stroke-width 2 "
+        f"stroke {dash_color} stroke-width 2 "
         f"rectangle {x1},{y1} {x2},{y2}"
     )
-    cmd = ["magick", str(image_path), "-draw", draw_cmd, str(output_path)]
+    if label:
+        tx, ty = x1 + 2, y1 + 2
+        draw_cmd += (
+            f" fill rgba(255,255,255,0.82) stroke none "
+            f"roundrectangle {tx},{ty} {tx + 34},{ty + 18} 3,3 "
+            f"fill {dash_color} font DejaVu-Sans font-size 13 stroke none "
+            f"text {tx + 4},{ty + 14} '{label}'"
+        )
+    extra_args: list[str] = []
+    if output_path.suffix.lower() == ".webp":
+        extra_args = ["-define", "webp:lossless=true"]
+    cmd = ["magick", str(image_path), "-draw", draw_cmd, *extra_args, str(output_path)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"  Warning: Could not annotate image: {result.stderr}")
@@ -1319,19 +1346,22 @@ def _visualize_distortion_map(
     arr: np.ndarray,
     region: WorstRegion,
     output_path: Path,
+    *,
+    dash_color: str = "black",
 ) -> None:
     """Render a distortion array as a viridis-coloured image with region annotation.
 
-    The *viridis* colormap is perceptually uniform, colorblind-safe, and
-    grayscale-compatible: dark-blue pixels have low distortion and bright-yellow
-    pixels have high distortion.  The selected fragment is annotated with the
-    same high-contrast dashed rectangle as :func:`_draw_annotation_on_image`.
+    The *viridis_r* colormap is perceptually uniform, colorblind-safe, and
+    grayscale-compatible: bright-yellow pixels have low distortion/variance
+    and dark-purple pixels have high distortion/variance.  The selected
+    fragment is annotated via :func:`_draw_annotation_on_image`.
 
     Args:
         arr: 2-D float array of distortion values (any scale; will be
             normalised to ``[0, 1]`` before colouring).
         region: The region to annotate.
-        output_path: Destination PNG path.
+        output_path: Destination path (PNG or lossless WebP based on suffix).
+        dash_color: Colour of the inner dashed border annotation.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1343,9 +1373,70 @@ def _visualize_distortion_map(
 
     rgba = matplotlib.colormaps["viridis_r"](normalised)  # (H, W, 4) in [0, 1]
     rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
-    Image.fromarray(rgb, mode="RGB").save(output_path)
+    pil_img = Image.fromarray(rgb, mode="RGB")
+    if output_path.suffix.lower() == ".webp":
+        pil_img.save(output_path, format="WEBP", lossless=True)
+    else:
+        pil_img.save(output_path)
 
-    _draw_annotation_on_image(output_path, region, output_path)
+    _draw_annotation_on_image(output_path, region, output_path, dash_color=dash_color)
+
+
+def _save_annotated_original_dual(
+    source_path: Path,
+    avg_region: WorstRegion,
+    var_region: WorstRegion,
+    output_path: Path,
+) -> None:
+    """Save a copy of the source image annotated with both strategy regions.
+
+    Draws two overlapping annotation boxes with distinct colours and labels
+    so the viewer can compare both selection strategies at a glance:
+
+    * **cyan / dashed** — region selected by the *average* distortion strategy.
+    * **orange / dashed** — region selected by the *variance* strategy.
+
+    Each box carries a small coloured text badge (``"avg"`` / ``"var"``)
+    at its top-left corner so the two annotations remain identifiable even
+    when the regions overlap.
+
+    Args:
+        source_path: Path to the original source image.
+        avg_region: Region chosen by the average-distortion strategy.
+        var_region: Region chosen by the variance strategy.
+        output_path: Destination image path (PNG or lossless WebP by suffix).
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _region_draw_cmd(reg: WorstRegion, color: str, text: str) -> str:
+        x1, y1 = reg.x, reg.y
+        x2, y2 = reg.x + reg.width, reg.y + reg.height
+        tx, ty = x1 + 2, y1 + 2
+        return (
+            f"push graphic-context "
+            f"fill none stroke white stroke-width 5 "
+            f"rectangle {x1},{y1} {x2},{y2} "
+            f"stroke-dasharray 10,6 stroke {color} stroke-width 2 "
+            f"rectangle {x1},{y1} {x2},{y2} "
+            f"fill rgba(255,255,255,0.82) stroke none "
+            f"roundrectangle {tx},{ty} {tx + 34},{ty + 18} 3,3 "
+            f"fill {color} font DejaVu-Sans font-size 13 stroke none "
+            f"text {tx + 4},{ty + 14} '{text}' "
+            f"pop graphic-context"
+        )
+
+    draw_cmd = (
+        _region_draw_cmd(avg_region, "cyan", "avg")
+        + " "
+        + _region_draw_cmd(var_region, "orange", "var")
+    )
+    extra_args: list[str] = []
+    if output_path.suffix.lower() == ".webp":
+        extra_args = ["-define", "webp:lossless=true"]
+    cmd = ["magick", str(source_path), "-draw", draw_cmd, *extra_args, str(output_path)]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  Warning: Could not annotate image: {result.stderr}")
 
 
 def _save_annotated_original(
