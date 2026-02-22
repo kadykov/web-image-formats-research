@@ -96,11 +96,10 @@ Examples:
         "--region-strategy",
         type=str,
         default="average",
-        choices=["worst", "average", "variance"],
+        choices=["average", "variance"],
         help=(
-            "Strategy to select the worst fragment (default: worst). "
-            "'worst' uses the distortion map of the single worst parameter "
-            "combination.  'average' averages maps across all variants to "
+            "Strategy to select the worst fragment (default: average). "
+            "'average' averages maps across all variants to "
             "find the region that is consistently bad.  'variance' chooses "
             "the region with the highest variation across variants."
         ),

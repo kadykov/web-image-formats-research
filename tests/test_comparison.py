@@ -867,12 +867,12 @@ def test_comparison_config_defaults() -> None:
     assert config.max_columns == 4
     assert config.label_font_size == 22
     assert config.region_strategy == "average"
-    assert config.distmap_vmax == 10.0
+    assert config.distmap_vmax == 5.0
 
 
 def test_comparison_config_region_strategy() -> None:
     """Test all supported region_strategy values."""
-    for strategy in ("worst", "average", "variance"):
+    for strategy in ("average", "variance"):
         config = ComparisonConfig(region_strategy=strategy)
         assert config.region_strategy == strategy
 
@@ -901,7 +901,7 @@ def test_comparison_result() -> None:
     assert result.study_id == "test"
     assert result.region.x == 10
     assert len(result.output_images) == 1
-    assert result.region_strategy == "worst"  # default
+    assert result.region_strategy == "average"  # default
 
 
 def test_comparison_result_region_strategy() -> None:
@@ -993,9 +993,10 @@ def test_generate_comparison_integration(
         assert img_path.exists()
 
     # Check that visualization outputs were created
-    assert (output_dir / "distortion_map.png").exists()
-    assert (output_dir / "original_annotated.png").exists()
-    assert (output_dir / "distortion_map_comparison.png").exists()
+    assert (output_dir / "distortion_map_average.webp").exists()
+    assert (output_dir / "distortion_map_variance.webp").exists()
+    assert (output_dir / "original_annotated.webp").exists()
+    assert (output_dir / "distortion_map_comparison.webp").exists()
     # Intermediate files (encoded, crops) are in a temp dir and cleaned up
     assert not (output_dir / "encoded").exists()
     assert not (output_dir / "crops").exists()
