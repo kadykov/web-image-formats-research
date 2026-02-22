@@ -19,6 +19,7 @@ from src.comparison import (
     _find_worst_region_in_array,
     _get_or_encode,
     _read_pfm,
+    _render_distmap_thumbnail,
     _resolve_encoded_path,
     assemble_comparison_grid,
     compute_aggregate_distortion_maps,
@@ -556,7 +557,7 @@ def test_compute_aggregate_distortion_maps_unit(
         patch("src.comparison._get_or_encode", return_value=fake_enc),
         patch("src.comparison.generate_distortion_map", side_effect=fake_gen_distortion_map),
     ):
-        avg_map, var_map = compute_aggregate_distortion_maps(
+        avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
             source_path,
             measurements,
             output_dir,
@@ -570,6 +571,10 @@ def test_compute_aggregate_distortion_maps_unit(
     np.testing.assert_allclose(avg_map, 3.0, rtol=1e-5)
     # Variance of [4.0, 2.0] = 1.0
     np.testing.assert_allclose(var_map, 1.0, rtol=1e-5)
+    # Both measurements should have produced arrays
+    assert len(variant_pairs) == 2
+    arrs = [a for a, _ in variant_pairs]
+    assert all(a.shape == (8, 8) for a in arrs)
 
 
 def test_compute_aggregate_distortion_maps_no_maps(
@@ -773,6 +778,82 @@ def test_generate_distortion_map(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tests: _render_distmap_thumbnail
+# ---------------------------------------------------------------------------
+
+
+def test_render_distmap_thumbnail_output_shape(tmp_path: Path) -> None:
+    """Thumbnail is always exactly target_size×target_size regardless of source shape."""
+    arr = np.full((200, 300), 5.0, dtype=np.float64)  # non-square source
+    out = tmp_path / "thumb.png"
+    _render_distmap_thumbnail(arr, target_size=384, output_path=out)
+
+    assert out.exists()
+    with Image.open(out) as img:
+        assert img.size == (384, 384)
+
+
+def test_render_distmap_thumbnail_fixed_scale(tmp_path: Path) -> None:
+    """Pixels at vmax map to the brightest viridis colour; vmin maps to darkest."""
+    zero_arr = np.zeros((16, 16), dtype=np.float64)
+    out_zero = tmp_path / "zero.png"
+    _render_distmap_thumbnail(zero_arr, target_size=16, output_path=out_zero, vmax=10.0)
+
+    vmax_arr = np.full((16, 16), 10.0, dtype=np.float64)
+    out_vmax = tmp_path / "vmax.png"
+    _render_distmap_thumbnail(vmax_arr, target_size=16, output_path=out_vmax, vmax=10.0)
+
+    with Image.open(out_zero) as img:
+        zero_px = np.array(img)
+    with Image.open(out_vmax) as img:
+        vmax_px = np.array(img)
+
+    # With viridis_r: zero distortion → bright yellow, vmax distortion → dark purple.
+    # So zero pixels are brighter than vmax pixels.
+    assert np.all(zero_px == zero_px[0, 0]), "Zero arr should produce uniform colour"
+    assert np.all(vmax_px == vmax_px[0, 0]), "vmax arr should produce uniform colour"
+    # The average brightness of zero-distortion pixels should be higher than vmax pixels
+    assert float(zero_px.mean()) > float(vmax_px.mean())
+
+
+def test_render_distmap_thumbnail_clamps_out_of_range(tmp_path: Path) -> None:
+    """Values above vmax are clamped to the brightest colour, not wrapped."""
+    at_vmax = np.full((16, 16), 10.0, dtype=np.float64)
+    above_vmax = np.full((16, 16), 100.0, dtype=np.float64)
+
+    out_at = tmp_path / "at_vmax.png"
+    out_above = tmp_path / "above_vmax.png"
+    _render_distmap_thumbnail(at_vmax, target_size=16, output_path=out_at, vmax=10.0)
+    _render_distmap_thumbnail(above_vmax, target_size=16, output_path=out_above, vmax=10.0)
+
+    with Image.open(out_at) as img:
+        px_at = np.array(img)
+    with Image.open(out_above) as img:
+        px_above = np.array(img)
+
+    np.testing.assert_array_equal(px_at, px_above)
+
+
+def test_render_distmap_thumbnail_consistent_scale(tmp_path: Path) -> None:
+    """Two different arrays use same scale — higher values produce brighter pixels."""
+    arr_low = np.full((16, 16), 1.0, dtype=np.float64)
+    arr_high = np.full((16, 16), 9.0, dtype=np.float64)
+
+    out_low = tmp_path / "low.png"
+    out_high = tmp_path / "high.png"
+    _render_distmap_thumbnail(arr_low, target_size=16, output_path=out_low, vmax=10.0)
+    _render_distmap_thumbnail(arr_high, target_size=16, output_path=out_high, vmax=10.0)
+
+    with Image.open(out_low) as img:
+        mean_low = float(np.array(img).mean())
+    with Image.open(out_high) as img:
+        mean_high = float(np.array(img).mean())
+
+    # With viridis_r: lower distortion → brighter pixels, higher → darker.
+    assert mean_low > mean_high
+
+
+# ---------------------------------------------------------------------------
 # Tests: ComparisonConfig and ComparisonResult
 # ---------------------------------------------------------------------------
 
@@ -786,6 +867,7 @@ def test_comparison_config_defaults() -> None:
     assert config.max_columns == 4
     assert config.label_font_size == 22
     assert config.region_strategy == "average"
+    assert config.distmap_vmax == 10.0
 
 
 def test_comparison_config_region_strategy() -> None:
@@ -913,6 +995,7 @@ def test_generate_comparison_integration(
     # Check that visualization outputs were created
     assert (output_dir / "distortion_map.png").exists()
     assert (output_dir / "original_annotated.png").exists()
+    assert (output_dir / "distortion_map_comparison.png").exists()
     # Intermediate files (encoded, crops) are in a temp dir and cleaned up
     assert not (output_dir / "encoded").exists()
     assert not (output_dir / "crops").exists()
