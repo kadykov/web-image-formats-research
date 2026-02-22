@@ -60,6 +60,16 @@ class ComparisonConfig:
               distortion maps and choose the fragment with the highest
               variance.  Highlights regions where quality differs most
               between parameter combinations.
+
+        distmap_vmax: Upper bound of the fixed Butteraugli distortion
+            scale used in the distortion-map comparison grid.  All
+            per-pixel values are clamped to ``[0, distmap_vmax]`` before
+            mapping to the viridis colormap, ensuring every tile uses an
+            identical colour scale so structural differences between
+            encoding variants are directly comparable.  Typical
+            Butteraugli scores for well-encoded images fall below 2;
+            scores above 10 represent severe quality loss.
+            Defaults to ``5.0``.
     """
 
     crop_size: int = 128
@@ -68,6 +78,7 @@ class ComparisonConfig:
     max_columns: int = 4
     label_font_size: int = 22
     region_strategy: str = "average"
+    distmap_vmax: float = 5.0
 
 
 @dataclass
@@ -783,7 +794,7 @@ def compute_aggregate_distortion_maps(
     output_dir: Path,
     project_root: Path,
     encoded_dir: Path,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, list[tuple[np.ndarray, dict]]]:
     """Compute per-pixel average and variance distortion across all variants.
 
     For each measurement in ``measurements`` this function:
@@ -817,6 +828,7 @@ def compute_aggregate_distortion_maps(
     pfms_dir.mkdir(parents=True, exist_ok=True)
 
     arrays: list[np.ndarray] = []
+    variant_pairs: list[tuple[np.ndarray, dict]] = []
 
     for m in measurements:
         fmt = m["format"]
@@ -839,17 +851,20 @@ def compute_aggregate_distortion_maps(
             continue
 
         try:
-            arrays.append(_read_pfm(raw_pfm))
+            arr = _read_pfm(raw_pfm)
         except ValueError as exc:
             print(f"    Warning: could not read PFM for {fmt} q{quality}: {exc}")
             continue
+
+        arrays.append(arr)
+        variant_pairs.append((arr, m))
 
     if not arrays:
         msg = "No distortion maps could be computed for any variant"
         raise RuntimeError(msg)
 
     stacked = np.stack(arrays, axis=0)  # (N, H, W)
-    return stacked.mean(axis=0), stacked.var(axis=0)
+    return stacked.mean(axis=0), stacked.var(axis=0), variant_pairs
 
 
 def generate_comparison(
@@ -952,40 +967,47 @@ def generate_comparison(
             msg = f"Failed to obtain encoded {worst_m['format']} q{worst_m['quality']}"
             raise RuntimeError(msg)
 
-        # 4. Generate raw distortion map for the worst measurement
-        raw_distmap_path = work / "distortion_map.pfm"
-        print("  Generating distortion map for worst variant...")
-        generate_distortion_map(source_path, worst_encoded, raw_distmap_path)
-
-        # 5. Find the worst region using the configured strategy
+        # 4 & 5. Generate distortion map(s) and locate the worst region.
+        #
+        # precomputed_distmaps maps id(measurement_dict) → distortion array so
+        # the main measurement loop can reuse already-computed arrays instead
+        # of calling butteraugli_main a second time for every variant.
+        precomputed_distmaps: dict[int, np.ndarray] = {}
         strategy = config.region_strategy
-        if strategy in ("average", "variance"):
+
+        if strategy == "worst":
+            raw_distmap_path = work / "distortion_map.pfm"
+            print("  Generating distortion map for worst variant...")
+            generate_distortion_map(source_path, worst_encoded, raw_distmap_path)
+            worst_distmap_arr = _read_pfm(raw_distmap_path)
+            precomputed_distmaps[id(worst_m)] = worst_distmap_arr
+            distortion_arr = worst_distmap_arr
+            region = _find_worst_region_in_array(distortion_arr, crop_size=config.crop_size)
+            print(
+                f"  Worst region: ({region.x}, {region.y}) "
+                f"{region.width}x{region.height} "
+                f"avg_distortion={region.avg_distortion:.2f}"
+            )
+        else:  # "average" or "variance"
             print(
                 f"  Computing aggregate distortion maps across all "
                 f"{len(source_measurements)} variants (strategy: {strategy})..."
             )
-            avg_map, var_map = compute_aggregate_distortion_maps(
+            avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
                 source_path,
                 source_measurements,
                 work,
                 project_root,
                 encoded_dir,
             )
+            for arr, m_dict in variant_pairs:
+                precomputed_distmaps[id(m_dict)] = arr
             distortion_arr = avg_map if strategy == "average" else var_map
             region = _find_worst_region_in_array(distortion_arr, crop_size=config.crop_size)
             print(
                 f"  Worst region ({strategy}): ({region.x}, {region.y}) "
                 f"{region.width}x{region.height} "
                 f"score={region.avg_distortion:.4f}"
-            )
-        else:
-            # "worst": raw PFM of the single worst parameter combination
-            distortion_arr = _read_pfm(raw_distmap_path)
-            region = _find_worst_region_in_array(distortion_arr, crop_size=config.crop_size)
-            print(
-                f"  Worst region: ({region.x}, {region.y}) "
-                f"{region.width}x{region.height} "
-                f"avg_distortion={region.avg_distortion:.2f}"
             )
 
         # 6. Determine varying parameters
@@ -1017,6 +1039,10 @@ def generate_comparison(
             key=lambda m: tuple(m.get(k, 0) or 0 for k in sort_keys),
         )
 
+        # Per-variant distortion map arrays for the distortion-map comparison grid.
+        # Each entry is (full-image ndarray, label, metric_label).
+        variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
+
         print(f"  Obtaining {len(sorted_measurements)} variants...")
         for m in sorted_measurements:
             enc_path = _get_or_encode(source_path, m, encoded_dir, project_root)
@@ -1036,6 +1062,21 @@ def generate_comparison(
                 output_path=crop_path,
             )
             crop_entries.append((crop_path, label, metric_label))
+
+            # Reuse the precomputed distortion array when available (avoids a
+            # second butteraugli_main call for variants already processed during
+            # region selection).  Fall back to generating on the fly otherwise.
+            if id(m) in precomputed_distmaps:
+                dm_arr = precomputed_distmaps[id(m)]
+                variant_distmap_entries.append((dm_arr, label, metric_label))
+            else:
+                variant_pfm = work / f"dm_{safe_name}.pfm"
+                try:
+                    generate_distortion_map(source_path, enc_path, variant_pfm)
+                    dm_arr = _read_pfm(variant_pfm)
+                    variant_distmap_entries.append((dm_arr, label, metric_label))
+                except (RuntimeError, ValueError) as exc:
+                    print(f"    Warning: distortion map for {label} failed: {exc}")
 
         print(f"  Cropped {len(crop_entries)} images (including original)")
 
@@ -1085,6 +1126,88 @@ def generate_comparison(
                 )
                 output_images.append(grid_path)
 
+        # 9.5. Assemble distortion map comparison grid.
+        # Each tile is the *full* distortion map scaled down to target_side×target_side
+        # so the whole image surface is visible at a glance.  The fixed
+        # [0, distmap_vmax] colour scale makes tiles directly comparable.
+        if variant_distmap_entries:
+            distmap_thumbs_dir = work / "distmap_thumbs"
+            distmap_thumbs_dir.mkdir()
+
+            # target_side matches the rendered pixel dimensions of a crop tile
+            # so both comparison grids have the same overall layout.
+            target_side = config.crop_size * config.zoom_factor
+
+            # The "Original" tile shows the actual source image scaled to
+            # target_side so viewers can cross-reference distortion patterns
+            # with real image content.
+            orig_thumb = distmap_thumbs_dir / "original.png"
+            with Image.open(source_path) as _src:
+                _src.convert("RGB").resize(
+                    (target_side, target_side), Image.Resampling.LANCZOS
+                ).save(orig_thumb)
+
+            distmap_crop_entries: list[tuple[Path, str, str]] = [
+                (orig_thumb, "Original", "Reference image"),
+            ]
+
+            for idx, (dm_arr, dm_label, dm_metric) in enumerate(variant_distmap_entries):
+                safe_dm = dm_label.replace(" ", "_").replace("=", "-")
+                thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
+                _render_distmap_thumbnail(
+                    dm_arr,
+                    target_side,
+                    thumb_path,
+                    vmax=config.distmap_vmax,
+                )
+                distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
+
+            if len(distmap_crop_entries) <= config.max_columns * 3:
+                dm_grid_path = output_dir / "distortion_map_comparison.png"
+                assemble_comparison_grid(
+                    distmap_crop_entries,
+                    dm_grid_path,
+                    max_columns=config.max_columns,
+                    label_font_size=config.label_font_size,
+                )
+                output_images.append(dm_grid_path)
+                print(f"  Generated distortion map comparison grid: {dm_grid_path}")
+            else:
+                if varying:
+                    split_param = varying[0]
+                    dm_groups: dict[str, list[tuple[Path, str, str]]] = {}
+                    dm_orig_entry = distmap_crop_entries[0]
+                    for dm_entry, dm_m in zip(
+                        distmap_crop_entries[1:], sorted_measurements, strict=False
+                    ):
+                        group_key = str(dm_m.get(split_param, "unknown"))
+                        if group_key not in dm_groups:
+                            dm_groups[group_key] = [dm_orig_entry]
+                        dm_groups[group_key].append(dm_entry)
+                    for group_name, group_entries in sorted(dm_groups.items()):
+                        dm_grid_path = output_dir / (
+                            f"distortion_map_comparison_{split_param}_{group_name}.png"
+                        )
+                        assemble_comparison_grid(
+                            group_entries,
+                            dm_grid_path,
+                            max_columns=config.max_columns,
+                            label_font_size=config.label_font_size,
+                        )
+                        output_images.append(dm_grid_path)
+                        print(
+                            f"  Generated distortion map comparison grid: {dm_grid_path}"
+                        )
+                else:
+                    dm_grid_path = output_dir / "distortion_map_comparison.png"
+                    assemble_comparison_grid(
+                        distmap_crop_entries,
+                        dm_grid_path,
+                        max_columns=config.max_columns,
+                        label_font_size=config.label_font_size,
+                    )
+                    output_images.append(dm_grid_path)
+
         # 10. Write final visualization outputs
         _visualize_distortion_map(
             distortion_arr,
@@ -1108,6 +1231,54 @@ def generate_comparison(
         varying_parameters=varying,
         region_strategy=strategy,
     )
+
+
+def _render_distmap_thumbnail(
+    arr: np.ndarray,
+    target_size: int,
+    output_path: Path,
+    vmin: float = 0.0,
+    vmax: float = 10.0,
+) -> Path:
+    """Render a full distortion map as a fixed-scale viridis thumbnail.
+
+    The entire ``arr`` (full-image distortion values) is normalised using
+    the fixed ``[vmin, vmax]`` range, mapped through the viridis colormap,
+    and then scaled to ``target_size \u00d7 target_size`` pixels using
+    high-quality (Lanczos) down-sampling.
+
+    Using the same ``vmin``/``vmax`` for every tile in the comparison
+    grid guarantees that equal colours represent equal levels of
+    distortion across all encoding variants, so structural differences
+    (e.g. one encoder concentrating errors in fine-detail regions while
+    another spreads them evenly) are directly visible.
+
+    Args:
+        arr: Full-image 2-D float distortion array ``(H, W)``.
+        target_size: Each output tile will be scaled to this width and
+            height in pixels.  Pass ``config.crop_size * config.zoom_factor``
+            so tiles match the dimensions of the pixel-crop comparison tiles.
+        output_path: Destination PNG path.
+        vmin: Distortion value mapped to the darkest viridis colour
+            (default ``0.0``).
+        vmax: Distortion value mapped to the brightest viridis colour.
+            Values above this are clamped (default ``10.0``).
+
+    Returns:
+        ``output_path``.
+    """
+    if vmax > vmin:
+        normalised = np.clip((arr - vmin) / (vmax - vmin), 0.0, 1.0)
+    else:
+        normalised = np.zeros_like(arr, dtype=np.float64)
+
+    rgba = matplotlib.colormaps["viridis_r"](normalised)
+    rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
+    pil_img = Image.fromarray(rgb, mode="RGB")
+    pil_img = pil_img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pil_img.save(output_path)
+    return output_path
 
 
 def _draw_annotation_on_image(
@@ -1170,7 +1341,7 @@ def _visualize_distortion_map(
     else:
         normalised = np.zeros_like(arr, dtype=np.float64)
 
-    rgba = matplotlib.colormaps["viridis"](normalised)  # (H, W, 4) in [0, 1]
+    rgba = matplotlib.colormaps["viridis_r"](normalised)  # (H, W, 4) in [0, 1]
     rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
     Image.fromarray(rgb, mode="RGB").save(output_path)
 
