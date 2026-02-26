@@ -202,9 +202,8 @@ class TestExpandEncoderTasks:
             source_image=img,
             original_image=img,
             enc=enc,
-            resolution=None,
             save_artifact_dir=None,
-            source_image_label=None,
+            study_id="test",
         )
         assert len(tasks) == 2
         assert tasks[0]["quality"] == 60
@@ -223,9 +222,8 @@ class TestExpandEncoderTasks:
             source_image=img,
             original_image=img,
             enc=enc,
-            resolution=None,
             save_artifact_dir=None,
-            source_image_label=None,
+            study_id="test",
         )
         assert len(tasks) == 2
         assert tasks[0]["chroma_subsampling"] == "444"
@@ -238,15 +236,14 @@ class TestExpandEncoderTasks:
         img = tmp_path / "test.png"
         Image.new("RGB", (4, 4), "red").save(img)
 
-        enc = EncoderConfig(format="jpeg", quality=[85])
+        enc = EncoderConfig(format="jpeg", quality=[85], resolution=[1280])
         save_dir = tmp_path / "encoded" / "study1"
         tasks = _expand_encoder_tasks(
             source_image=img,
             original_image=img,
             enc=enc,
-            resolution=1280,
             save_artifact_dir=save_dir,
-            source_image_label=None,
+            study_id="study1",
         )
         assert len(tasks) == 1
         assert "jpeg" in tasks[0]["save_dir_str"]
@@ -269,12 +266,53 @@ class TestExpandEncoderTasks:
             source_image=img,
             original_image=img,
             enc=enc,
-            resolution=None,
             save_artifact_dir=None,
-            source_image_label=None,
+            study_id="test",
         )
         # 2 quality × 2 chroma × 2 speed = 8
         assert len(tasks) == 8
+
+    def test_resolution_in_cartesian_product(self, tmp_path: Path) -> None:
+        """Resolution participates in the Cartesian product."""
+        from PIL import Image
+
+        img = tmp_path / "test.png"
+        Image.new("RGB", (4, 4), "red").save(img)
+
+        enc = EncoderConfig(
+            format="jpeg",
+            quality=[60, 80],
+            resolution=[1280, 720],
+        )
+        tasks = _expand_encoder_tasks(
+            source_image=img,
+            original_image=img,
+            enc=enc,
+            save_artifact_dir=None,
+            study_id="test",
+        )
+        # 2 quality × 2 resolution = 4 tasks
+        assert len(tasks) == 4
+        resolutions = {t["resolution"] for t in tasks}
+        assert resolutions == {1280, 720}
+
+    def test_no_resolution_produces_none(self, tmp_path: Path) -> None:
+        """Encoder without resolution produces tasks with resolution=None."""
+        from PIL import Image
+
+        img = tmp_path / "test.png"
+        Image.new("RGB", (4, 4), "red").save(img)
+
+        enc = EncoderConfig(format="jpeg", quality=[75])
+        tasks = _expand_encoder_tasks(
+            source_image=img,
+            original_image=img,
+            enc=enc,
+            save_artifact_dir=None,
+            study_id="test",
+        )
+        assert len(tasks) == 1
+        assert tasks[0]["resolution"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -394,46 +432,6 @@ class TestEncodeAndMeasure:
             source_image_label="data/preprocessed/study/r1920/img_r1920.png",
         )
         assert record.source_image == "data/preprocessed/study/r1920/img_r1920.png"
-
-
-# ---------------------------------------------------------------------------
-# StudyConfig.time_budget
-# ---------------------------------------------------------------------------
-
-
-class TestStudyConfigTimeBudget:
-    """Tests for time_budget in StudyConfig."""
-
-    def test_from_dict_with_time_budget(self) -> None:
-        data = {
-            "id": "test",
-            "dataset": {"id": "div2k-valid"},
-            "encoders": [{"format": "jpeg", "quality": 75}],
-            "time_budget": 3600,
-        }
-        config = StudyConfig.from_dict(data)
-        assert config.time_budget == 3600
-
-    def test_from_dict_without_time_budget(self) -> None:
-        data = {
-            "id": "test",
-            "dataset": {"id": "div2k-valid"},
-            "encoders": [{"format": "jpeg", "quality": 75}],
-        }
-        config = StudyConfig.from_dict(data)
-        assert config.time_budget is None
-
-    def test_from_file_with_time_budget(self, tmp_path: Path) -> None:
-        data = {
-            "id": "test",
-            "dataset": {"id": "div2k-valid"},
-            "encoders": [{"format": "jpeg", "quality": 85}],
-            "time_budget": 1800,
-        }
-        config_file = tmp_path / "test.json"
-        config_file.write_text(json.dumps(data))
-        config = StudyConfig.from_file(config_file)
-        assert config.time_budget == 1800
 
 
 # ---------------------------------------------------------------------------
@@ -684,8 +682,7 @@ class TestPipelineRunnerIntegration:
             name="Preprocess Test",
             dataset_id="test-ds",
             max_images=1,
-            encoders=[EncoderConfig(format="jpeg", quality=[85])],
-            resize=[32],  # downscale to 32px
+            encoders=[EncoderConfig(format="jpeg", quality=[85], resolution=[32])],
         )
 
         runner = PipelineRunner(project_with_dataset)
@@ -707,8 +704,7 @@ class TestPipelineRunnerIntegration:
             name="Multi-Resolution Test",
             dataset_id="test-ds",
             max_images=1,
-            encoders=[EncoderConfig(format="jpeg", quality=[85])],
-            resize=[48, 32],  # two resolutions
+            encoders=[EncoderConfig(format="jpeg", quality=[85], resolution=[48, 32])],
         )
 
         runner = PipelineRunner(project_with_dataset)

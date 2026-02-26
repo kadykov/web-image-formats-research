@@ -321,7 +321,7 @@ Examples:
         study_paths = discover_studies()
         if not study_paths:
             print("No studies with quality measurements found.")
-            print("Run quality measurements first: just measure-study <study-id>")
+            print("Run the pipeline first: just pipeline <study-id>")
             return 1
 
         print("Available studies for report generation:")

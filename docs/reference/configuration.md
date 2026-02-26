@@ -143,15 +143,13 @@ Validated by `config/study.schema.json`.
     "id": "string",
     "max_images": "integer (optional)"
   },
-  "preprocessing": {
-    "resize": [1920, 1280, 640]
-  },
   "encoders": [
     {
       "format": "jpeg|webp|avif|jxl",
       "quality": 75,
       "chroma_subsampling": ["444", "420"],
       "speed": [4, 6],
+      "resolution": [1920, 1280, 640],
       "extra_args": {}
     }
   ]
@@ -178,7 +176,6 @@ The `quality` field supports three formats:
 | `time_budget` | number | No | Default time budget in seconds for unified pipeline runs. Can be overridden via CLI. |
 | `dataset.id` | string | Yes | Dataset identifier from `datasets.json`. |
 | `dataset.max_images` | integer | No | Limit images from dataset (useful for testing). |
-| `preprocessing.resize` | integer[] | No | Target resolutions (longest edge in pixels). |
 | `encoders[].format` | string | Yes | One of: `jpeg`, `webp`, `avif`, `jxl`. |
 | `encoders[].quality` | int/list/range | Yes | Quality settings to sweep (0–100). |
 | `encoders[].chroma_subsampling` | string[] | No | Subsampling modes: `444`, `422`, `420`, `400`. |
@@ -224,14 +221,11 @@ The `quality` field supports three formats:
 ### Running Studies
 
 ```bash
-# List available studies
-just list-studies
+# Run a study with the unified pipeline
+just pipeline avif-quality-sweep
 
-# Preview what a study will do
-just dry-run-study studies/avif-quality-sweep.json
-
-# Run a study
-just run-study studies/avif-quality-sweep.json
+# Run with a time budget and analysis
+just pipeline-analyze avif-quality-sweep 1h
 ```
 
 ## Encoding Results

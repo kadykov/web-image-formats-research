@@ -3,9 +3,8 @@
 
 This script loads a study configuration, then encodes and measures
 quality for each image in the dataset within an optional time budget.
-It produces a quality-results JSON file (same format as the separate
-``measure_quality.py`` script) that can be fed directly into analysis
-and report generation.
+It produces a quality-results JSON file that can be fed directly into
+analysis and report generation.
 
 By default the encoded files for the worst-quality image are saved to
 ``data/encoded/<study_id>/`` so that the comparison script can reuse

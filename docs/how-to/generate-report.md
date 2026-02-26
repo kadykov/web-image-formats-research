@@ -25,9 +25,8 @@ Before generating reports, you need quality measurement results:
 # Run unified pipeline with time budget (includes analysis)
 just pipeline-analyze format-comparison 30m
 
-# Or run separate stages
-just run-study format-comparison
-just measure-study format-comparison
+# Or run pipeline then analyze separately
+just pipeline format-comparison
 just analyze format-comparison
 ```
 
@@ -215,7 +214,7 @@ generate_report(all_studies, output_dir="data/report")
 The study hasn't completed quality measurement yet:
 
 ```bash
-just measure-study <study-id>
+just pipeline <study-id>
 ```
 
 ### "No static figures found"

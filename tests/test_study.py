@@ -1,4 +1,4 @@
-"""Tests for study configuration and execution module."""
+"""Tests for study configuration and parsing module."""
 
 import json
 from pathlib import Path
@@ -7,13 +7,8 @@ import pytest
 
 from src.study import (
     EncoderConfig,
-    EncodingTask,
     StudyConfig,
-    StudyResults,
-    _build_output_name,
-    _interleave_tasks,
     _parse_quality,
-    expand_tasks,
 )
 
 
@@ -61,10 +56,10 @@ class TestStudyConfig:
         assert config.name == "test-study"  # defaults to id
         assert config.dataset_id == "div2k-valid"
         assert config.max_images is None
-        assert config.resize is None
         assert len(config.encoders) == 1
         assert config.encoders[0].format == "webp"
         assert config.encoders[0].quality == [75]
+        assert config.encoders[0].resolution is None
 
     def test_from_dict_full(self) -> None:
         """Full config with all optional fields."""
@@ -73,13 +68,13 @@ class TestStudyConfig:
             "name": "Full Study",
             "description": "Test study with all fields",
             "dataset": {"id": "div2k-valid", "max_images": 5},
-            "preprocessing": {"resize": [1920, 1280]},
             "encoders": [
                 {
                     "format": "avif",
                     "quality": {"start": 30, "stop": 90, "step": 30},
                     "chroma_subsampling": ["444", "420"],
                     "speed": [4, 6],
+                    "resolution": [1920, 1280],
                 },
             ],
         }
@@ -87,12 +82,12 @@ class TestStudyConfig:
         assert config.name == "Full Study"
         assert config.description == "Test study with all fields"
         assert config.max_images == 5
-        assert config.resize == [1920, 1280]
         enc = config.encoders[0]
         assert enc.format == "avif"
         assert enc.quality == [30, 60, 90]
         assert enc.chroma_subsampling == ["444", "420"]
         assert enc.speed == [4, 6]
+        assert enc.resolution == [1920, 1280]
 
     def test_from_dict_missing_id_raises(self) -> None:
         """Missing required 'id' field raises ValueError."""
@@ -163,288 +158,106 @@ class TestStudyConfig:
         config = StudyConfig.from_dict(data)
         assert config.encoders[0].extra_args == {"preset": "photo", "m": 6}
 
+    def test_time_budget(self) -> None:
+        """Time budget is parsed from config."""
+        data = {
+            "id": "budget-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "jpeg", "quality": 75}],
+            "time_budget": 3600,
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.time_budget == 3600
 
-class TestExpandTasks:
-    """Tests for task expansion from study configs."""
+    def test_time_budget_default(self) -> None:
+        """Time budget defaults to None."""
+        data = {
+            "id": "budget-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "jpeg", "quality": 75}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.time_budget is None
 
-    @pytest.fixture
-    def images(self, tmp_path: Path) -> list[Path]:
-        """Create two tiny real PNG files for expand_tasks."""
-        from PIL import Image
 
-        paths: list[Path] = []
-        for name in ("a.png", "b.png"):
-            p = tmp_path / name
-            Image.new("RGB", (4, 4), "red").save(p)
-            paths.append(p)
-        return paths
+class TestEncoderConfigResolution:
+    """Tests for resolution as a per-encoder sweep parameter."""
 
-    def _make_config(self, **kwargs: object) -> StudyConfig:
-        """Helper to create a minimal config with overrides."""
-        defaults: dict = {
-            "id": "test",
-            "name": "Test",
-            "dataset_id": "div2k-valid",
-            "max_images": None,
+    def test_single_integer_resolution(self) -> None:
+        """Single resolution integer is wrapped in a list."""
+        data = {
+            "id": "res-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75, "resolution": 1280}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].resolution == [1280]
+
+    def test_resolution_list(self) -> None:
+        """Resolution list is preserved."""
+        data = {
+            "id": "res-list-test",
+            "dataset": {"id": "div2k-valid"},
             "encoders": [
-                EncoderConfig(format="webp", quality=[60, 80]),
+                {"format": "webp", "quality": 75, "resolution": [2048, 1280, 720]},
             ],
         }
-        defaults.update(kwargs)
-        return StudyConfig(**defaults)
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].resolution == [2048, 1280, 720]
 
-    def test_basic_expansion(self, images: list[Path]) -> None:
-        """Tasks are expanded for each image × quality."""
-        config = self._make_config()
-        tasks = expand_tasks(config, images)
-        # 2 images × 2 quality levels = 4 tasks
-        assert len(tasks) == 4
-        assert all(isinstance(t, EncodingTask) for t in tasks)
-        # megapixels should be computed (4×4 = 16px = 0.000016 MP)
-        assert all(t.megapixels > 0 for t in tasks)
+    def test_no_resolution(self) -> None:
+        """No resolution means original images are used."""
+        data = {
+            "id": "no-res-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].resolution is None
 
-    def test_chroma_subsampling_expansion(self, images: list[Path]) -> None:
-        """Tasks multiply for each chroma subsampling mode."""
-        config = self._make_config(
-            encoders=[
-                EncoderConfig(
-                    format="avif",
-                    quality=[75],
-                    chroma_subsampling=["444", "420"],
-                ),
-            ]
-        )
-        tasks = expand_tasks(config, images[:1])
-        # 1 image × 1 quality × 2 subsampling = 2 tasks
-        assert len(tasks) == 2
-        assert tasks[0].chroma_subsampling == "444"
-        assert tasks[1].chroma_subsampling == "420"
+    def test_per_encoder_resolution(self) -> None:
+        """Different encoders can have different resolutions."""
+        data = {
+            "id": "per-enc-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [
+                {"format": "jpeg", "quality": 75, "resolution": [1280, 720]},
+                {"format": "avif", "quality": 60, "resolution": [2048]},
+                {"format": "webp", "quality": 80},
+            ],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].resolution == [1280, 720]
+        assert config.encoders[1].resolution == [2048]
+        assert config.encoders[2].resolution is None
 
-    def test_speed_expansion(self, images: list[Path]) -> None:
-        """Tasks multiply for each speed setting."""
-        config = self._make_config(
-            encoders=[
-                EncoderConfig(format="avif", quality=[75], speed=[4, 6]),
-            ]
-        )
-        tasks = expand_tasks(config, images[:1])
-        # 1 image × 1 quality × 2 speeds = 2 tasks
-        assert len(tasks) == 2
-        assert tasks[0].speed == 4
-        assert tasks[1].speed == 6
-
-    def test_full_combinatorial(self, images: list[Path]) -> None:
-        """Full combinatorial expansion: images × quality × chroma × speed."""
-        config = self._make_config(
-            encoders=[
-                EncoderConfig(
-                    format="avif",
-                    quality=[60, 80],
-                    chroma_subsampling=["444", "420"],
-                    speed=[4, 6],
-                ),
-            ]
-        )
-        tasks = expand_tasks(config, images)
-        # 2 images × 2 quality × 2 chroma × 2 speed = 16 tasks
-        assert len(tasks) == 16
-
-    def test_multiple_encoders(self, images: list[Path]) -> None:
-        """Tasks from multiple encoders are combined."""
-        config = self._make_config(
-            encoders=[
-                EncoderConfig(format="jpeg", quality=[75]),
-                EncoderConfig(format="webp", quality=[75]),
-            ]
-        )
-        tasks = expand_tasks(config, images[:1])
-        assert len(tasks) == 2
-        assert tasks[0].format == "jpeg"
-        assert tasks[1].format == "webp"
-
-    def test_resolution_tag(self, images: list[Path]) -> None:
-        """Resolution tag is attached to all tasks."""
-        config = self._make_config(encoders=[EncoderConfig(format="webp", quality=[75])])
-        tasks = expand_tasks(config, images[:1], resolution=1280)
-        assert len(tasks) == 1
-        assert tasks[0].resolution == 1280
-
-    def test_original_images_tracked(self, images: list[Path], tmp_path: Path) -> None:
-        """Original images are tracked separately from source images."""
-        from PIL import Image
-
-        resized = tmp_path / "a_resized.png"
-        Image.new("RGB", (2, 2), "blue").save(resized)
-        source = [resized]
-        original = [images[0]]
-        config = self._make_config(encoders=[EncoderConfig(format="webp", quality=[75])])
-        tasks = expand_tasks(config, source, original_images=original)
-        assert tasks[0].source_image == source[0]
-        assert tasks[0].original_image == original[0]
-
-
-class TestBuildOutputName:
-    """Tests for output filename generation."""
-
-    def test_basic_name(self) -> None:
-        """Basic name with just quality."""
-        task = EncodingTask(
-            source_image=Path("x.png"),
-            original_image=Path("x.png"),
-            format="webp",
-            quality=75,
-            megapixels=0.0,
-        )
-        name = _build_output_name(task, "image001")
-        assert name == "image001_q75"
-
-    def test_with_chroma(self) -> None:
-        """Name includes chroma subsampling."""
-        task = EncodingTask(
-            source_image=Path("x.png"),
-            original_image=Path("x.png"),
+    def test_encoder_config_dataclass(self) -> None:
+        """EncoderConfig can be constructed directly with resolution."""
+        enc = EncoderConfig(
             format="avif",
-            quality=60,
-            megapixels=0.0,
-            chroma_subsampling="420",
+            quality=[60, 80],
+            resolution=[1920, 1280, 720],
+            speed=[4, 6],
         )
-        name = _build_output_name(task, "image001")
-        assert name == "image001_q60_420"
+        assert enc.resolution == [1920, 1280, 720]
+        assert enc.speed == [4, 6]
 
-    def test_with_speed(self) -> None:
-        """Name includes speed."""
-        task = EncodingTask(
-            source_image=Path("x.png"),
-            original_image=Path("x.png"),
-            format="avif",
-            quality=60,
-            megapixels=0.0,
-            speed=4,
-        )
-        name = _build_output_name(task, "image001")
-        assert name == "image001_q60_s4"
+    def test_effort_parsing(self) -> None:
+        """Effort is parsed like speed."""
+        data = {
+            "id": "effort-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "jxl", "quality": 75, "effort": [3, 7]}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].effort == [3, 7]
 
-    def test_with_resolution(self) -> None:
-        """Name includes resolution."""
-        task = EncodingTask(
-            source_image=Path("x.png"),
-            original_image=Path("x.png"),
-            format="avif",
-            quality=60,
-            megapixels=0.0,
-            resolution=1280,
-        )
-        name = _build_output_name(task, "image001")
-        assert name == "image001_q60_r1280"
-
-    def test_all_parameters(self) -> None:
-        """Name includes all parameters."""
-        task = EncodingTask(
-            source_image=Path("x.png"),
-            original_image=Path("x.png"),
-            format="avif",
-            quality=60,
-            megapixels=0.0,
-            chroma_subsampling="444",
-            speed=4,
-            resolution=1920,
-        )
-        name = _build_output_name(task, "img")
-        assert name == "img_q60_444_s4_r1920"
-
-
-class TestStudyResults:
-    """Tests for StudyResults serialization."""
-
-    def test_to_dict(self) -> None:
-        """Results serialize to the expected schema shape."""
-        results = StudyResults(
-            study_id="test",
-            study_name="Test Study",
-            dataset_id="div2k-valid",
-            dataset_path="data/datasets/DIV2K_valid",
-            image_count=10,
-            timestamp="2026-01-01T00:00:00+00:00",
-        )
-        d = results.to_dict()
-        assert d["study_id"] == "test"
-        assert d["study_name"] == "Test Study"
-        assert d["dataset"]["id"] == "div2k-valid"
-        assert d["dataset"]["path"] == "data/datasets/DIV2K_valid"
-        assert d["dataset"]["image_count"] == 10
-        assert d["timestamp"] == "2026-01-01T00:00:00+00:00"
-        assert d["encodings"] == []
-
-    def test_save(self, tmp_path: Path) -> None:
-        """Results are written to JSON file."""
-        results = StudyResults(
-            study_id="test",
-            study_name="Test",
-            dataset_id="d",
-            dataset_path="data/datasets/d",
-            image_count=1,
-            timestamp="2026-01-01T00:00:00+00:00",
-        )
-        output_path = tmp_path / "out" / "results.json"
-        results.save(output_path)
-
-        assert output_path.exists()
-        loaded = json.loads(output_path.read_text())
-        assert loaded["study_id"] == "test"
-        assert loaded["encodings"] == []
-
-
-class TestInterleaveTasks:
-    """Tests for task interleaving across formats."""
-
-    @staticmethod
-    def _task(fmt: str, quality: int = 75) -> EncodingTask:
-        """Create a minimal EncodingTask for testing interleaving."""
-        return EncodingTask(
-            source_image=Path("x.png"),
-            original_image=Path("x.png"),
-            format=fmt,
-            quality=quality,
-            megapixels=1.0,
-        )
-
-    def test_single_format_unchanged(self) -> None:
-        """Single format list is returned in original order."""
-        tasks = [self._task("avif", q) for q in (30, 60, 90)]
-        result = _interleave_tasks(tasks)
-        assert [t.quality for t in result] == [30, 60, 90]
-
-    def test_two_formats_alternate(self) -> None:
-        """Two formats with equal counts alternate perfectly."""
-        tasks = [
-            self._task("jpeg", 60),
-            self._task("jpeg", 80),
-            self._task("avif", 60),
-            self._task("avif", 80),
-        ]
-        result = _interleave_tasks(tasks)
-        formats = [t.format for t in result]
-        assert formats == ["jpeg", "avif", "jpeg", "avif"]
-
-    def test_unequal_counts(self) -> None:
-        """Longer bucket's tail is appended after shorter runs out."""
-        tasks = [
-            self._task("jpeg", 75),
-            self._task("avif", 30),
-            self._task("avif", 60),
-            self._task("avif", 90),
-        ]
-        result = _interleave_tasks(tasks)
-        formats = [t.format for t in result]
-        assert formats == ["jpeg", "avif", "avif", "avif"]
-
-    def test_empty_input(self) -> None:
-        """Empty list returns empty list."""
-        assert _interleave_tasks([]) == []
-
-    def test_preserves_all_tasks(self) -> None:
-        """Interleaving does not lose or duplicate tasks."""
-        tasks = [self._task(f, q) for f in ("jpeg", "webp", "avif") for q in (60, 80)]
-        result = _interleave_tasks(tasks)
-        assert len(result) == 6
-        assert {id(t) for t in result} == {id(t) for t in tasks}
+    def test_method_parsing(self) -> None:
+        """Method is parsed like speed."""
+        data = {
+            "id": "method-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75, "method": [0, 4, 6]}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].method == [0, 4, 6]

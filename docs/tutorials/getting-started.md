@@ -106,9 +106,6 @@ This downloads 100 high-quality 2K images (~500MB). For more details, see the
 Now that you have a dataset, run a complete study with the unified pipeline:
 
 ```bash
-# List available studies
-just list-studies
-
 # Run a format comparison for 30 minutes
 just pipeline-analyze format-comparison 30m
 ```
