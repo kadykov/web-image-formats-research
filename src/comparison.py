@@ -36,6 +36,7 @@ import numpy as np
 from PIL import Image
 
 from src.encoder import ImageEncoder
+from src.quality import WorstRegion, find_worst_region_in_array, read_pfm
 
 
 @dataclass
@@ -84,25 +85,6 @@ class ComparisonConfig:
     strategy: str = "both"
     distmap_vmax: float = 5.0
     source_image: str | None = None
-
-
-@dataclass
-class WorstRegion:
-    """Information about the most degraded region in an image.
-
-    Attributes:
-        x: Left coordinate of the crop region.
-        y: Top coordinate of the crop region.
-        width: Width of the crop region in pixels.
-        height: Height of the crop region in pixels.
-        avg_distortion: Average distortion score in this region.
-    """
-
-    x: int
-    y: int
-    width: int
-    height: int
-    avg_distortion: float
 
 
 @dataclass
@@ -436,54 +418,8 @@ def _to_png(image_path: Path, output_path: Path) -> None:
 
 
 def _read_pfm(pfm_path: Path) -> np.ndarray:
-    """Read a PFM (Portable Float Map) file into a 2-D float64 numpy array.
-
-    Handles both grayscale (``Pf``) and colour (``PF``) PFM files.  For
-    colour PFM the maximum across the three channels is returned so that
-    the highest distortion value at each pixel is preserved.
-
-    PFM stores rows bottom-to-top; this function flips the result to the
-    conventional top-to-bottom orientation used everywhere else.
-
-    Args:
-        pfm_path: Path to the ``.pfm`` file.
-
-    Returns:
-        2-D array of shape ``(H, W)`` with distortion values.
-
-    Raises:
-        ValueError: If the file is not a valid PFM.
-    """
-    import struct
-
-    with open(pfm_path, "rb") as fh:
-        magic = fh.readline().decode("ascii").strip()
-        if magic not in ("PF", "Pf"):
-            msg = f"Not a PFM file (magic={magic!r}): {pfm_path}"
-            raise ValueError(msg)
-        is_color = magic == "PF"
-
-        dims = fh.readline().decode("ascii").strip().split()
-        width, height = int(dims[0]), int(dims[1])
-
-        scale = float(fh.readline().decode("ascii").strip())
-        little_endian = scale < 0
-
-        channels = 3 if is_color else 1
-        n_floats = width * height * channels
-        raw = fh.read(n_floats * 4)
-
-    endian = "<" if little_endian else ">"
-    data = np.array(struct.unpack(f"{endian}{n_floats}f", raw), dtype=np.float64)
-
-    if is_color:
-        data = data.reshape((height, width, 3))
-        data = data.max(axis=2)  # take worst distortion per pixel
-    else:
-        data = data.reshape((height, width))
-
-    # PFM rows are stored bottom-to-top; flip to standard orientation
-    return np.flipud(data)
+    """Read a PFM file.  Delegates to :func:`src.quality.read_pfm`."""
+    return read_pfm(pfm_path)
 
 
 def generate_distortion_map(
@@ -549,57 +485,9 @@ def _find_worst_region_in_array(
 ) -> WorstRegion:
     """Find the worst region in a 2-D distortion value array.
 
-    Core sliding-window computation shared by :func:`find_worst_region` and
-    :func:`compute_aggregate_distortion_maps`.  Works with any float array,
-    whether it comes from a raw PFM file, an averaged map, or a variance map.
-
-    Args:
-        arr: 2-D float array of shape ``(H, W)`` with per-pixel distortion
-            values.  Higher values mean more distortion.
-        crop_size: Side length of the square sliding window in pixels.
-
-    Returns:
-        :class:`WorstRegion` for the window position with the highest sum.
+    Delegates to :func:`src.quality.find_worst_region_in_array`.
     """
-    h, w = arr.shape
-
-    if h < crop_size or w < crop_size:
-        actual_h = min(h, crop_size)
-        actual_w = min(w, crop_size)
-        return WorstRegion(
-            x=0,
-            y=0,
-            width=actual_w,
-            height=actual_h,
-            avg_distortion=float(np.mean(arr)),
-        )
-
-    # Use integral image (summed area table) for efficient sliding window
-    integral = np.cumsum(np.cumsum(arr, axis=0), axis=1)
-    padded = np.zeros((h + 1, w + 1), dtype=np.float64)
-    padded[1:, 1:] = integral
-
-    y_max = h - crop_size + 1
-    x_max = w - crop_size + 1
-
-    window_sums = (
-        padded[crop_size : h + 1, crop_size : w + 1]
-        - padded[:y_max, crop_size : w + 1]
-        - padded[crop_size : h + 1, :x_max]
-        + padded[:y_max, :x_max]
-    )
-
-    max_idx = np.argmax(window_sums)
-    best_y, best_x = np.unravel_index(max_idx, window_sums.shape)
-    avg_distortion = float(window_sums[best_y, best_x] / (crop_size * crop_size))
-
-    return WorstRegion(
-        x=int(best_x),
-        y=int(best_y),
-        width=crop_size,
-        height=crop_size,
-        avg_distortion=avg_distortion,
-    )
+    return find_worst_region_in_array(arr, crop_size)
 
 
 def find_worst_region(
@@ -608,9 +496,8 @@ def find_worst_region(
 ) -> WorstRegion:
     """Find the region with the highest distortion in a raw Butteraugli PFM file.
 
-    Reads the per-pixel float distortion values from a PFM file produced by
-    ``butteraugli_main --rawdistmap`` and delegates the sliding-window search
-    to :func:`_find_worst_region_in_array`.
+    Reads the PFM via :func:`src.quality.read_pfm` and delegates the
+    sliding-window search to :func:`src.quality.find_worst_region_in_array`.
 
     Args:
         pfm_path: Path to a ``.pfm`` raw distortion map.
@@ -1075,6 +962,17 @@ def compute_aggregate_distortion_maps(
             print(f"    Warning: could not obtain encoded image for {fmt} q{quality}")
             continue
 
+        # Check for a PFM saved by the pipeline next to the encoded file
+        colocated_pfm = enc_path.with_suffix(".pfm")
+        if colocated_pfm.exists():
+            try:
+                arr = _read_pfm(colocated_pfm)
+                arrays.append(arr)
+                variant_pairs.append((arr, m))
+                continue
+            except ValueError:
+                pass  # fall through to recomputing
+
         raw_pfm = pfms_dir / f"distmap_{suffix}.pfm"
         try:
             generate_distortion_map(source_path, enc_path, raw_pfm)
@@ -1161,6 +1059,8 @@ def generate_comparison(
     data = load_quality_results(quality_json_path)
     measurements = data["measurements"]
     study_id = data.get("study_id", "unknown")
+    worst_images = data.get("worst_images")
+    worst_fragments = data.get("worst_fragments")
 
     print(f"Generating visual comparison for study: {study_id}")
     print(f"  Total measurements: {len(measurements)}")
@@ -1192,6 +1092,11 @@ def generate_comparison(
     for strat in strategies:
         if config.source_image is not None:
             image_per_strategy[strat] = config.source_image
+        elif worst_images and strat in worst_images:
+            # Use the worst image identified by the pipeline via fragment-level
+            # comparison across all dataset images.
+            image_per_strategy[strat] = worst_images[strat]["original_image"]
+            print(f"  [{strat}] Using pipeline-selected worst image")
         else:
             if resolution_varies:
                 # Group by original_image across all resolutions
@@ -1281,9 +1186,29 @@ def generate_comparison(
                 )
 
                 # Select region using the strategy
-                avg_region = _find_worst_region_in_array(avg_map, crop_size=config.crop_size)
-                var_region = _find_worst_region_in_array(var_map, crop_size=config.crop_size)
-                region = avg_region if strat == "average" else var_region
+                # Prefer pre-computed fragment positions from the pipeline when
+                # available — these were found by scanning ALL dataset images
+                # at the fragment level, not just the worst image by aggregate.
+                _frag_key = str(resolution) if resolution is not None else "null"
+                if (
+                    worst_fragments
+                    and strat in worst_fragments
+                    and _frag_key in worst_fragments[strat].get("regions", {})
+                ):
+                    frag = worst_fragments[strat]["regions"][_frag_key]
+                    region = WorstRegion(
+                        x=frag["x"],
+                        y=frag["y"],
+                        width=frag["width"],
+                        height=frag["height"],
+                        avg_distortion=frag["avg_distortion"],
+                    )
+                    print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                          f"Using pre-computed fragment from pipeline")
+                else:
+                    avg_region = _find_worst_region_in_array(avg_map, crop_size=config.crop_size)
+                    var_region = _find_worst_region_in_array(var_map, crop_size=config.crop_size)
+                    region = avg_region if strat == "average" else var_region
 
                 print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
                       f"Region: ({region.x}, {region.y}) "

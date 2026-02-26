@@ -45,13 +45,20 @@ from typing import Any
 from src.dataset import DatasetFetcher
 from src.encoder import ImageEncoder, get_encoder_version
 from src.preprocessing import ImagePreprocessor
+import numpy as np
+
 from src.quality import (
     QualityMeasurer,
     QualityRecord,
     QualityResults,
+    find_worst_region_in_array,
     get_measurement_tool_version,
+    read_pfm,
 )
 from src.study import EncoderConfig, StudyConfig
+
+# Default crop size used for worst-fragment detection during measurement.
+DEFAULT_CROP_SIZE: int = 128
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -183,7 +190,11 @@ def _process_image(
             files to a per-image staging directory.
 
     Returns:
-        List of QualityRecords for all tasks related to this image.
+        ``(records, fragment_info)`` — a list of :class:`QualityRecord`
+        objects for all tasks, and a dict with worst-fragment metadata
+        per strategy per resolution:
+        ``{strategy: {resolution_key: {x, y, width, height, avg_distortion}}}``.
+        Resolution keys are ``int`` or ``None`` (original resolution).
     """
     import tempfile
 
@@ -209,6 +220,13 @@ def _process_image(
 
     # In-worker preprocessing cache: resolution → preprocessed path
     preprocessed_cache: dict[int, Path] = {}
+
+    # Running distortion-map accumulators per resolution group.
+    # Using running sums instead of stacking all arrays keeps memory
+    # constant regardless of the number of encoding variants.
+    distmap_sums: dict[int | None, np.ndarray] = {}
+    distmap_sumsq: dict[int | None, np.ndarray] = {}
+    distmap_counts: dict[int | None, int] = {}
 
     with tempfile.TemporaryDirectory() as prep_tmpdir:
         def _get_source(resolution: int | None) -> Path:
@@ -246,13 +264,52 @@ def _process_image(
                 actual_source = _get_source(resolution)
                 task_kw["source_image"] = str(actual_source)
 
-                record = _encode_and_measure(
+                record, distmap_arr = _encode_and_measure(
                     project_root_str=project_root_str,
                     **task_kw,
                 )
                 all_records.append(record)
 
-    return all_records
+                # Accumulate distortion map into running sums
+                if distmap_arr is not None:
+                    if resolution not in distmap_sums:
+                        distmap_sums[resolution] = np.zeros_like(distmap_arr)
+                        distmap_sumsq[resolution] = np.zeros_like(distmap_arr)
+                        distmap_counts[resolution] = 0
+                    distmap_sums[resolution] += distmap_arr
+                    distmap_sumsq[resolution] += distmap_arr ** 2
+                    distmap_counts[resolution] += 1
+
+    # --- Compute worst fragments per resolution per strategy ----------------
+    fragment_info: dict[str, dict] = {}
+    for res, n in distmap_counts.items():
+        if n == 0:
+            continue
+        avg_map = distmap_sums[res] / n
+        # Numerically stable variance: E[X^2] - E[X]^2, clamped to >= 0
+        var_map = np.maximum(distmap_sumsq[res] / n - avg_map ** 2, 0.0)
+
+        avg_region = find_worst_region_in_array(avg_map, crop_size=DEFAULT_CROP_SIZE)
+        var_region = find_worst_region_in_array(var_map, crop_size=DEFAULT_CROP_SIZE)
+
+        # Use the raw resolution key (int or None) — it's JSON-serialisable
+        res_key: int | None = res
+        fragment_info.setdefault("average", {})[res_key] = {
+            "x": avg_region.x,
+            "y": avg_region.y,
+            "width": avg_region.width,
+            "height": avg_region.height,
+            "avg_distortion": avg_region.avg_distortion,
+        }
+        fragment_info.setdefault("variance", {})[res_key] = {
+            "x": var_region.x,
+            "y": var_region.y,
+            "width": var_region.width,
+            "height": var_region.height,
+            "avg_distortion": var_region.avg_distortion,
+        }
+
+    return all_records, fragment_info
 
 
 def _encode_and_measure(
@@ -354,7 +411,28 @@ def _encode_and_measure(
                 e = effort if effort is not None else 7
                 result = encoder.encode_jxl(source_path, quality, effort=e, output_name=output_name)
             else:
-                return _error_record(
+                return (
+                    _error_record(
+                        src_label,
+                        orig_label,
+                        fmt,
+                        quality,
+                        width,
+                        height,
+                        source_file_size,
+                        chroma_subsampling,
+                        speed,
+                        effort,
+                        method,
+                        resolution,
+                        extra_args,
+                        f"Unknown format: {fmt}",
+                    ),
+                    None,
+                )
+        except Exception as exc:
+            return (
+                _error_record(
                     src_label,
                     orig_label,
                     fmt,
@@ -368,71 +446,75 @@ def _encode_and_measure(
                     method,
                     resolution,
                     extra_args,
-                    f"Unknown format: {fmt}",
-                )
-        except Exception as exc:
-            return _error_record(
-                src_label,
-                orig_label,
-                fmt,
-                quality,
-                width,
-                height,
-                source_file_size,
-                chroma_subsampling,
-                speed,
-                effort,
-                method,
-                resolution,
-                extra_args,
-                f"Encoding exception: {exc}",
+                    f"Encoding exception: {exc}",
+                ),
+                None,
             )
 
         encoding_time = time.monotonic() - t0
 
         if not result.success or result.output_path is None:
-            return _error_record(
-                src_label,
-                orig_label,
-                fmt,
-                quality,
-                width,
-                height,
-                source_file_size,
-                chroma_subsampling,
-                speed,
-                effort,
-                method,
-                resolution,
-                extra_args,
-                f"Encoding failed: {result.error_message}",
+            return (
+                _error_record(
+                    src_label,
+                    orig_label,
+                    fmt,
+                    quality,
+                    width,
+                    height,
+                    source_file_size,
+                    chroma_subsampling,
+                    speed,
+                    effort,
+                    method,
+                    resolution,
+                    extra_args,
+                    f"Encoding failed: {result.error_message}",
+                ),
+                None,
             )
 
         file_size = result.file_size or result.output_path.stat().st_size
 
         # --- Measure ----------------------------------------------------------
+        # Use butteraugli with --rawdistmap to get both the aggregate
+        # score and the per-pixel distortion map in a single invocation.
+        distmap_pfm_path = Path(tmpdir) / f"{output_name}.pfm"
         try:
             measurer = QualityMeasurer()
-            metrics = measurer.measure_all(source_path, result.output_path)
-        except Exception as exc:
-            return _error_record(
-                src_label,
-                orig_label,
-                fmt,
-                quality,
-                width,
-                height,
-                source_file_size,
-                chroma_subsampling,
-                speed,
-                effort,
-                method,
-                resolution,
-                extra_args,
-                f"Measurement exception: {exc}",
-                file_size=file_size,
-                encoding_time=encoding_time,
+            metrics = measurer.measure_all(
+                source_path, result.output_path, distmap_path=distmap_pfm_path,
             )
+        except Exception as exc:
+            return (
+                _error_record(
+                    src_label,
+                    orig_label,
+                    fmt,
+                    quality,
+                    width,
+                    height,
+                    source_file_size,
+                    chroma_subsampling,
+                    speed,
+                    effort,
+                    method,
+                    resolution,
+                    extra_args,
+                    f"Measurement exception: {exc}",
+                    file_size=file_size,
+                    encoding_time=encoding_time,
+                ),
+                None,
+            )
+
+        # Read distortion map into numpy (stays in-process, no pickling)
+        distmap_arr: np.ndarray | None = None
+        if distmap_pfm_path.exists():
+            try:
+                distmap_arr = read_pfm(distmap_pfm_path)
+            except (ValueError, OSError):
+                pass  # Non-fatal; fragment detection will be skipped
 
         # --- Optionally persist artifact --------------------------------------
         encoded_path_label = ""
@@ -442,30 +524,37 @@ def _encode_and_measure(
             dest = save_dir / result.output_path.name
             shutil.copy2(result.output_path, dest)
             encoded_path_label = _make_rel(dest, project_root)
+            # Also persist the distortion map PFM alongside the encoded file
+            if distmap_pfm_path.exists():
+                pfm_dest = save_dir / distmap_pfm_path.name
+                shutil.copy2(distmap_pfm_path, pfm_dest)
 
     # tmpdir auto-cleaned here
-    return QualityRecord(
-        source_image=src_label,
-        original_image=orig_label,
-        encoded_path=encoded_path_label,
-        format=fmt,
-        quality=quality,
-        file_size=file_size,
-        width=width,
-        height=height,
-        source_file_size=source_file_size,
-        ssimulacra2=metrics.ssimulacra2,
-        psnr=metrics.psnr,
-        ssim=metrics.ssim,
-        butteraugli=metrics.butteraugli,
-        encoding_time=encoding_time,
-        chroma_subsampling=chroma_subsampling,
-        speed=speed,
-        effort=effort,
-        method=method,
-        resolution=resolution,
-        extra_args=extra_args,
-        measurement_error=metrics.error_message,
+    return (
+        QualityRecord(
+            source_image=src_label,
+            original_image=orig_label,
+            encoded_path=encoded_path_label,
+            format=fmt,
+            quality=quality,
+            file_size=file_size,
+            width=width,
+            height=height,
+            source_file_size=source_file_size,
+            ssimulacra2=metrics.ssimulacra2,
+            psnr=metrics.psnr,
+            ssim=metrics.ssim,
+            butteraugli=metrics.butteraugli,
+            encoding_time=encoding_time,
+            chroma_subsampling=chroma_subsampling,
+            speed=speed,
+            effort=effort,
+            method=method,
+            resolution=resolution,
+            extra_args=extra_args,
+            measurement_error=metrics.error_message,
+        ),
+        distmap_arr,
     )
 
 
@@ -667,18 +756,21 @@ class PipelineRunner:
         self.project_root = project_root
         self.data_dir = project_root / "data"
 
-        # Worst-image tracking state per strategy (used by _update_worst_image)
-        # Each strategy tracks: staging_dir, score, original_key
+        # Worst-image tracking state per strategy (used by _update_worst_image).
+        # Fragment-level comparison: higher distortion score = worse.
+        # Each strategy tracks: staging_dir, score, original_key, fragment_info.
         self._worst: dict[str, dict] = {
             "average": {
                 "staging_dir": None,
-                "score": float("inf"),     # lower avg is worse
+                "score": float("-inf"),    # higher avg distortion is worse
                 "original_key": None,
+                "fragment_info": None,
             },
             "variance": {
                 "staging_dir": None,
-                "score": float("-inf"),    # higher variance is worse
+                "score": float("-inf"),    # higher var distortion is worse
                 "original_key": None,
+                "fragment_info": None,
             },
         }
 
@@ -743,35 +835,44 @@ class PipelineRunner:
         image_records: list[QualityRecord],
         img_path: Path,
         staging_base: Path,
+        fragment_info: dict[str, dict],
     ) -> None:
         """Compare a newly-completed image against the current worst for each strategy.
 
-        For each strategy (``"average"`` and ``"variance"``), checks
-        whether the new image is worse than the current worst.  Staging
-        directories that are no longer the worst for any strategy are
-        deleted immediately to save disk space.
+        Uses **fragment-level** distortion scores from the Butteraugli
+        distortion maps rather than image-level SSIMULACRA2.  For both
+        ``"average"`` and ``"variance"`` strategies, the image with the
+        highest worst-fragment distortion score is considered worst.
+
+        When the study uses multiple resolutions, the per-image score is
+        the maximum fragment score across all resolutions.
+
+        Staging directories that are no longer the worst for any strategy
+        are deleted immediately to save disk space.
 
         Internal state is stored in ``self._worst`` dict keyed by
         strategy name.
         """
-        scores = [
-            r.ssimulacra2
-            for r in image_records
-            if r.ssimulacra2 is not None and r.measurement_error is None
-        ]
         candidate_dir = staging_base / img_path.stem
-        if not scores:
+        original_key = image_records[0].original_image if image_records else None
+
+        # Compute per-strategy fragment score (max across resolutions)
+        candidate_scores: dict[str, float] = {}
+        for strat in ("average", "variance"):
+            regions = fragment_info.get(strat, {})
+            if regions:
+                candidate_scores[strat] = max(
+                    r["avg_distortion"] for r in regions.values()
+                )
+
+        if not candidate_scores:
+            # No fragments (butteraugli unavailable or all measurements failed)
             shutil.rmtree(candidate_dir, ignore_errors=True)
             return
 
-        avg = sum(scores) / len(scores)
-        var = sum((s - avg) ** 2 for s in scores) / len(scores) if len(scores) >= 2 else 0.0
-
-        original_key = image_records[0].original_image if image_records else None
-
         # Determine if candidate is worst for each strategy
-        is_worst_avg = avg < self._worst["average"]["score"]
-        is_worst_var = var > self._worst["variance"]["score"]
+        is_worst_avg = candidate_scores.get("average", float("-inf")) > self._worst["average"]["score"]
+        is_worst_var = candidate_scores.get("variance", float("-inf")) > self._worst["variance"]["score"]
 
         # Collect dirs being replaced
         dirs_released: set[Path] = set()
@@ -782,8 +883,9 @@ class PipelineRunner:
                 dirs_released.add(old_dir)
             self._worst["average"] = {
                 "staging_dir": candidate_dir,
-                "score": avg,
+                "score": candidate_scores.get("average", float("-inf")),
                 "original_key": original_key,
+                "fragment_info": fragment_info.get("average"),
             }
 
         if is_worst_var:
@@ -792,8 +894,9 @@ class PipelineRunner:
                 dirs_released.add(old_dir)
             self._worst["variance"] = {
                 "staging_dir": candidate_dir,
-                "score": var,
+                "score": candidate_scores.get("variance", float("-inf")),
                 "original_key": original_key,
+                "fragment_info": fragment_info.get("variance"),
             }
 
         # A dir is still needed if it's the current staging_dir for either strategy
@@ -814,7 +917,7 @@ class PipelineRunner:
         study_id: str,
         staging_base: Path,
         all_records: list[QualityRecord],
-    ) -> dict[str, dict]:
+    ) -> tuple[dict[str, dict], dict[str, dict]]:
         """Move worst image artifacts to final locations and return metadata.
 
         Handles both ``"average"`` and ``"variance"`` strategies.  Each
@@ -823,13 +926,21 @@ class PipelineRunner:
         When both strategies select the same image, the files are moved
         once and copied for the second strategy.
 
-        Returns a dict keyed by strategy with metadata about each worst
-        image (``original_image``, ``score``) for inclusion in the
-        quality-results JSON output.
+        Returns:
+            ``(worst_images_meta, worst_fragments_meta)`` — two dicts
+            keyed by strategy.
+
+            ``worst_images_meta`` contains ``original_image`` and
+            ``score`` for each worst image.
+
+            ``worst_fragments_meta`` contains per-resolution fragment
+            positions (``{strategy: {resolution: {x, y, width, height,
+            avg_distortion}}}``).
         """
         staging_base_prefix = _make_rel(staging_base, self.project_root)
         final_base = self.data_dir / "encoded" / study_id
         worst_images_meta: dict[str, dict] = {}
+        worst_fragments_meta: dict[str, dict] = {}
 
         # Group strategies by their staging dir so we handle shared images once
         staging_to_strats: dict[Path, list[str]] = {}
@@ -873,10 +984,23 @@ class PipelineRunner:
                     "score": info["score"],
                 }
 
+                # Fragment metadata
+                frag = info.get("fragment_info")
+                if frag is not None:
+                    # Convert None keys to "null" for JSON serialisation
+                    worst_fragments_meta[strat] = {
+                        "original_image": info["original_key"],
+                        "score": info["score"],
+                        "regions": {
+                            (str(k) if k is not None else "null"): v
+                            for k, v in frag.items()
+                        },
+                    }
+
                 score_label = (
-                    f"avg SSIMULACRA2: {info['score']:.2f}"
+                    f"avg distortion score: {info['score']:.4f}"
                     if strat == "average"
-                    else f"SSIMULACRA2 variance: {info['score']:.2f}"
+                    else f"distortion variance score: {info['score']:.4f}"
                 )
                 print(f"\n  [{strat}] Worst image artifacts saved to: "
                       f"{final_base / strat}")
@@ -892,7 +1016,7 @@ class PipelineRunner:
         # Cleanup staging base
         shutil.rmtree(staging_base, ignore_errors=True)
 
-        return worst_images_meta
+        return worst_images_meta, worst_fragments_meta
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -1027,8 +1151,14 @@ class PipelineRunner:
 
         # Reset worst-image tracking state
         self._worst = {
-            "average": {"staging_dir": None, "score": float("inf"), "original_key": None},
-            "variance": {"staging_dir": None, "score": float("-inf"), "original_key": None},
+            "average": {
+                "staging_dir": None, "score": float("-inf"),
+                "original_key": None, "fragment_info": None,
+            },
+            "variance": {
+                "staging_dir": None, "score": float("-inf"),
+                "original_key": None, "fragment_info": None,
+            },
         }
 
         if track_worst:
@@ -1080,7 +1210,7 @@ class PipelineRunner:
 
                 for future in done:
                     img_path = future_to_image[future]
-                    image_records = future.result()
+                    image_records, fragment_info = future.result()
 
                     all_records.extend(image_records)
                     images_processed += 1
@@ -1091,6 +1221,7 @@ class PipelineRunner:
                             image_records,
                             img_path,
                             staging_base,
+                            fragment_info,
                         )
 
                     # Progress
@@ -1147,8 +1278,9 @@ class PipelineRunner:
 
         # --- Finalize worst-image artifacts -----------------------------------
         worst_images_meta: dict[str, dict] | None = None
+        worst_fragments_meta: dict[str, dict] | None = None
         if track_worst and staging_base is not None:
-            worst_images_meta = self._finalize_worst_image(
+            worst_images_meta, worst_fragments_meta = self._finalize_worst_image(
                 config.id, staging_base, all_records,
             )
 
@@ -1195,6 +1327,7 @@ class PipelineRunner:
             timestamp=datetime.now(UTC).isoformat(),
             tool_versions=tool_versions,
             worst_images=worst_images_meta if worst_images_meta else None,
+            worst_fragments=worst_fragments_meta if worst_fragments_meta else None,
         )
 
         # --- Summary ----------------------------------------------------------

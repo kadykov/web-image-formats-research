@@ -14,11 +14,14 @@ which is required by all quality measurement tools.
 
 import json
 import re
+import struct
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 
 def get_measurement_tool_version(tool: str) -> str | None:
@@ -89,6 +92,138 @@ class QualityMetrics:
     ssim: float | None = None
     butteraugli: float | None = None
     error_message: str | None = None
+
+
+@dataclass
+class WorstRegion:
+    """Information about the most degraded region in an image.
+
+    Attributes:
+        x: Left coordinate of the crop region.
+        y: Top coordinate of the crop region.
+        width: Width of the crop region in pixels.
+        height: Height of the crop region in pixels.
+        avg_distortion: Average distortion score in this region.
+    """
+
+    x: int
+    y: int
+    width: int
+    height: int
+    avg_distortion: float
+
+
+def read_pfm(pfm_path: Path) -> np.ndarray:
+    """Read a PFM (Portable Float Map) file into a 2-D float64 numpy array.
+
+    Handles both grayscale (``Pf``) and colour (``PF``) PFM files.  For
+    colour PFM the maximum across the three channels is returned so that
+    the highest distortion value at each pixel is preserved.
+
+    PFM stores rows bottom-to-top; this function flips the result to the
+    conventional top-to-bottom orientation used everywhere else.
+
+    Args:
+        pfm_path: Path to the ``.pfm`` file.
+
+    Returns:
+        2-D array of shape ``(H, W)`` with distortion values.
+
+    Raises:
+        ValueError: If the file is not a valid PFM.
+    """
+    is_color = False
+    n_floats = 0
+
+    with open(pfm_path, "rb") as fh:
+        magic = fh.readline().strip()
+        if magic == b"PF":
+            is_color = True
+        elif magic == b"Pf":
+            is_color = False
+        else:
+            msg = f"Not a PFM file: unexpected magic {magic!r}"
+            raise ValueError(msg)
+
+        dim_line = fh.readline().strip().decode("ascii")
+        width, height = (int(x) for x in dim_line.split())
+
+        scale_line = fh.readline().strip().decode("ascii")
+        scale = float(scale_line)
+        little_endian = scale < 0
+
+        channels = 3 if is_color else 1
+        n_floats = width * height * channels
+        raw = fh.read(n_floats * 4)
+
+    endian = "<" if little_endian else ">"
+    data = np.array(struct.unpack(f"{endian}{n_floats}f", raw), dtype=np.float64)
+
+    if is_color:
+        data = data.reshape((height, width, 3)).max(axis=2)
+    else:
+        data = data.reshape((height, width))
+
+    # PFM rows are stored bottom-to-top; flip to standard orientation
+    return np.flipud(data)
+
+
+def find_worst_region_in_array(
+    arr: np.ndarray,
+    crop_size: int,
+) -> WorstRegion:
+    """Find the worst region in a 2-D distortion value array.
+
+    Core sliding-window computation that works with any float array,
+    whether it comes from a raw PFM file, an averaged map, or a variance map.
+
+    Args:
+        arr: 2-D float array of shape ``(H, W)`` with per-pixel distortion
+            values.  Higher values mean more distortion.
+        crop_size: Side length of the square sliding window in pixels.
+
+    Returns:
+        :class:`WorstRegion` for the window position with the highest sum.
+    """
+    h, w = arr.shape
+
+    if h < crop_size or w < crop_size:
+        actual_h = min(h, crop_size)
+        actual_w = min(w, crop_size)
+        return WorstRegion(
+            x=0,
+            y=0,
+            width=actual_w,
+            height=actual_h,
+            avg_distortion=float(np.mean(arr)),
+        )
+
+    # Use integral image (summed area table) for efficient sliding window
+    integral = np.cumsum(np.cumsum(arr, axis=0), axis=1)
+    padded = np.zeros((h + 1, w + 1), dtype=np.float64)
+    padded[1:, 1:] = integral
+
+    y_max = h - crop_size + 1
+    x_max = w - crop_size + 1
+
+    window_sums = (
+        padded[crop_size : h + 1, crop_size : w + 1]
+        - padded[:y_max, crop_size : w + 1]
+        - padded[crop_size : h + 1, :x_max]
+        + padded[:y_max, :x_max]
+    )
+
+    max_idx = np.argmax(window_sums)
+    best_y, best_x = np.unravel_index(max_idx, window_sums.shape)
+    avg_distortion = float(window_sums[best_y, best_x] / (crop_size * crop_size))
+
+    return WorstRegion(
+        x=int(best_x),
+        y=int(best_y),
+        width=crop_size,
+        height=crop_size,
+        avg_distortion=avg_distortion,
+    )
 
 
 class QualityMeasurer:
@@ -348,21 +483,104 @@ class QualityMeasurer:
             print(f"Butteraugli measurement failed: {e}")
             return None
 
-    def measure_all(self, original: Path, compressed: Path) -> QualityMetrics:
-        """Measure all available quality metrics.
+    def measure_butteraugli_with_distmap(
+        self,
+        original: Path,
+        compressed: Path,
+        distmap_path: Path,
+    ) -> float | None:
+        """Measure Butteraugli distance and produce a raw distortion map.
+
+        Calls ``butteraugli_main`` with ``--rawdistmap`` to write a PFM
+        file containing per-pixel float distortion values, and parses the
+        aggregate (3-norm) distance score from stdout.
+
+        This replaces separate calls to :meth:`measure_butteraugli` and
+        the comparison module's ``generate_distortion_map``, producing
+        both outputs in a single invocation.
 
         Args:
-            original: Path to the original image
-            compressed: Path to the compressed image
+            original: Path to the original reference image.
+            compressed: Path to the compressed/encoded image.
+            distmap_path: Path where the raw PFM distortion map will be
+                written.  Parent directories are created automatically.
 
         Returns:
-            QualityMetrics object with all measured values
+            Butteraugli aggregate distance (lower is better, <1.0 = excellent),
+            or ``None`` if the measurement failed.
         """
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir_path = Path(tmpdir)
+
+                # Convert both images to PNG if they're not already PNG
+                orig_for_measure = original
+                comp_for_measure = compressed
+
+                if original.suffix.lower() != ".png":
+                    orig_for_measure = tmpdir_path / "original.png"
+                    self._to_png(original, orig_for_measure)
+
+                if compressed.suffix.lower() != ".png":
+                    comp_for_measure = tmpdir_path / "compressed.png"
+                    self._to_png(compressed, comp_for_measure)
+
+                distmap_path.parent.mkdir(parents=True, exist_ok=True)
+
+                cmd = [
+                    "butteraugli_main",
+                    str(orig_for_measure),
+                    str(comp_for_measure),
+                    "--distmap",
+                    str(tmpdir_path / "distmap_unused.png"),
+                    "--rawdistmap",
+                    str(distmap_path),
+                ]
+                result = subprocess.run(cmd, capture_output=True, check=True, text=True)
+
+                # Parse the aggregate distance from stdout
+                output = result.stdout.strip()
+                match = re.search(r"[\d.]+", output)
+                if match:
+                    return float(match.group())
+                return None
+        except (subprocess.CalledProcessError, ValueError) as e:
+            print(f"Butteraugli measurement failed: {e}")
+            return None
+
+    def measure_all(
+        self,
+        original: Path,
+        compressed: Path,
+        distmap_path: Path | None = None,
+    ) -> QualityMetrics:
+        """Measure all available quality metrics.
+
+        When *distmap_path* is provided, the Butteraugli measurement
+        additionally produces a raw PFM distortion map at that path.
+        This avoids a separate ``butteraugli_main`` invocation later.
+
+        Args:
+            original: Path to the original image.
+            compressed: Path to the compressed image.
+            distmap_path: If given, write a Butteraugli distortion-map
+                PFM file here (see :meth:`measure_butteraugli_with_distmap`).
+
+        Returns:
+            QualityMetrics object with all measured values.
+        """
+        if distmap_path is not None:
+            butteraugli = self.measure_butteraugli_with_distmap(
+                original, compressed, distmap_path,
+            )
+        else:
+            butteraugli = self.measure_butteraugli(original, compressed)
+
         return QualityMetrics(
             ssimulacra2=self.measure_ssimulacra2(original, compressed),
             psnr=self.measure_psnr(original, compressed),
             ssim=self.measure_ssim(original, compressed),
-            butteraugli=self.measure_butteraugli(original, compressed),
+            butteraugli=butteraugli,
         )
 
 
@@ -405,6 +623,7 @@ class QualityResults:
     encoding_timestamp: str | None = None
     tool_versions: dict[str, str] | None = None
     worst_images: dict[str, dict] | None = None
+    worst_fragments: dict[str, dict] | None = None
 
     def save(self, path: Path) -> None:
         """Save quality results to a JSON file.
@@ -422,6 +641,7 @@ class QualityResults:
             "timestamp": self.timestamp,
             "tool_versions": self.tool_versions,
             "worst_images": self.worst_images,
+            "worst_fragments": self.worst_fragments,
             "measurements": [
                 {
                     "source_image": rec.source_image,

@@ -354,13 +354,15 @@ class TestEncodeAndMeasure:
         if not self._tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
-        record = _encode_and_measure(
+        result = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="jpeg",
             quality=85,
             project_root_str=str(project_root),
         )
+        assert isinstance(result, tuple)
+        record, distmap = result
         assert isinstance(record, QualityRecord)
         assert record.format == "jpeg"
         assert record.quality == 85
@@ -377,7 +379,7 @@ class TestEncodeAndMeasure:
         if not self._tool_available("cwebp"):
             pytest.skip("cwebp not available")
 
-        record = _encode_and_measure(
+        record, distmap = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="webp",
@@ -390,7 +392,7 @@ class TestEncodeAndMeasure:
         assert record.measurement_error is None
 
     def test_unknown_format(self, test_image: Path, project_root: Path) -> None:
-        record = _encode_and_measure(
+        record, distmap = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="bmp",
@@ -399,13 +401,14 @@ class TestEncodeAndMeasure:
         )
         assert record.measurement_error is not None
         assert "Unknown format" in record.measurement_error
+        assert distmap is None
 
     def test_save_artifact(self, test_image: Path, project_root: Path, tmp_path: Path) -> None:
         if not self._tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         save_dir = tmp_path / "saved"
-        record = _encode_and_measure(
+        record, distmap = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="jpeg",
@@ -416,14 +419,15 @@ class TestEncodeAndMeasure:
         assert record.encoded_path != ""
         assert save_dir.exists()
         saved_files = list(save_dir.iterdir())
-        assert len(saved_files) == 1
-        assert saved_files[0].suffix == ".jpg"
+        # Encoded file + PFM distortion map (if butteraugli is available)
+        assert len(saved_files) >= 1
+        assert any(f.suffix == ".jpg" for f in saved_files)
 
     def test_source_image_label(self, test_image: Path, project_root: Path) -> None:
         if not self._tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
-        record = _encode_and_measure(
+        record, distmap = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="jpeg",
@@ -821,14 +825,12 @@ class TestPipelineRunnerIntegration:
             saved_path = project_with_dataset / rec.encoded_path
             assert saved_path.exists(), f"Expected saved file at {saved_path}"
 
-        # The worst image should be the one with lower SSIMULACRA2 average
-        # Records without path should be from the non-worst image
-        records_without_path = [r for r in results.measurements if r.encoded_path == ""]
-        # If there are 2 images × 2 qualities = 4 records total,
-        # 2 records (worst image) should have paths, 2 should not
+        # With fragment-level distortion comparison, the average and
+        # variance strategies may select different images.  When they
+        # pick different images all records end up with saved paths;
+        # when they agree only the worst image's records have paths.
         if len(results.measurements) == 4:
-            assert len(records_with_path) == 2
-            assert len(records_without_path) == 2
+            assert len(records_with_path) in (2, 4)
 
     def test_save_worst_image_noop_with_save_artifacts(self, project_with_dataset: Path) -> None:
         """save_worst_image is skipped when save_artifacts is already True."""
