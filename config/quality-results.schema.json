@@ -53,11 +53,11 @@
     },
     "worst_images": {
       "type": ["object", "null"],
-      "description": "Per-strategy worst image metadata computed during pipeline execution. Keys are strategy names ('average', 'variance'); values describe the selected image.",
+      "description": "Per-strategy worst image metadata computed during pipeline execution. Keys are strategy names ('average', 'variance'); values describe the selected image based on fragment-level Butteraugli distortion.",
       "properties": {
         "average": {
           "type": "object",
-          "description": "Worst image selected by the average-metric strategy (lowest average SSIMULACRA2).",
+          "description": "Worst image selected by the average distortion strategy (highest average Butteraugli distortion across all fragments).",
           "properties": {
             "original_image": {
               "type": "string",
@@ -65,7 +65,7 @@
             },
             "score": {
               "type": "number",
-              "description": "Average SSIMULACRA2 score for this image"
+              "description": "Average Butteraugli distortion score for the worst fragment of this image"
             }
           },
           "required": ["original_image", "score"],
@@ -73,7 +73,7 @@
         },
         "variance": {
           "type": "object",
-          "description": "Worst image selected by the variance strategy (highest SSIMULACRA2 variance).",
+          "description": "Worst image selected by the variance strategy (highest Butteraugli distortion variance across fragments).",
           "properties": {
             "original_image": {
               "type": "string",
@@ -81,10 +81,81 @@
             },
             "score": {
               "type": "number",
-              "description": "SSIMULACRA2 variance for this image"
+              "description": "Butteraugli distortion variance score for the worst fragment of this image"
             }
           },
           "required": ["original_image", "score"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "worst_fragments": {
+      "type": ["object", "null"],
+      "description": "Per-strategy worst fragment metadata computed during pipeline execution. Each strategy entry includes the original image, the overall fragment score, and per-resolution region coordinates.",
+      "properties": {
+        "average": {
+          "type": "object",
+          "description": "Worst fragment selected by average-distortion strategy.",
+          "properties": {
+            "original_image": {
+              "type": "string",
+              "description": "Path to the original dataset image (relative to project root)"
+            },
+            "score": {
+              "type": "number",
+              "description": "Average Butteraugli distortion score for this fragment"
+            },
+            "regions": {
+              "type": "object",
+              "description": "Per-resolution fragment positions. Keys are resolution values as strings (e.g. '720') or 'null' for original resolution.",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "x": { "type": "integer", "description": "Fragment left edge (pixels)" },
+                  "y": { "type": "integer", "description": "Fragment top edge (pixels)" },
+                  "width": { "type": "integer", "description": "Fragment width (pixels)" },
+                  "height": { "type": "integer", "description": "Fragment height (pixels)" },
+                  "avg_distortion": { "type": "number", "description": "Average distortion within the fragment" }
+                },
+                "required": ["x", "y", "width", "height", "avg_distortion"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["original_image", "score", "regions"],
+          "additionalProperties": false
+        },
+        "variance": {
+          "type": "object",
+          "description": "Worst fragment selected by variance strategy.",
+          "properties": {
+            "original_image": {
+              "type": "string",
+              "description": "Path to the original dataset image (relative to project root)"
+            },
+            "score": {
+              "type": "number",
+              "description": "Butteraugli distortion variance score for this fragment"
+            },
+            "regions": {
+              "type": "object",
+              "description": "Per-resolution fragment positions. Keys are resolution values as strings (e.g. '720') or 'null' for original resolution.",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "x": { "type": "integer", "description": "Fragment left edge (pixels)" },
+                  "y": { "type": "integer", "description": "Fragment top edge (pixels)" },
+                  "width": { "type": "integer", "description": "Fragment width (pixels)" },
+                  "height": { "type": "integer", "description": "Fragment height (pixels)" },
+                  "avg_distortion": { "type": "number", "description": "Average distortion within the fragment" }
+                },
+                "required": ["x", "y", "width", "height", "avg_distortion"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["original_image", "score", "regions"],
           "additionalProperties": false
         }
       },
