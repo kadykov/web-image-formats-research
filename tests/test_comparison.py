@@ -13,6 +13,7 @@ from PIL import Image
 from src.comparison import (
     ComparisonConfig,
     ComparisonResult,
+    StrategyResult,
     WorstRegion,
     _build_label,
     _build_metric_label,
@@ -31,6 +32,7 @@ from src.comparison import (
     find_worst_source_image,
     generate_comparison,
     generate_distortion_map,
+    get_worst_image_score,
     load_quality_results,
 )
 
@@ -357,6 +359,46 @@ def test_find_worst_source_image_butteraugli(sample_quality_data: dict) -> None:
     # image2 avg: (6.0 + 2.5) / 2 = 4.25
     worst = find_worst_source_image(sample_quality_data["measurements"], metric="butteraugli")
     assert worst == "data/datasets/test/image2.png"
+
+
+def test_find_worst_source_image_variance(sample_quality_data: dict) -> None:
+    """Test finding worst source image by SSIMULACRA2 variance."""
+    # image1 scores: [55, 75, 70, 85] → mean=71.25, var=((55-71.25)^2+(75-71.25)^2+(70-71.25)^2+(85-71.25)^2)/4 = 112.1875
+    # image2 scores: [50, 70] → mean=60, var=((50-60)^2+(70-60)^2)/2 = 100.0
+    worst = find_worst_source_image(
+        sample_quality_data["measurements"], metric="ssimulacra2", strategy="variance",
+    )
+    assert worst == "data/datasets/test/image1.png"
+
+
+def test_find_worst_source_image_unknown_strategy(sample_quality_data: dict) -> None:
+    """Test that unknown strategy raises ValueError."""
+    with pytest.raises(ValueError, match="Unknown image selection strategy"):
+        find_worst_source_image(
+            sample_quality_data["measurements"], strategy="unknown",
+        )
+
+
+def test_get_worst_image_score_average(sample_quality_data: dict) -> None:
+    """Test computing average image score."""
+    score = get_worst_image_score(
+        sample_quality_data["measurements"],
+        "data/datasets/test/image2.png",
+        metric="ssimulacra2",
+        strategy="average",
+    )
+    assert abs(score - 60.0) < 0.01
+
+
+def test_get_worst_image_score_variance(sample_quality_data: dict) -> None:
+    """Test computing variance image score."""
+    score = get_worst_image_score(
+        sample_quality_data["measurements"],
+        "data/datasets/test/image2.png",
+        metric="ssimulacra2",
+        strategy="variance",
+    )
+    assert abs(score - 100.0) < 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -866,15 +908,16 @@ def test_comparison_config_defaults() -> None:
     assert config.metric == "ssimulacra2"
     assert config.max_columns == 4
     assert config.label_font_size == 22
-    assert config.region_strategy == "average"
+    assert config.strategy == "both"
     assert config.distmap_vmax == 5.0
+    assert config.source_image is None
 
 
-def test_comparison_config_region_strategy() -> None:
-    """Test all supported region_strategy values."""
-    for strategy in ("average", "variance"):
-        config = ComparisonConfig(region_strategy=strategy)
-        assert config.region_strategy == strategy
+def test_comparison_config_strategies() -> None:
+    """Test all supported strategy values."""
+    for strategy in ("average", "variance", "both"):
+        config = ComparisonConfig(strategy=strategy)
+        assert config.strategy == strategy
 
 
 def test_comparison_config_custom() -> None:
@@ -885,38 +928,53 @@ def test_comparison_config_custom() -> None:
     assert config.metric == "butteraugli"
 
 
+def test_comparison_config_source_image_override() -> None:
+    """Test source_image override."""
+    config = ComparisonConfig(source_image="data/datasets/test/image1.png")
+    assert config.source_image == "data/datasets/test/image1.png"
+
+
 def test_comparison_result() -> None:
     """Test ComparisonResult dataclass."""
     region = WorstRegion(x=10, y=20, width=128, height=128, avg_distortion=150.0)
-    result = ComparisonResult(
-        study_id="test",
-        worst_source_image="image.png",
-        worst_metric_value=55.0,
+    sr = StrategyResult(
+        strategy="average",
+        source_image="image.png",
+        image_score=60.0,
         worst_format="jpeg",
         worst_quality=50,
+        worst_metric_value=55.0,
         region=region,
+        output_dir=Path("comparison/average"),
         output_images=[Path("comparison.png")],
+    )
+    result = ComparisonResult(
+        study_id="test",
+        strategies=[sr],
         varying_parameters=["format", "quality"],
     )
     assert result.study_id == "test"
-    assert result.region.x == 10
-    assert len(result.output_images) == 1
-    assert result.region_strategy == "average"  # default
+    assert len(result.strategies) == 1
+    assert result.strategies[0].region.x == 10
+    assert result.strategies[0].strategy == "average"
 
 
-def test_comparison_result_region_strategy() -> None:
-    """ComparisonResult records the region strategy used."""
+def test_strategy_result() -> None:
+    """StrategyResult records all per-strategy fields."""
     region = WorstRegion(x=0, y=0, width=64, height=64, avg_distortion=1.0)
-    result = ComparisonResult(
-        study_id="test",
-        worst_source_image="img.png",
-        worst_metric_value=60.0,
+    sr = StrategyResult(
+        strategy="variance",
+        source_image="img.png",
+        image_score=15.0,
         worst_format="avif",
         worst_quality=60,
+        worst_metric_value=60.0,
         region=region,
-        region_strategy="average",
+        output_dir=Path("comparison/variance"),
     )
-    assert result.region_strategy == "average"
+    assert sr.strategy == "variance"
+    assert sr.image_score == 15.0
+    assert sr.output_images == []
 
 
 # ---------------------------------------------------------------------------
@@ -985,18 +1043,18 @@ def test_generate_comparison_integration(
     )
 
     assert result.study_id == "test-comparison"
-    assert result.worst_source_image == "data/datasets/test/image2.png"
-    assert result.region.width == 64
-    assert output_dir.exists()
-    assert len(result.output_images) > 0
-    for img_path in result.output_images:
-        assert img_path.exists()
+    assert len(result.strategies) >= 1
+    for sr in result.strategies:
+        assert sr.region.width == 64
+        assert sr.output_dir.exists()
+        assert len(sr.output_images) > 0
+        for img_path in sr.output_images:
+            assert img_path.exists()
 
-    # Check that visualization outputs were created
-    assert (output_dir / "distortion_map_average.webp").exists()
-    assert (output_dir / "distortion_map_variance.webp").exists()
-    assert (output_dir / "original_annotated.webp").exists()
-    assert (output_dir / "distortion_map_comparison.webp").exists()
+        # Each strategy subdir has its own distortion map and annotated original
+        assert (sr.output_dir / f"distortion_map_{sr.strategy}.webp").exists()
+        assert (sr.output_dir / "original_annotated.webp").exists()
+        assert (sr.output_dir / "distortion_map_comparison.webp").exists()
     # Intermediate files (encoded, crops) are in a temp dir and cleaned up
     assert not (output_dir / "encoded").exists()
     assert not (output_dir / "crops").exists()

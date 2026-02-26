@@ -512,11 +512,20 @@ def _error_record(
 # ---------------------------------------------------------------------------
 
 
-def _find_worst_original(records: list[QualityRecord]) -> str | None:
-    """Return the ``original_image`` path with the worst average SSIMULACRA2.
+def _find_worst_original(
+    records: list[QualityRecord],
+    strategy: str = "average",
+) -> str | None:
+    """Return the ``original_image`` path with the worst SSIMULACRA2.
 
-    Groups records by ``original_image`` and returns the one whose mean
-    SSIMULACRA2 is lowest.  Returns ``None`` if no valid scores exist.
+    Supports two strategies:
+
+    * ``"average"`` — groups records by ``original_image`` and returns
+      the one whose mean SSIMULACRA2 is lowest.
+    * ``"variance"`` — groups records by ``original_image`` and returns
+      the one whose SSIMULACRA2 variance is highest.
+
+    Returns ``None`` if no valid scores exist.
     """
     image_scores: dict[str, list[float]] = {}
     for rec in records:
@@ -529,6 +538,17 @@ def _find_worst_original(records: list[QualityRecord]) -> str | None:
     if not image_scores:
         return None
 
+    if strategy == "variance":
+        image_var: dict[str, float] = {}
+        for img, scores in image_scores.items():
+            if len(scores) < 2:
+                image_var[img] = 0.0
+            else:
+                mean = sum(scores) / len(scores)
+                image_var[img] = sum((s - mean) ** 2 for s in scores) / len(scores)
+        return max(image_var, key=lambda k: image_var[k])
+
+    # strategy == "average"
     image_avgs = {img: sum(s) / len(s) for img, s in image_scores.items()}
     return min(image_avgs, key=lambda k: image_avgs[k])
 
@@ -627,10 +647,20 @@ class PipelineRunner:
         self.project_root = project_root
         self.data_dir = project_root / "data"
 
-        # Worst-image tracking state (used by _update_worst_image)
-        self._worst_staging_dir: Path | None = None
-        self._worst_avg_score: float = float("inf")
-        self._worst_original_key: str | None = None
+        # Worst-image tracking state per strategy (used by _update_worst_image)
+        # Each strategy tracks: staging_dir, score, original_key
+        self._worst: dict[str, dict] = {
+            "average": {
+                "staging_dir": None,
+                "score": float("inf"),     # lower avg is worse
+                "original_key": None,
+            },
+            "variance": {
+                "staging_dir": None,
+                "score": float("-inf"),    # higher variance is worse
+                "original_key": None,
+            },
+        }
 
     # ------------------------------------------------------------------
     # Image collection
@@ -694,40 +724,69 @@ class PipelineRunner:
         img_path: Path,
         staging_base: Path,
     ) -> None:
-        """Compare a newly-completed image against the current worst.
+        """Compare a newly-completed image against the current worst for each strategy.
 
-        If the new image has a lower average SSIMULACRA2 than the
-        current worst, its staging directory is kept and the old worst's
-        directory is deleted.  Otherwise the new image's staging
-        directory is deleted immediately.
+        For each strategy (``"average"`` and ``"variance"``), checks
+        whether the new image is worse than the current worst.  Staging
+        directories that are no longer the worst for any strategy are
+        deleted immediately to save disk space.
 
-        Internal state is stored in ``_worst_staging_dir``,
-        ``_worst_avg_score``, and ``_worst_original_key`` attributes
-        on the ``PipelineRunner`` instance (set/read only during ``run``).
+        Internal state is stored in ``self._worst`` dict keyed by
+        strategy name.
         """
         scores = [
             r.ssimulacra2
             for r in image_records
             if r.ssimulacra2 is not None and r.measurement_error is None
         ]
+        candidate_dir = staging_base / img_path.stem
         if not scores:
-            # No valid scores, remove staging dir
-            candidate_dir = staging_base / img_path.stem
             shutil.rmtree(candidate_dir, ignore_errors=True)
             return
 
         avg = sum(scores) / len(scores)
-        candidate_dir = staging_base / img_path.stem
+        var = sum((s - avg) ** 2 for s in scores) / len(scores) if len(scores) >= 2 else 0.0
 
-        if avg < self._worst_avg_score:
-            # This image is the new worst – keep its assets, drop old
-            if self._worst_staging_dir is not None:
-                shutil.rmtree(self._worst_staging_dir, ignore_errors=True)
-            self._worst_staging_dir = candidate_dir
-            self._worst_avg_score = avg
-            self._worst_original_key = image_records[0].original_image if image_records else None
-        else:
-            # Not worse – discard immediately
+        original_key = image_records[0].original_image if image_records else None
+
+        # Determine if candidate is worst for each strategy
+        is_worst_avg = avg < self._worst["average"]["score"]
+        is_worst_var = var > self._worst["variance"]["score"]
+
+        # Collect dirs being replaced
+        dirs_released: set[Path] = set()
+
+        if is_worst_avg:
+            old_dir = self._worst["average"]["staging_dir"]
+            if old_dir is not None:
+                dirs_released.add(old_dir)
+            self._worst["average"] = {
+                "staging_dir": candidate_dir,
+                "score": avg,
+                "original_key": original_key,
+            }
+
+        if is_worst_var:
+            old_dir = self._worst["variance"]["staging_dir"]
+            if old_dir is not None:
+                dirs_released.add(old_dir)
+            self._worst["variance"] = {
+                "staging_dir": candidate_dir,
+                "score": var,
+                "original_key": original_key,
+            }
+
+        # A dir is still needed if it's the current staging_dir for either strategy
+        active_dirs = {
+            self._worst["average"]["staging_dir"],
+            self._worst["variance"]["staging_dir"],
+        }
+        for d in dirs_released:
+            if d not in active_dirs:
+                shutil.rmtree(d, ignore_errors=True)
+
+        # If candidate was not claimed by either strategy, delete it
+        if not is_worst_avg and not is_worst_var and candidate_dir not in active_dirs:
             shutil.rmtree(candidate_dir, ignore_errors=True)
 
     def _finalize_worst_image(
@@ -735,59 +794,85 @@ class PipelineRunner:
         study_id: str,
         staging_base: Path,
         all_records: list[QualityRecord],
-    ) -> None:
-        """Move the worst image's artifacts to the final location.
+    ) -> dict[str, dict]:
+        """Move worst image artifacts to final locations and return metadata.
 
-        Moves files from the staging directory to
-        ``data/encoded/<study_id>/`` and updates corresponding
-        ``encoded_path`` fields in *all_records* in-place.  Records for
-        non-worst images have their ``encoded_path`` cleared.
+        Handles both ``"average"`` and ``"variance"`` strategies.  Each
+        strategy's files are placed in a dedicated subdirectory under
+        ``data/encoded/<study_id>/`` (e.g. ``average/`` and ``variance/``).
+        When both strategies select the same image, the files are moved
+        once and copied for the second strategy.
+
+        Returns a dict keyed by strategy with metadata about each worst
+        image (``original_image``, ``score``) for inclusion in the
+        quality-results JSON output.
         """
-        # Build the staging-base prefix so we can recognise *any* staging path
         staging_base_prefix = _make_rel(staging_base, self.project_root)
+        final_base = self.data_dir / "encoded" / study_id
+        worst_images_meta: dict[str, dict] = {}
 
-        if self._worst_staging_dir is None or not self._worst_staging_dir.exists():
-            # Nothing to keep – clear all staging paths and clean up
+        # Group strategies by their staging dir so we handle shared images once
+        staging_to_strats: dict[Path, list[str]] = {}
+        for strat in ("average", "variance"):
+            info = self._worst[strat]
+            sd: Path | None = info["staging_dir"]
+            if sd is not None and sd.exists():
+                staging_to_strats.setdefault(sd, []).append(strat)
+
+        for staging_dir, strategies in staging_to_strats.items():
+            staging_prefix = _make_rel(staging_dir, self.project_root)
+            first_strat = strategies[0]
+            first_final = final_base / first_strat
+            first_final_prefix = _make_rel(first_final, self.project_root)
+
+            # Move files to first strategy's final dir
+            for src_file in staging_dir.rglob("*"):
+                if src_file.is_file():
+                    rel = src_file.relative_to(staging_dir)
+                    dest = first_final / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(src_file), str(dest))
+
+            # Copy to additional strategy dirs if both selected the same image
+            for extra_strat in strategies[1:]:
+                extra_final = final_base / extra_strat
+                shutil.copytree(first_final, extra_final, dirs_exist_ok=True)
+
+            # Update encoded_path in records that came from this staging dir
             for rec in all_records:
-                if rec.encoded_path and rec.encoded_path.startswith(staging_base_prefix):
-                    rec.encoded_path = ""
-            shutil.rmtree(staging_base, ignore_errors=True)
-            return
+                if rec.encoded_path and rec.encoded_path.startswith(staging_prefix):
+                    rec.encoded_path = rec.encoded_path.replace(
+                        staging_prefix, first_final_prefix, 1,
+                    )
 
-        final_dir = self.data_dir / "encoded" / study_id
+            # Build metadata for each strategy
+            for strat in strategies:
+                info = self._worst[strat]
+                worst_images_meta[strat] = {
+                    "original_image": info["original_key"],
+                    "score": info["score"],
+                }
 
-        # Prefix for the worst image's staging subdir only
-        worst_prefix = _make_rel(self._worst_staging_dir, self.project_root)
-        final_prefix = _make_rel(final_dir, self.project_root)
+                score_label = (
+                    f"avg SSIMULACRA2: {info['score']:.2f}"
+                    if strat == "average"
+                    else f"SSIMULACRA2 variance: {info['score']:.2f}"
+                )
+                print(f"\n  [{strat}] Worst image artifacts saved to: "
+                      f"{final_base / strat}")
+                if info["original_key"]:
+                    print(f"  [{strat}] Image: {info['original_key']} "
+                          f"({score_label})")
 
-        # Move files from worst staging dir → final location
-        for src_file in self._worst_staging_dir.rglob("*"):
-            if src_file.is_file():
-                rel = src_file.relative_to(self._worst_staging_dir)
-                dest = final_dir / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src_file), str(dest))
-
-        # Update encoded_path in records:
-        # - Worst image: staging path → final path
-        # - Other images: staging path → "" (files already deleted)
+        # Clear remaining staging paths from records (non-worst images)
         for rec in all_records:
-            if not rec.encoded_path:
-                continue
-            if rec.encoded_path.startswith(worst_prefix):
-                rec.encoded_path = rec.encoded_path.replace(worst_prefix, final_prefix, 1)
-            elif rec.encoded_path.startswith(staging_base_prefix):
+            if rec.encoded_path and rec.encoded_path.startswith(staging_base_prefix):
                 rec.encoded_path = ""
-
-        print(f"\n  Worst image artifacts saved to: {final_dir}")
-        if self._worst_original_key:
-            print(
-                f"  Worst image: {self._worst_original_key} "
-                f"(avg SSIMULACRA2: {self._worst_avg_score:.2f})"
-            )
 
         # Cleanup staging base
         shutil.rmtree(staging_base, ignore_errors=True)
+
+        return worst_images_meta
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -909,15 +994,17 @@ class PipelineRunner:
         # --- Worst-image tracking state (streaming) --------------------------
         # When save_worst_image is True, each worker saves its encoded files
         # to a per-image staging directory.  After each worker completes, the
-        # main process compares its average SSIMULACRA2 with the current
-        # worst and immediately deletes the staging directory of the loser.
+        # main process compares its scores with the current worst for both
+        # "average" and "variance" strategies and immediately deletes the
+        # staging directory of the loser.
         track_worst = save_worst_image and not save_artifacts
         staging_base: Path | None = None
 
         # Reset worst-image tracking state
-        self._worst_staging_dir = None
-        self._worst_avg_score = float("inf")
-        self._worst_original_key = None
+        self._worst = {
+            "average": {"staging_dir": None, "score": float("inf"), "original_key": None},
+            "variance": {"staging_dir": None, "score": float("-inf"), "original_key": None},
+        }
 
         if track_worst:
             staging_base = self.data_dir / "encoded" / f".staging-{config.id}"
@@ -1036,8 +1123,39 @@ class PipelineRunner:
         elapsed_total = time.monotonic() - start_time
 
         # --- Finalize worst-image artifacts -----------------------------------
+        worst_images_meta: dict[str, dict] | None = None
         if track_worst and staging_base is not None:
-            self._finalize_worst_image(config.id, staging_base, all_records)
+            worst_images_meta = self._finalize_worst_image(
+                config.id, staging_base, all_records,
+            )
+
+        # --- Compute worst-image metadata for JSON output ---------------------
+        if worst_images_meta is None:
+            worst_images_meta = {}
+            for strat in ("average", "variance"):
+                worst_key = _find_worst_original(all_records, strategy=strat)
+                if worst_key is not None:
+                    # Compute the score
+                    strat_scores: dict[str, list[float]] = {}
+                    for rec in all_records:
+                        if rec.measurement_error is None and rec.ssimulacra2 is not None:
+                            key = rec.original_image
+                            if key not in strat_scores:
+                                strat_scores[key] = []
+                            strat_scores[key].append(rec.ssimulacra2)
+                    scores = strat_scores.get(worst_key, [])
+                    if scores:
+                        mean = sum(scores) / len(scores)
+                        if strat == "average":
+                            score = mean
+                        elif len(scores) >= 2:
+                            score = sum((s - mean) ** 2 for s in scores) / len(scores)
+                        else:
+                            score = 0.0
+                        worst_images_meta[strat] = {
+                            "original_image": worst_key,
+                            "score": score,
+                        }
 
         # --- Assemble results -------------------------------------------------
         tool_versions = self._collect_tool_versions()
@@ -1053,6 +1171,7 @@ class PipelineRunner:
             measurements=all_records,
             timestamp=datetime.now(UTC).isoformat(),
             tool_versions=tool_versions,
+            worst_images=worst_images_meta if worst_images_meta else None,
         )
 
         # --- Summary ----------------------------------------------------------

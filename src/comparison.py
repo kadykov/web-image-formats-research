@@ -48,16 +48,18 @@ class ComparisonConfig:
         metric: Primary metric used to find the worst measurement.
         max_columns: Maximum number of images per row in the grid.
         label_font_size: Font size for labels in the comparison grid.
-        region_strategy: How to select the worst fragment.  One of:
+        strategy: Which selection strategy to use for **both** image and
+            fragment selection.  One of:
 
-            * ``"average"`` *(default)* — average the distortion maps
-              across **all** parameter combinations; the fragment with
-              the highest mean distortion is chosen.  Identifies regions
-              that are challenging for every encoding variant.
-            * ``"variance"`` — compute the per-pixel variance across all
-              distortion maps and choose the fragment with the highest
-              variance.  Highlights regions where quality differs most
-              between parameter combinations.
+            * ``"both"`` *(default)* — run both *average* and *variance*
+              strategies end-to-end, outputting separate subdirectories
+              for each.
+            * ``"average"`` — average the metric scores / distortion maps
+              across all parameter combinations.  Identifies the image
+              and fragment that are consistently most challenging.
+            * ``"variance"`` — compute the variance of metric scores /
+              distortion maps.  Identifies the image and fragment most
+              sensitive to parameter changes.
 
         distmap_vmax: Upper bound of the fixed Butteraugli distortion
             scale used in the distortion-map comparison grid.  All
@@ -68,6 +70,10 @@ class ComparisonConfig:
             Butteraugli scores for well-encoded images fall below 2;
             scores above 10 represent severe quality loss.
             Defaults to ``5.0``.
+        source_image: Optional explicit source image path (relative to
+            project root) to use instead of automatic selection.  When
+            set, overrides the automatic worst-image detection for all
+            strategies.
     """
 
     crop_size: int = 128
@@ -75,8 +81,9 @@ class ComparisonConfig:
     metric: str = "ssimulacra2"
     max_columns: int = 4
     label_font_size: int = 22
-    region_strategy: str = "average"
+    strategy: str = "both"
     distmap_vmax: float = 5.0
+    source_image: str | None = None
 
 
 @dataclass
@@ -99,31 +106,51 @@ class WorstRegion:
 
 
 @dataclass
+class StrategyResult:
+    """Result for a single image + fragment selection strategy.
+
+    Attributes:
+        strategy: The strategy used (``"average"`` or ``"variance"``).
+        source_image: Path (relative to project root) of the selected source image.
+        image_score: The score that determined image selection — average
+            metric for ``"average"`` strategy, metric variance for ``"variance"``.
+        worst_format: Format of the single worst measurement for this image.
+        worst_quality: Quality parameter of the single worst measurement.
+        worst_metric_value: The single worst metric score for this image.
+        region: The detected worst fragment coordinates.
+        output_dir: Directory where this strategy's outputs were written.
+        output_images: List of generated comparison image paths.
+    """
+
+    strategy: str
+    source_image: str
+    image_score: float
+    worst_format: str
+    worst_quality: int
+    worst_metric_value: float
+    region: WorstRegion
+    output_dir: Path
+    output_images: list[Path] = field(default_factory=list)
+
+
+@dataclass
 class ComparisonResult:
     """Result of the visual comparison generation.
 
+    Contains one :class:`StrategyResult` per strategy that was executed.
+    When ``strategy="both"`` (default), there will be two entries — one
+    for ``"average"`` and one for ``"variance"``.
+
     Attributes:
         study_id: Study identifier.
-        worst_source_image: Path to the source image with worst quality.
-        worst_metric_value: The worst metric score found.
-        worst_format: Format of the worst measurement.
-        worst_quality: Quality parameter of the worst measurement.
-        region: The detected worst region coordinates.
-        output_images: List of generated comparison image paths.
-        varying_parameters: Parameters that vary across measurements.
-        region_strategy: The strategy used to select the worst region
-            (``"average"`` or ``"variance"``).
+        strategies: Per-strategy results.
+        varying_parameters: Parameters that vary across measurements
+            (shared across strategies since they come from the same study).
     """
 
     study_id: str
-    worst_source_image: str
-    worst_metric_value: float
-    worst_format: str
-    worst_quality: int
-    region: WorstRegion
-    output_images: list[Path] = field(default_factory=list)
+    strategies: list[StrategyResult] = field(default_factory=list)
     varying_parameters: list[str] = field(default_factory=list)
-    region_strategy: str = "average"
 
 
 def load_quality_results(quality_json_path: Path) -> dict:
@@ -192,28 +219,22 @@ def find_worst_measurement(
         return max(valid, key=lambda m: m[metric])
 
 
-def find_worst_source_image(
+def _group_scores_by_image(
     measurements: list[dict],
-    metric: str = "ssimulacra2",
-) -> str:
-    """Find the source image that produces the worst quality across all encodings.
-
-    Computes the average metric value per source image and returns the
-    source image with the worst average.
+    metric: str,
+) -> dict[str, list[float]]:
+    """Group valid metric scores by source image.
 
     Args:
-        measurements: List of measurement dictionaries
-        metric: Metric to use for comparison
+        measurements: List of measurement dictionaries.
+        metric: Metric name to extract.
 
     Returns:
-        Path string of the source image with worst average quality
+        Mapping from source image path to list of metric values.
 
     Raises:
-        ValueError: If no valid measurements exist
+        ValueError: If no valid measurements exist.
     """
-    higher_is_better = {"ssimulacra2", "psnr", "ssim"}
-
-    # Group metrics by source image
     image_scores: dict[str, list[float]] = {}
     for m in measurements:
         if m.get("measurement_error") is None and m.get(metric) is not None:
@@ -226,13 +247,92 @@ def find_worst_source_image(
         msg = f"No valid measurements found for metric '{metric}'"
         raise ValueError(msg)
 
-    # Compute averages
-    image_avgs = {img: sum(scores) / len(scores) for img, scores in image_scores.items()}
+    return image_scores
 
-    if metric in higher_is_better:
-        return min(image_avgs, key=lambda k: image_avgs[k])
-    else:
-        return max(image_avgs, key=lambda k: image_avgs[k])
+
+def find_worst_source_image(
+    measurements: list[dict],
+    metric: str = "ssimulacra2",
+    strategy: str = "average",
+) -> str:
+    """Find the source image with the worst quality across all encodings.
+
+    Supports two selection strategies:
+
+    * ``"average"`` — computes the mean metric value per source image and
+      returns the image with the worst average.  This identifies images
+      that are consistently hard for all parameter combinations.
+    * ``"variance"`` — computes the variance of metric values per source
+      image and returns the image with the highest variance.  This
+      identifies images whose quality is most sensitive to parameter
+      changes.
+
+    Args:
+        measurements: List of measurement dictionaries.
+        metric: Metric to use for comparison.
+        strategy: ``"average"`` or ``"variance"``.
+
+    Returns:
+        Path string of the selected source image.
+
+    Raises:
+        ValueError: If no valid measurements exist or strategy is unknown.
+    """
+    if strategy not in ("average", "variance"):
+        msg = f"Unknown image selection strategy: {strategy!r}. Must be 'average' or 'variance'."
+        raise ValueError(msg)
+
+    higher_is_better = {"ssimulacra2", "psnr", "ssim"}
+    image_scores = _group_scores_by_image(measurements, metric)
+
+    if strategy == "average":
+        image_agg = {img: sum(s) / len(s) for img, s in image_scores.items()}
+        if metric in higher_is_better:
+            return min(image_agg, key=lambda k: image_agg[k])
+        else:
+            return max(image_agg, key=lambda k: image_agg[k])
+
+    # strategy == "variance"
+    image_var: dict[str, float] = {}
+    for img, scores in image_scores.items():
+        if len(scores) < 2:
+            image_var[img] = 0.0
+        else:
+            mean = sum(scores) / len(scores)
+            image_var[img] = sum((s - mean) ** 2 for s in scores) / len(scores)
+    return max(image_var, key=lambda k: image_var[k])
+
+
+def get_worst_image_score(
+    measurements: list[dict],
+    source_image: str,
+    metric: str = "ssimulacra2",
+    strategy: str = "average",
+) -> float:
+    """Compute the image-level score for a given source image and strategy.
+
+    Args:
+        measurements: List of measurement dictionaries.
+        source_image: The source image path to compute the score for.
+        metric: Metric name.
+        strategy: ``"average"`` or ``"variance"``.
+
+    Returns:
+        The computed score (mean or variance of the metric values for
+        this image).
+    """
+    image_scores = _group_scores_by_image(measurements, metric)
+    scores = image_scores.get(source_image, [])
+    if not scores:
+        return 0.0
+
+    mean = sum(scores) / len(scores)
+    if strategy == "average":
+        return mean
+
+    if len(scores) < 2:
+        return 0.0
+    return sum((s - mean) ** 2 for s in scores) / len(scores)
 
 
 def _to_png(image_path: Path, output_path: Path) -> None:
@@ -877,12 +977,17 @@ def generate_comparison(
 ) -> ComparisonResult:
     """Generate visual comparison images for a study's worst-case encoding.
 
-    This is the main entry point for the comparison feature. It:
-    1. Loads quality results and finds the worst source image
-    2. Obtains the encoded image (saved artifact or re-encoded on the fly)
-    3. Generates a Butteraugli distortion map to locate the most degraded region
-    4. Obtains all parameter variants and crops the worst region
-    5. Assembles comparison grid(s) organized by varying parameters
+    This is the main entry point for the comparison feature.  For each
+    requested strategy (``"average"``, ``"variance"``, or ``"both"``):
+
+    1. Select the worst source image using the strategy's image-selection
+       logic (or use the explicitly provided ``source_image``).
+    2. Compute Butteraugli distortion maps across all parameter variants.
+    3. Locate the worst image fragment using the same strategy.
+    4. Crop the fragment from every variant and assemble comparison grids.
+
+    Each strategy's outputs are placed in a dedicated subdirectory
+    (``<output_dir>/average/`` or ``<output_dir>/variance/``).
 
     When the pipeline was run with ``save_worst_image=True``, encoded
     files for the worst image are used directly from disk.  Otherwise,
@@ -890,22 +995,31 @@ def generate_comparison(
     must be available.
 
     Args:
-        quality_json_path: Path to the quality.json results file
-        output_dir: Directory where comparison images will be saved
-        project_root: Project root directory for resolving relative paths
-        config: Comparison configuration (uses defaults if None)
+        quality_json_path: Path to the quality.json results file.
+        output_dir: Directory where comparison images will be saved.
+        project_root: Project root directory for resolving relative paths.
+        config: Comparison configuration (uses defaults if ``None``).
 
     Returns:
-        ComparisonResult with details about what was generated
+        :class:`ComparisonResult` with per-strategy details.
 
     Raises:
-        FileNotFoundError: If quality results or images are not found
-        RuntimeError: If image processing tools fail
+        FileNotFoundError: If quality results or images are not found.
+        RuntimeError: If image processing tools fail.
     """
     if config is None:
         config = ComparisonConfig()
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine which strategies to run
+    if config.strategy == "both":
+        strategies = ["average", "variance"]
+    elif config.strategy in ("average", "variance"):
+        strategies = [config.strategy]
+    else:
+        msg = f"Unknown strategy {config.strategy!r}. Must be 'average', 'variance', or 'both'."
+        raise ValueError(msg)
 
     # 1. Load quality results
     data = load_quality_results(quality_json_path)
@@ -914,204 +1028,165 @@ def generate_comparison(
 
     print(f"Generating visual comparison for study: {study_id}")
     print(f"  Total measurements: {len(measurements)}")
+    print(f"  Strategies: {', '.join(strategies)}")
 
-    # 2. Find the worst source image (by average metric)
-    worst_source = find_worst_source_image(measurements, metric=config.metric)
-    print(f"  Worst source image: {worst_source}")
+    # Determine which images to process per strategy
+    image_per_strategy: dict[str, str] = {}
+    for strat in strategies:
+        if config.source_image is not None:
+            image_per_strategy[strat] = config.source_image
+        else:
+            selected = find_worst_source_image(
+                measurements, metric=config.metric, strategy=strat,
+            )
+            image_per_strategy[strat] = selected
+        print(f"  [{strat}] Selected image: {image_per_strategy[strat]}")
 
-    # Get measurements for this source image
-    source_measurements = [
-        m
-        for m in measurements
-        if m["source_image"] == worst_source
-        and m.get("measurement_error") is None
-        and m.get(config.metric) is not None
-    ]
+    # Identify unique images to avoid recomputing distortion maps
+    unique_images = set(image_per_strategy.values())
 
-    if not source_measurements:
-        msg = f"No valid measurements found for source image: {worst_source}"
-        raise ValueError(msg)
+    # Determine varying parameters (shared across all strategies)
+    varying = determine_varying_parameters(measurements)
 
-    # Find the single worst measurement for this image (for distortion map)
-    worst_m = find_worst_measurement(source_measurements, metric=config.metric)
-    worst_metric_value = worst_m[config.metric]
-    print(
-        f"  Worst measurement: {worst_m['format']} q{worst_m['quality']} "
-        f"({config.metric}={worst_metric_value:.2f})"
-    )
+    # Cache: image_path → (source_measurements, avg_map, var_map, variant_pairs)
+    image_cache: dict[str, tuple[
+        list[dict],
+        np.ndarray,
+        np.ndarray,
+        list[tuple[np.ndarray, dict]],
+    ]] = {}
 
-    # 3. Obtain the encoded image for the worst measurement
-    source_path = project_root / worst_m["source_image"]
+    strategy_results: list[StrategyResult] = []
 
-    if not source_path.exists():
-        msg = f"Source image not found: {source_path}"
-        raise FileNotFoundError(msg)
-
-    # All intermediate files live in a single temporary directory that is
-    # cleaned up automatically when generate_comparison returns.
     with tempfile.TemporaryDirectory() as _work:
         work = Path(_work)
-        encoded_dir = work / "encoded"
-        encoded_dir.mkdir()
-        crops_dir = work / "crops"
-        crops_dir.mkdir()
 
-        # Check for pre-existing encoded files (from save_worst_image pipeline option)
-        has_saved_artifacts = _resolve_encoded_path(worst_m, project_root) is not None
-        if has_saved_artifacts:
-            print("  Using saved encoded artifacts from pipeline")
-        else:
-            print("  Re-encoding on the fly (no saved artifacts found)")
+        for img_key in unique_images:
+            source_path = project_root / img_key
+            if not source_path.exists():
+                msg = f"Source image not found: {source_path}"
+                raise FileNotFoundError(msg)
 
-        print("  Obtaining worst measurement encoded image...")
-        worst_encoded = _get_or_encode(source_path, worst_m, encoded_dir, project_root)
-        if worst_encoded is None:
-            msg = f"Failed to obtain encoded {worst_m['format']} q{worst_m['quality']}"
-            raise RuntimeError(msg)
+            source_measurements = [
+                m for m in measurements
+                if m["source_image"] == img_key
+                and m.get("measurement_error") is None
+                and m.get(config.metric) is not None
+            ]
+            if not source_measurements:
+                msg = f"No valid measurements found for source image: {img_key}"
+                raise ValueError(msg)
 
-        # 4 & 5. Compute aggregate distortion maps across all variants and
-        # locate the worst region using the configured strategy.
-        strategy = config.region_strategy
-        if strategy not in ("average", "variance"):
-            msg = f"Unknown region_strategy {strategy!r}. Must be 'average' or 'variance'."
-            raise ValueError(msg)
+            encoded_dir = work / "encoded" / Path(img_key).stem
+            encoded_dir.mkdir(parents=True)
 
-        print(
-            f"  Computing aggregate distortion maps across all "
-            f"{len(source_measurements)} variants (strategy: {strategy})..."
-        )
-        avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
-            source_path,
-            source_measurements,
-            work,
-            project_root,
-            encoded_dir,
-        )
-        precomputed_distmaps: dict[int, np.ndarray] = {
-            id(m_dict): arr for arr, m_dict in variant_pairs
-        }
-        avg_region = _find_worst_region_in_array(avg_map, crop_size=config.crop_size)
-        var_region = _find_worst_region_in_array(var_map, crop_size=config.crop_size)
-        region = avg_region if strategy == "average" else var_region
-        print(
-            f"  Worst region (avg):  ({avg_region.x}, {avg_region.y}) "
-            f"{avg_region.width}x{avg_region.height} "
-            f"score={avg_region.avg_distortion:.4f}"
-        )
-        print(
-            f"  Worst region (var):  ({var_region.x}, {var_region.y}) "
-            f"{var_region.width}x{var_region.height} "
-            f"score={var_region.avg_distortion:.4f}"
-        )
+            print(f"  Computing distortion maps for {img_key} "
+                  f"({len(source_measurements)} variants)...")
+            avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
+                source_path,
+                source_measurements,
+                work / "distmaps" / Path(img_key).stem,
+                project_root,
+                encoded_dir,
+            )
+            image_cache[img_key] = (source_measurements, avg_map, var_map, variant_pairs)
 
-        # 6. Determine varying parameters
-        varying = determine_varying_parameters(source_measurements)
-        print(f"  Varying parameters: {varying}")
+        # Now generate comparison outputs for each strategy
+        for strat in strategies:
+            img_key = image_per_strategy[strat]
+            source_path = project_root / img_key
+            source_measurements, avg_map, var_map, variant_pairs = image_cache[img_key]
 
-        # 7. Crop and zoom the original image first
-        original_crop_path = crops_dir / "original.png"
-        crop_and_zoom(
-            source_path,
-            region,
-            zoom_factor=config.zoom_factor,
-            output_path=original_crop_path,
-        )
+            strat_dir = output_dir / strat
+            strat_dir.mkdir(parents=True, exist_ok=True)
 
-        # 8. Re-encode and crop each parameter variant
-        crop_entries: list[tuple[Path, str, str]] = [
-            (original_crop_path, "Original", "Reference"),
-        ]
+            # Select region using the strategy
+            avg_region = _find_worst_region_in_array(avg_map, crop_size=config.crop_size)
+            var_region = _find_worst_region_in_array(var_map, crop_size=config.crop_size)
+            region = avg_region if strat == "average" else var_region
 
-        # Sort measurements for consistent ordering
-        sort_keys = ["format", "quality"]
-        for param in ["chroma_subsampling", "speed", "effort", "method", "resolution"]:
-            if param in varying:
-                sort_keys.append(param)
+            print(f"  [{strat}] Region: ({region.x}, {region.y}) "
+                  f"{region.width}x{region.height} score={region.avg_distortion:.4f}")
 
-        sorted_measurements = sorted(
-            source_measurements,
-            key=lambda m: tuple(m.get(k, 0) or 0 for k in sort_keys),
-        )
+            # Find worst single measurement for metadata
+            worst_m = find_worst_measurement(source_measurements, metric=config.metric)
+            worst_metric_value = worst_m[config.metric]
 
-        # Per-variant distortion map arrays for the distortion-map comparison grid.
-        # Each entry is (full-image ndarray, label, metric_label).
-        variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
+            # Build precomputed distmap lookup
+            precomputed_distmaps: dict[int, np.ndarray] = {
+                id(m_dict): arr for arr, m_dict in variant_pairs
+            }
 
-        print(f"  Obtaining {len(sorted_measurements)} variants...")
-        for m in sorted_measurements:
-            enc_path = _get_or_encode(source_path, m, encoded_dir, project_root)
-            if enc_path is None:
-                continue
+            # Set up per-strategy working directories
+            crops_dir = work / "crops" / strat
+            crops_dir.mkdir(parents=True)
+            encoded_dir = work / "encoded" / Path(img_key).stem
 
-            label = _build_label(m, varying)
-            metric_label = _build_metric_label(m)
-
-            safe_name = label.replace(" ", "_").replace("=", "-")
-            crop_path = crops_dir / f"{safe_name}.png"
-
+            # Crop original
+            original_crop_path = crops_dir / "original.png"
             crop_and_zoom(
-                enc_path,
+                source_path,
                 region,
                 zoom_factor=config.zoom_factor,
-                output_path=crop_path,
+                output_path=original_crop_path,
             )
-            crop_entries.append((crop_path, label, metric_label))
 
-            # Reuse the precomputed distortion array when available (avoids a
-            # second butteraugli_main call for variants already processed during
-            # region selection).  Fall back to generating on the fly otherwise.
-            if id(m) in precomputed_distmaps:
-                dm_arr = precomputed_distmaps[id(m)]
-                variant_distmap_entries.append((dm_arr, label, metric_label))
-            else:
-                variant_pfm = work / f"dm_{safe_name}.pfm"
-                try:
-                    generate_distortion_map(source_path, enc_path, variant_pfm)
-                    dm_arr = _read_pfm(variant_pfm)
+            # Build crop entries
+            crop_entries: list[tuple[Path, str, str]] = [
+                (original_crop_path, "Original", "Reference"),
+            ]
+
+            # Sort measurements
+            sort_keys = ["format", "quality"]
+            for param in ["chroma_subsampling", "speed", "effort", "method", "resolution"]:
+                if param in varying:
+                    sort_keys.append(param)
+
+            sorted_measurements = sorted(
+                source_measurements,
+                key=lambda m: tuple(m.get(k, 0) or 0 for k in sort_keys),
+            )
+
+            variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
+
+            print(f"  [{strat}] Obtaining {len(sorted_measurements)} variants...")
+            for m in sorted_measurements:
+                enc_path = _get_or_encode(source_path, m, encoded_dir, project_root)
+                if enc_path is None:
+                    continue
+
+                label = _build_label(m, varying)
+                metric_label = _build_metric_label(m)
+                safe_name = label.replace(" ", "_").replace("=", "-")
+                crop_path = crops_dir / f"{safe_name}.png"
+
+                crop_and_zoom(
+                    enc_path,
+                    region,
+                    zoom_factor=config.zoom_factor,
+                    output_path=crop_path,
+                )
+                crop_entries.append((crop_path, label, metric_label))
+
+                if id(m) in precomputed_distmaps:
+                    dm_arr = precomputed_distmaps[id(m)]
                     variant_distmap_entries.append((dm_arr, label, metric_label))
-                except (RuntimeError, ValueError) as exc:
-                    print(f"    Warning: distortion map for {label} failed: {exc}")
+                else:
+                    variant_pfm = work / f"dm_{strat}_{safe_name}.pfm"
+                    try:
+                        generate_distortion_map(source_path, enc_path, variant_pfm)
+                        dm_arr = _read_pfm(variant_pfm)
+                        variant_distmap_entries.append((dm_arr, label, metric_label))
+                    except (RuntimeError, ValueError) as exc:
+                        print(f"    Warning: distortion map for {label} failed: {exc}")
 
-        print(f"  Cropped {len(crop_entries)} images (including original)")
+            print(f"  [{strat}] Cropped {len(crop_entries)} images (including original)")
 
-        # 9. Assemble comparison grids (written directly to output_dir)
-        output_images: list[Path] = []
+            # Assemble comparison grids
+            output_images: list[Path] = []
 
-        if len(crop_entries) <= config.max_columns * 3:
-            grid_path = output_dir / "comparison.webp"
-            assemble_comparison_grid(
-                crop_entries,
-                grid_path,
-                max_columns=config.max_columns,
-                label_font_size=config.label_font_size,
-            )
-            output_images.append(grid_path)
-            print(f"  Generated comparison grid: {grid_path}")
-        else:
-            # Split by first varying parameter (typically format)
-            if varying:
-                split_param = varying[0]
-                groups: dict[str, list[tuple[Path, str, str]]] = {}
-                original_entry = crop_entries[0]
-
-                for entry, m in zip(crop_entries[1:], sorted_measurements, strict=False):
-                    group_key = str(m.get(split_param, "unknown"))
-                    if group_key not in groups:
-                        groups[group_key] = [original_entry]
-                    groups[group_key].append(entry)
-
-                for group_name, group_entries in sorted(groups.items()):
-                    grid_path = output_dir / f"comparison_{split_param}_{group_name}.webp"
-                    assemble_comparison_grid(
-                        group_entries,
-                        grid_path,
-                        max_columns=config.max_columns,
-                        label_font_size=config.label_font_size,
-                    )
-                    output_images.append(grid_path)
-                    print(f"  Generated comparison grid: {grid_path}")
-            else:
-                grid_path = output_dir / "comparison.webp"
+            if len(crop_entries) <= config.max_columns * 3:
+                grid_path = strat_dir / "comparison.webp"
                 assemble_comparison_grid(
                     crop_entries,
                     grid_path,
@@ -1119,79 +1194,67 @@ def generate_comparison(
                     label_font_size=config.label_font_size,
                 )
                 output_images.append(grid_path)
-
-        # 9.5. Assemble distortion map comparison grid.
-        # Each tile is the *full* distortion map scaled down to target_side×target_side
-        # so the whole image surface is visible at a glance.  The fixed
-        # [0, distmap_vmax] colour scale makes tiles directly comparable.
-        if variant_distmap_entries:
-            distmap_thumbs_dir = work / "distmap_thumbs"
-            distmap_thumbs_dir.mkdir()
-
-            # target_side matches the rendered pixel dimensions of a crop tile
-            # so both comparison grids have the same overall layout.
-            target_side = config.crop_size * config.zoom_factor
-
-            # The "Original" tile shows the actual source image scaled to
-            # target_side so viewers can cross-reference distortion patterns
-            # with real image content.
-            orig_thumb = distmap_thumbs_dir / "original.png"
-            with Image.open(source_path) as _src:
-                _src.convert("RGB").resize(
-                    (target_side, target_side), Image.Resampling.LANCZOS
-                ).save(orig_thumb)
-
-            distmap_crop_entries: list[tuple[Path, str, str]] = [
-                (orig_thumb, "Original", "Reference image"),
-            ]
-
-            for idx, (dm_arr, dm_label, dm_metric) in enumerate(variant_distmap_entries):
-                safe_dm = dm_label.replace(" ", "_").replace("=", "-")
-                thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
-                _render_distmap_thumbnail(
-                    dm_arr,
-                    target_side,
-                    thumb_path,
-                    vmax=config.distmap_vmax,
-                )
-                distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
-
-            if len(distmap_crop_entries) <= config.max_columns * 3:
-                dm_grid_path = output_dir / "distortion_map_comparison.webp"
-                assemble_comparison_grid(
-                    distmap_crop_entries,
-                    dm_grid_path,
-                    max_columns=config.max_columns,
-                    label_font_size=config.label_font_size,
-                )
-                output_images.append(dm_grid_path)
-                print(f"  Generated distortion map comparison grid: {dm_grid_path}")
+                print(f"  [{strat}] Generated comparison grid: {grid_path}")
             else:
                 if varying:
                     split_param = varying[0]
-                    dm_groups: dict[str, list[tuple[Path, str, str]]] = {}
-                    dm_orig_entry = distmap_crop_entries[0]
-                    for dm_entry, dm_m in zip(
-                        distmap_crop_entries[1:], sorted_measurements, strict=False
-                    ):
-                        group_key = str(dm_m.get(split_param, "unknown"))
-                        if group_key not in dm_groups:
-                            dm_groups[group_key] = [dm_orig_entry]
-                        dm_groups[group_key].append(dm_entry)
-                    for group_name, group_entries in sorted(dm_groups.items()):
-                        dm_grid_path = output_dir / (
-                            f"distortion_map_comparison_{split_param}_{group_name}.webp"
-                        )
+                    groups: dict[str, list[tuple[Path, str, str]]] = {}
+                    original_entry = crop_entries[0]
+
+                    for entry, m in zip(crop_entries[1:], sorted_measurements, strict=False):
+                        group_key = str(m.get(split_param, "unknown"))
+                        if group_key not in groups:
+                            groups[group_key] = [original_entry]
+                        groups[group_key].append(entry)
+
+                    for group_name, group_entries in sorted(groups.items()):
+                        grid_path = strat_dir / f"comparison_{split_param}_{group_name}.webp"
                         assemble_comparison_grid(
                             group_entries,
-                            dm_grid_path,
+                            grid_path,
                             max_columns=config.max_columns,
                             label_font_size=config.label_font_size,
                         )
-                        output_images.append(dm_grid_path)
-                        print(f"  Generated distortion map comparison grid: {dm_grid_path}")
+                        output_images.append(grid_path)
+                        print(f"  [{strat}] Generated comparison grid: {grid_path}")
                 else:
-                    dm_grid_path = output_dir / "distortion_map_comparison.webp"
+                    grid_path = strat_dir / "comparison.webp"
+                    assemble_comparison_grid(
+                        crop_entries,
+                        grid_path,
+                        max_columns=config.max_columns,
+                        label_font_size=config.label_font_size,
+                    )
+                    output_images.append(grid_path)
+
+            # Distortion map comparison grid
+            if variant_distmap_entries:
+                distmap_thumbs_dir = work / "distmap_thumbs" / strat
+                distmap_thumbs_dir.mkdir(parents=True)
+                target_side = config.crop_size * config.zoom_factor
+
+                orig_thumb = distmap_thumbs_dir / "original.png"
+                with Image.open(source_path) as _src:
+                    _src.convert("RGB").resize(
+                        (target_side, target_side), Image.Resampling.LANCZOS,
+                    ).save(orig_thumb)
+
+                distmap_crop_entries: list[tuple[Path, str, str]] = [
+                    (orig_thumb, "Original", "Reference image"),
+                ]
+                for idx, (dm_arr, dm_label, dm_metric) in enumerate(variant_distmap_entries):
+                    safe_dm = dm_label.replace(" ", "_").replace("=", "-")
+                    thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
+                    _render_distmap_thumbnail(
+                        dm_arr,
+                        target_side,
+                        thumb_path,
+                        vmax=config.distmap_vmax,
+                    )
+                    distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
+
+                if len(distmap_crop_entries) <= config.max_columns * 3:
+                    dm_grid_path = strat_dir / "distortion_map_comparison.webp"
                     assemble_comparison_grid(
                         distmap_crop_entries,
                         dm_grid_path,
@@ -1199,45 +1262,79 @@ def generate_comparison(
                         label_font_size=config.label_font_size,
                     )
                     output_images.append(dm_grid_path)
+                    print(f"  [{strat}] Generated distortion map comparison grid: {dm_grid_path}")
+                else:
+                    if varying:
+                        split_param = varying[0]
+                        dm_groups: dict[str, list[tuple[Path, str, str]]] = {}
+                        dm_orig_entry = distmap_crop_entries[0]
+                        for dm_entry, dm_m in zip(
+                            distmap_crop_entries[1:], sorted_measurements, strict=False,
+                        ):
+                            group_key = str(dm_m.get(split_param, "unknown"))
+                            if group_key not in dm_groups:
+                                dm_groups[group_key] = [dm_orig_entry]
+                            dm_groups[group_key].append(dm_entry)
+                        for group_name, group_entries in sorted(dm_groups.items()):
+                            dm_grid_path = strat_dir / (
+                                f"distortion_map_comparison_{split_param}_{group_name}.webp"
+                            )
+                            assemble_comparison_grid(
+                                group_entries,
+                                dm_grid_path,
+                                max_columns=config.max_columns,
+                                label_font_size=config.label_font_size,
+                            )
+                            output_images.append(dm_grid_path)
+                            print(f"  [{strat}] Generated distortion map grid: {dm_grid_path}")
+                    else:
+                        dm_grid_path = strat_dir / "distortion_map_comparison.webp"
+                        assemble_comparison_grid(
+                            distmap_crop_entries,
+                            dm_grid_path,
+                            max_columns=config.max_columns,
+                            label_font_size=config.label_font_size,
+                        )
+                        output_images.append(dm_grid_path)
 
-        # 10. Write aggregate distortion map visualizations.
-        # Each map is annotated with its own strategy's region so viewers
-        # immediately see which area each strategy highlights.
-        # avg uses cyan annotation; var uses orange.  Both outputs are
-        # lossless WebP.  viridis_r: bright yellow = low value (good).
-        _visualize_distortion_map(
-            avg_map,
-            avg_region,
-            output_dir / "distortion_map_average.webp",
-            dash_color="cyan",
-        )
-        _visualize_distortion_map(
-            var_map,
-            var_region,
-            output_dir / "distortion_map_variance.webp",
-            dash_color="orange",
-        )
-        _save_annotated_original_dual(
-            source_path,
-            avg_region,
-            var_region,
-            output_dir / "original_annotated.webp",
-        )
+            # Distortion map visualizations
+            _visualize_distortion_map(
+                avg_map if strat == "average" else var_map,
+                region,
+                strat_dir / f"distortion_map_{strat}.webp",
+                dash_color="cyan" if strat == "average" else "orange",
+            )
+            _save_annotated_original(
+                source_path,
+                region,
+                strat_dir / "original_annotated.webp",
+            )
+
+            image_score = get_worst_image_score(
+                measurements, img_key, metric=config.metric, strategy=strat,
+            )
+            strategy_results.append(StrategyResult(
+                strategy=strat,
+                source_image=img_key,
+                image_score=image_score,
+                worst_format=worst_m["format"],
+                worst_quality=worst_m["quality"],
+                worst_metric_value=worst_metric_value,
+                region=region,
+                output_dir=strat_dir,
+                output_images=output_images,
+            ))
 
     print("\nComparison complete!")
     print(f"  Output directory: {output_dir}")
-    print(f"  Comparison images: {len(output_images)}")
+    for sr in strategy_results:
+        print(f"  [{sr.strategy}] {len(sr.output_images)} comparison images "
+              f"in {sr.output_dir.name}/")
 
     return ComparisonResult(
         study_id=study_id,
-        worst_source_image=worst_source,
-        worst_metric_value=worst_metric_value,
-        worst_format=worst_m["format"],
-        worst_quality=worst_m["quality"],
-        region=region,
-        output_images=output_images,
+        strategies=strategy_results,
         varying_parameters=varying,
-        region_strategy=strategy,
     )
 
 

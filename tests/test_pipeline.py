@@ -915,3 +915,24 @@ class TestFindWorstOriginal:
 
     def test_empty_returns_none(self) -> None:
         assert _find_worst_original([]) is None
+
+    def test_variance_strategy(self) -> None:
+        """Variance strategy picks the image with highest score variance."""
+        records = [
+            self._make_record("stable.png", 70.0),
+            self._make_record("stable.png", 72.0),
+            self._make_record("volatile.png", 30.0),
+            self._make_record("volatile.png", 90.0),
+        ]
+        # stable var ≈ 1.0, volatile var ≈ 900.0
+        assert _find_worst_original(records, strategy="variance") == "volatile.png"
+
+    def test_variance_single_score(self) -> None:
+        """Single-score image has variance 0."""
+        records = [
+            self._make_record("a.png", 60.0),
+            self._make_record("b.png", 50.0),
+            self._make_record("b.png", 70.0),
+        ]
+        # a: var=0, b: var=100
+        assert _find_worst_original(records, strategy="variance") == "b.png"

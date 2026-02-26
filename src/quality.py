@@ -506,6 +506,7 @@ class QualityResults:
     timestamp: str
     encoding_timestamp: str | None = None
     tool_versions: dict[str, str] | None = None
+    worst_images: dict[str, dict] | None = None
 
     def save(self, path: Path) -> None:
         """Save quality results to a JSON file.
@@ -515,13 +516,14 @@ class QualityResults:
         """
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        data = {
+        data: dict[str, Any] = {
             "study_id": self.study_id,
             "study_name": self.study_name,
             "dataset": self.dataset,
             "encoding_timestamp": self.encoding_timestamp,
             "timestamp": self.timestamp,
             "tool_versions": self.tool_versions,
+            "worst_images": self.worst_images,
             "measurements": [
                 {
                     "source_image": rec.source_image,
