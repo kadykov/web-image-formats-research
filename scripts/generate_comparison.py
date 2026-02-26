@@ -93,15 +93,24 @@ Examples:
     )
 
     parser.add_argument(
-        "--region-strategy",
+        "--strategy",
         type=str,
-        default="average",
-        choices=["average", "variance"],
+        default="both",
+        choices=["average", "variance", "both"],
         help=(
-            "Strategy to select the worst fragment (default: average). "
-            "'average' averages maps across all variants to "
-            "find the region that is consistently bad.  'variance' chooses "
-            "the region with the highest variation across variants."
+            "Strategy for both image and fragment selection (default: both). "
+            "'average' selects the consistently worst image/fragment. "
+            "'variance' selects the most parameter-sensitive image/fragment. "
+            "'both' outputs separate comparison sets for each strategy."
+        ),
+    )
+
+    parser.add_argument(
+        "--source-image",
+        type=str,
+        help=(
+            "Explicitly specify a source image path (relative to project root) "
+            "instead of automatic worst-image detection."
         ),
     )
 
@@ -168,7 +177,8 @@ Examples:
         zoom_factor=args.zoom,
         metric=args.metric,
         max_columns=args.max_columns,
-        region_strategy=args.region_strategy,
+        strategy=args.strategy,
+        source_image=args.source_image,
     )
 
     # Generate comparison
@@ -180,19 +190,19 @@ Examples:
             config=config,
         )
         print("\nSummary:")
-        print(f"  Worst image: {result.worst_source_image}")
-        print(f"  Worst format: {result.worst_format} q{result.worst_quality}")
-        print(f"  {config.metric}: {result.worst_metric_value:.2f}")
-        print(f"  Region strategy: {result.region_strategy}")
-        print(
-            f"  Region: ({result.region.x}, {result.region.y}) "
-            f"{result.region.width}x{result.region.height}"
-        )
-        print(f"  Output images: {len(result.output_images)}")
-        for img in result.output_images:
-            print(f"    - {img}")
-        print(f"  Distortion map: {output_dir / 'distortion_map_viridis.png'}")
-        print(f"  Original annotated: {output_dir / 'original_annotated.png'}")
+        for sr in result.strategies:
+            print(f"\n  [{sr.strategy}] Strategy:")
+            print(f"    Source image: {sr.source_image}")
+            print(f"    Image score: {sr.image_score:.2f}")
+            print(f"    Worst format: {sr.worst_format} q{sr.worst_quality}")
+            print(f"    {config.metric}: {sr.worst_metric_value:.2f}")
+            print(
+                f"    Region: ({sr.region.x}, {sr.region.y}) "
+                f"{sr.region.width}x{sr.region.height}"
+            )
+            print(f"    Output images: {len(sr.output_images)}")
+            for img in sr.output_images:
+                print(f"      - {img}")
         return 0
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)

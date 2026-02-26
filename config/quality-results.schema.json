@@ -51,6 +51,45 @@
         "type": "string"
       }
     },
+    "worst_images": {
+      "type": ["object", "null"],
+      "description": "Per-strategy worst image metadata computed during pipeline execution. Keys are strategy names ('average', 'variance'); values describe the selected image.",
+      "properties": {
+        "average": {
+          "type": "object",
+          "description": "Worst image selected by the average-metric strategy (lowest average SSIMULACRA2).",
+          "properties": {
+            "original_image": {
+              "type": "string",
+              "description": "Path to the original dataset image (relative to project root)"
+            },
+            "score": {
+              "type": "number",
+              "description": "Average SSIMULACRA2 score for this image"
+            }
+          },
+          "required": ["original_image", "score"],
+          "additionalProperties": false
+        },
+        "variance": {
+          "type": "object",
+          "description": "Worst image selected by the variance strategy (highest SSIMULACRA2 variance).",
+          "properties": {
+            "original_image": {
+              "type": "string",
+              "description": "Path to the original dataset image (relative to project root)"
+            },
+            "score": {
+              "type": "number",
+              "description": "SSIMULACRA2 variance for this image"
+            }
+          },
+          "required": ["original_image", "score"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "measurements": {
       "type": "array",
       "description": "List of all quality measurement records",

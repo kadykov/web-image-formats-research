@@ -7,12 +7,22 @@ It produces a quality-results JSON file (same format as the separate
 ``measure_quality.py`` script) that can be fed directly into analysis
 and report generation.
 
+By default the encoded files for the worst-quality image are saved to
+``data/encoded/<study_id>/`` so that the comparison script can reuse
+them without re-encoding.  Pass ``--no-save-worst-image`` to skip this.
+
 Usage:
-    # Run with a time budget
+    # Run with a time budget (worst image saved by default)
     python3 scripts/run_pipeline.py format-comparison --time-budget 1h
 
-    # Run all images (no budget), save encoded files
+    # Run all images (no budget); worst image saved by default
+    python3 scripts/run_pipeline.py avif-quality-sweep
+
+    # Run all images and save ALL encoded files (superset of worst-image)
     python3 scripts/run_pipeline.py avif-quality-sweep --save-artifacts
+
+    # Skip saving worst-image files
+    python3 scripts/run_pipeline.py format-comparison --no-save-worst-image
 
     # Dry-run: preview what the pipeline would do
     python3 scripts/run_pipeline.py format-comparison --dry-run
@@ -175,9 +185,11 @@ examples:
     )
     parser.add_argument(
         "--save-worst-image",
-        action="store_true",
-        help="Save encoded files for the worst-quality image only "
-        "(for use with visual comparison tool)",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save encoded files for the worst-quality image only, for use "
+        "with the visual comparison tool (default: enabled; use "
+        "--no-save-worst-image to skip)",
     )
     parser.add_argument(
         "--output",
