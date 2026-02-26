@@ -172,26 +172,6 @@ Common configured studies:
 - `jxl-effort-sweep` — JPEG XL effort level comparison
 - `resolution-impact` — Test different image resolutions
 
-## Using the Legacy Separate Pipeline
-
-For backward compatibility, the old separate encode → measure workflow is still available:
-
-```bash
-# Run separate stages
-just pipeline-separate format-comparison
-
-# Or manually:
-just run-study format-comparison
-just measure-study format-comparison
-just analyze format-comparison
-```
-
-The separate pipeline is useful when you need to:
-
-- Inspect encoded files before measurement
-- Run measurement with different settings
-- Debug encoding issues independently
-
 ## Related Documentation
 
 - [Fetch Datasets](fetch-datasets) — Download image datasets

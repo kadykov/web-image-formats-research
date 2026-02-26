@@ -72,17 +72,6 @@ just fetch <dataset-id>          # Fetch a dataset (e.g., div2k-valid, div2k-tra
 just list-available-datasets     # List all datasets in configuration
 just list-datasets               # List downloaded datasets
 
-# Encoding Studies
-just list-studies                # List available study configurations
-just run-study <study-id>        # Run an encoding study
-just run-study-clean <study-id>  # Clean existing data then run study
-just dry-run-study <study-id>    # Preview what a study would do
-
-# Quality Measurement
-just measure <results-file>      # Measure quality for encoded images
-just measure-study <study-id>    # Measure quality for a specific study
-just measure-with-workers <results-file> <workers>  # Use custom worker count
-
 # Analysis
 just analyze <study-id>          # Analyze study results and generate plots
 just analyze-to <study-id> <dir> # Analyze with custom output directory

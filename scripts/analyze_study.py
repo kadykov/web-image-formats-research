@@ -93,7 +93,7 @@ Examples:
     # Check if quality.json exists
     if not quality_json_path.exists():
         print(f"Error: Quality measurements not found at: {quality_json_path}")
-        print(f"Run quality measurements first: just measure-study {study_id}")
+        print(f"Run the pipeline first: just pipeline {study_id}")
         return 1
 
     # Determine output directory

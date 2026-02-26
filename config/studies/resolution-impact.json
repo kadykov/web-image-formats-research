@@ -7,28 +7,29 @@
     "id": "div2k-valid",
     "max_images": 10
   },
-  "preprocessing": {
-    "resize": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
-  },
   "encoders": [
     {
       "format": "jpeg",
-      "quality": 85
+      "quality": 85,
+      "resolution": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
     },
     {
       "format": "webp",
       "quality": 87,
-      "method": 6
+      "method": 6,
+      "resolution": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
     },
     {
       "format": "avif",
       "quality": 65,
-      "speed": 3
+      "speed": 3,
+      "resolution": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
     },
     {
       "format": "jxl",
       "quality": 85,
-      "effort": 9
+      "effort": 9,
+      "resolution": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
     }
   ]
 }

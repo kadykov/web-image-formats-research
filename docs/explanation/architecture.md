@@ -40,20 +40,6 @@ Each stage is implemented as an independent module that can be used
 standalone or composed into a pipeline. This makes individual components
 easy to test and replace.
 
-**Use cases for separate pipeline:**
-
-- Inspecting encoded files before measurement
-- Running measurement with different settings
-- Debugging encoding issues independently
-- Compatibility with existing workflows
-
-See `scripts/encode_images.py` and `scripts/measure_quality.py` for the separate workflow.
-
-### Which Pipeline to Use?
-
-- **Use unified pipeline** for production research runs with predictable runtime
-- **Use separate pipeline** for debugging, inspection, or custom measurement workflows
-
 ### Data Organization
 
 All research data is organized under the `data/` directory:

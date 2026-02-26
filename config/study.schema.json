@@ -44,22 +44,6 @@
       },
       "additionalProperties": false
     },
-    "preprocessing": {
-      "type": "object",
-      "description": "Optional preprocessing to apply before encoding. If omitted, images are encoded at their original resolution.",
-      "properties": {
-        "resize": {
-          "type": "array",
-          "description": "List of target resolutions (longest edge in pixels). Each resolution produces a separate set of encoded images. If omitted, original resolution is used.",
-          "items": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "minItems": 1
-        }
-      },
-      "additionalProperties": false
-    },
     "encoders": {
       "type": "array",
       "description": "List of encoder configurations to sweep. Each entry defines one encoder and the parameter space to explore.",
@@ -175,6 +159,23 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 6
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "resolution": {
+            "description": "Target resolutions (longest edge in pixels) to sweep. Each value produces a downscaled copy of the source image before encoding. If omitted, the original resolution is used.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
                 },
                 "minItems": 1
               }

@@ -156,7 +156,6 @@ def _process_image(
     image_path_str: str,
     config_dict: dict[str, Any],
     project_root_str: str,
-    resolutions: list[int | None],
     save_artifacts: bool,
     save_artifact_dir_str: str | None = None,
 ) -> list[QualityRecord]:
@@ -168,11 +167,14 @@ def _process_image(
     - Naturally staggers memory-intensive operations across workers
     - Provides better cache locality
 
+    Resolution is now part of the per-encoder Cartesian product.
+    Preprocessing (resizing) is handled inline with an in-worker cache
+    so each resolution is only computed once per image.
+
     Args:
         image_path_str: Absolute path to the source image.
         config_dict: Serializable dict with study config data.
         project_root_str: Project root path (for pickling).
-        resolutions: List of resolutions to process (None = original).
         save_artifacts: Whether to save encoded files.
         save_artifact_dir_str: Override the artifact directory. When
             set, encoded files are saved here instead of the default
@@ -205,45 +207,50 @@ def _process_image(
 
     all_records: list[QualityRecord] = []
 
+    # In-worker preprocessing cache: resolution → preprocessed path
+    preprocessed_cache: dict[int, Path] = {}
+
     with tempfile.TemporaryDirectory() as prep_tmpdir:
-        for resolution in resolutions:
-            # Preprocess or use original
-            if resolution is not None:
-                res_dir = Path(prep_tmpdir) / f"r{resolution}"
-                preprocessor = ImagePreprocessor(res_dir)
-                output_name = f"{image_path.stem}_r{resolution}.png"
-                source = preprocessor.resize_image(
-                    image_path,
-                    target_size=(resolution, resolution),
-                    output_name=output_name,
-                    keep_aspect_ratio=True,
-                )
-                src_label: str | None = (
-                    f"data/preprocessed/{study_id}"
-                    f"/r{resolution}/{image_path.stem}_r{resolution}.png"
-                )
-            else:
-                source = image_path
-                src_label = None
+        def _get_source(resolution: int | None) -> Path:
+            """Get source image, resizing if needed (cached)."""
+            if resolution is None:
+                return image_path
+            if resolution in preprocessed_cache:
+                return preprocessed_cache[resolution]
+            res_dir = Path(prep_tmpdir) / f"r{resolution}"
+            preprocessor = ImagePreprocessor(res_dir)
+            output_name = f"{image_path.stem}_r{resolution}.png"
+            resized = preprocessor.resize_image(
+                image_path,
+                target_size=(resolution, resolution),
+                output_name=output_name,
+                keep_aspect_ratio=True,
+            )
+            preprocessed_cache[resolution] = resized
+            return resized
 
-            # Process all encoders for this resolution
-            for enc in encoders:
-                tasks = _expand_encoder_tasks(
-                    source_image=source,
-                    original_image=image_path,
-                    enc=enc,
-                    resolution=resolution,
-                    save_artifact_dir=save_artifact_dir,
-                    source_image_label=src_label,
-                )
+        # Process all encoders — resolution is part of each encoder's sweep
+        for enc in encoders:
+            tasks = _expand_encoder_tasks(
+                source_image=image_path,
+                original_image=image_path,
+                enc=enc,
+                save_artifact_dir=save_artifact_dir,
+                study_id=study_id,
+            )
 
-                # Execute tasks sequentially within this worker
-                for task_kw in tasks:
-                    record = _encode_and_measure(
-                        project_root_str=project_root_str,
-                        **task_kw,
-                    )
-                    all_records.append(record)
+            # Execute tasks sequentially within this worker
+            for task_kw in tasks:
+                # Resolve the actual source image for this task's resolution
+                resolution = task_kw["resolution"]
+                actual_source = _get_source(resolution)
+                task_kw["source_image"] = str(actual_source)
+
+                record = _encode_and_measure(
+                    project_root_str=project_root_str,
+                    **task_kw,
+                )
+                all_records.append(record)
 
     return all_records
 
@@ -562,12 +569,14 @@ def _expand_encoder_tasks(
     source_image: Path,
     original_image: Path,
     enc: EncoderConfig,
-    resolution: int | None,
     save_artifact_dir: Path | None,
-    source_image_label: str | None,
+    study_id: str,
 ) -> list[dict[str, Any]]:
     """Expand one :class:`EncoderConfig` into keyword-arg dicts for
     :func:`_encode_and_measure`.
+
+    Resolution is now part of the Cartesian product alongside quality,
+    chroma, speed, effort, and method.
 
     Returns a list of dicts that can be unpacked as
     ``_encode_and_measure(**kw)`` (all values are pickle-safe).
@@ -578,36 +587,47 @@ def _expand_encoder_tasks(
     speed_options: list[int | None] = list(enc.speed) if enc.speed else [None]
     effort_options: list[int | None] = list(enc.effort) if enc.effort else [None]
     method_options: list[int | None] = list(enc.method) if enc.method else [None]
-
-    res_label = f"r{resolution}" if resolution else "original"
-
-    if save_artifact_dir is not None:
-        save_dir_str: str | None = str(save_artifact_dir / enc.format / res_label)
-    else:
-        save_dir_str = None
+    resolution_options: list[int | None] = list(enc.resolution) if enc.resolution else [None]
 
     tasks: list[dict[str, Any]] = []
-    for q in enc.quality:
-        for chroma in chroma_options:
-            for spd in speed_options:
-                for eff in effort_options:
-                    for mth in method_options:
-                        tasks.append(
-                            {
-                                "source_image": str(source_image),
-                                "original_image": str(original_image),
-                                "fmt": enc.format,
-                                "quality": q,
-                                "chroma_subsampling": chroma,
-                                "speed": spd,
-                                "effort": eff,
-                                "method": mth,
-                                "resolution": resolution,
-                                "extra_args": enc.extra_args,
-                                "save_dir_str": save_dir_str,
-                                "source_image_label": source_image_label,
-                            }
-                        )
+    for resolution in resolution_options:
+        res_label = f"r{resolution}" if resolution else "original"
+
+        if save_artifact_dir is not None:
+            save_dir_str: str | None = str(save_artifact_dir / enc.format / res_label)
+        else:
+            save_dir_str = None
+
+        # Build source_image_label for preprocessed images
+        if resolution is not None:
+            source_image_label: str | None = (
+                f"data/preprocessed/{study_id}"
+                f"/r{resolution}/{source_image.stem}_r{resolution}.png"
+            )
+        else:
+            source_image_label = None
+
+        for q in enc.quality:
+            for chroma in chroma_options:
+                for spd in speed_options:
+                    for eff in effort_options:
+                        for mth in method_options:
+                            tasks.append(
+                                {
+                                    "source_image": str(source_image),
+                                    "original_image": str(original_image),
+                                    "fmt": enc.format,
+                                    "quality": q,
+                                    "chroma_subsampling": chroma,
+                                    "speed": spd,
+                                    "effort": eff,
+                                    "method": mth,
+                                    "resolution": resolution,
+                                    "extra_args": enc.extra_args,
+                                    "save_dir_str": save_dir_str,
+                                    "source_image_label": source_image_label,
+                                }
+                            )
     return tasks
 
 
@@ -937,10 +957,11 @@ class PipelineRunner:
             msg = f"No images found in {dataset_dir}"
             raise FileNotFoundError(msg)
 
-        # --- Resolutions ------------------------------------------------------
-        resolutions: list[int | None] = [None]  # None = original
-        if config.resize:
-            resolutions = list(config.resize)
+        # --- Resolutions (for banner display only) ----------------------------
+        all_resolutions: set[int] = set()
+        for enc in config.encoders:
+            if enc.resolution:
+                all_resolutions.update(enc.resolution)
 
         # --- Workers ----------------------------------------------------------
         if num_workers is None:
@@ -955,8 +976,11 @@ class PipelineRunner:
             print(f"Time budget: {_format_duration(time_budget)}")
         else:
             print("Time budget: unlimited (processing all images)")
-        res_labels = [f"r{r}" if r else "original" for r in resolutions]
-        print(f"Resolutions: {', '.join(res_labels)}")
+        if all_resolutions:
+            res_labels = sorted(f"r{r}" for r in all_resolutions)
+            print(f"Resolutions: {', '.join(res_labels)}")
+        else:
+            print("Resolutions: original")
         print(f"Workers: {num_workers}")
         if save_artifacts:
             print(f"Saving artifacts to: {save_artifact_dir}")
@@ -977,6 +1001,7 @@ class PipelineRunner:
                     "speed": enc.speed,
                     "effort": enc.effort,
                     "method": enc.method,
+                    "resolution": enc.resolution,
                     "extra_args": enc.extra_args,
                 }
                 for enc in config.encoders
@@ -1041,7 +1066,6 @@ class PipelineRunner:
                     image_path_str=str(img_path),
                     config_dict=config_dict,
                     project_root_str=str(self.project_root),
-                    resolutions=resolutions,
                     save_artifacts=save_artifacts,
                     save_artifact_dir_str=_img_staging(img_path),
                 )
@@ -1101,7 +1125,6 @@ class PipelineRunner:
                                 image_path_str=str(next_img),
                                 config_dict=config_dict,
                                 project_root_str=str(self.project_root),
-                                resolutions=resolutions,
                                 save_artifacts=save_artifacts,
                                 save_artifact_dir_str=_img_staging(next_img),
                             )

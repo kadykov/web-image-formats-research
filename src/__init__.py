@@ -3,4 +3,4 @@
 __version__ = "0.1.0"
 
 from src.pipeline import PipelineRunner
-from src.study import StudyConfig, StudyRunner
+from src.study import StudyConfig

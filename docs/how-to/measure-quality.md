@@ -18,47 +18,29 @@ just verify-tools
 
 ## Basic Usage
 
-After running an encoding study, measure quality metrics:
+Quality metrics are measured automatically as part of the unified pipeline:
 
 ```bash
-# Measure quality for a specific study
-just measure-study avif-quality-sweep
+# Run encoding + measurement for a specific study
+just pipeline avif-quality-sweep
 
-# Or specify the results file directly
-just measure data/encoded/avif-quality-sweep/results.json
+# Or with a time budget
+just pipeline-analyze avif-quality-sweep 1h
 ```
 
-This will:
+The pipeline will:
 
-1. Load the encoding results JSON
-2. Measure SSIMULACRA2, PSNR, SSIM, and Butteraugli for each encoded image
-3. Save results to `data/metrics/<study-id>/quality.json`
-
-## Custom Worker Count
-
-Control parallelism for faster measurements:
-
-```bash
-# Use 16 parallel workers
-just measure-with-workers data/encoded/format-comparison/results.json 16
-```
-
-Default is your CPU count.
+1. Load the study configuration
+2. Encode each image with all parameter combinations
+3. Measure SSIMULACRA2, PSNR, SSIM, and Butteraugli for each encoded image
+4. Save results to `data/metrics/<study-id>/quality.json`
 
 ## Output Location
 
-By default, results are saved to:
+Results are saved to:
 
 ```text
 data/metrics/<study-id>/quality.json
-```
-
-Override with `--output`:
-
-```bash
-python3 scripts/measure_quality.py \
-    data/encoded/avif-quality-sweep/results.json \
-    --output custom/path/metrics.json
 ```
 
 ## Understanding the Output
@@ -110,21 +92,13 @@ The output JSON contains quality measurements for each encoded image:
   - `1.0-1.5` — Good
   - `>3.0` — Poor
 
-## Complete Pipeline
+## Time Budget
 
-Run encoding and measurement with the unified pipeline:
+Run encoding and measurement with a time budget:
 
 ```bash
 # Run for 1 hour with time budget
 just pipeline-analyze avif-quality-sweep 1h
-```
-
-Or use the legacy separate stages:
-
-```bash
-# Encode then measure separately
-just run-study avif-quality-sweep
-just measure-study avif-quality-sweep
 ```
 
 ## Troubleshooting

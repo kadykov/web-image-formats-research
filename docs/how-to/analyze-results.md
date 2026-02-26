@@ -191,8 +191,8 @@ python3 scripts/analyze_study.py --help
 If you get an error about missing quality measurements:
 
 ```bash
-# First run quality measurements
-just measure-study <study-id>
+# First run the pipeline to encode and measure
+just pipeline <study-id>
 
 # Then run analysis
 just analyze <study-id>

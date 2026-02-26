@@ -107,6 +107,10 @@ def _format_encoder_from_config(encoder: dict) -> str:
     if "chroma_subsampling" in encoder:
         chroma_vals = [_CHROMA_DISPLAY.get(c, c) for c in encoder["chroma_subsampling"]]
         parts.append(f"chroma subsampling {'/'.join(chroma_vals)}")
+    if "resolution" in encoder:
+        res = encoder["resolution"]
+        res_list = [res] if isinstance(res, int) else list(res)
+        parts.append(f"resolution {_describe_int_seq(sorted(res_list))} px")
 
     return f"- {label}: {', '.join(parts)}"
 
@@ -178,10 +182,6 @@ def _build_study_section(data: dict, study_config: dict | None) -> list[str]:
     if study_config and study_config.get("encoders"):
         for encoder in study_config["encoders"]:
             lines.append(_format_encoder_from_config(encoder))
-        # Preprocessing / resolution sweep
-        resize = study_config.get("preprocessing", {}).get("resize")
-        if resize:
-            lines.append(f"- Resolution (longest edge): {_describe_int_seq(sorted(resize))} px")
     else:
         # Derive from measurements
         formats = sorted({m["format"] for m in measurements if "format" in m})

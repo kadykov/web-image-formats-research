@@ -112,42 +112,6 @@ list-available-datasets:
 list-datasets:
     python3 scripts/fetch_dataset.py --show-downloaded
 
-# Run encoding pipeline (placeholder)
-encode:
-    @echo "Running encoding pipeline..."
-    python3 scripts/encode_images.py
-
-# Run encoding study from a configuration file
-run-study STUDY:
-    python3 scripts/encode_images.py {{STUDY}}
-
-# Clean and run encoding study (ensures fresh start)
-run-study-clean STUDY:
-    @echo "Cleaning existing data for study: {{STUDY}}"
-    @just clean-study {{STUDY}}
-    @echo "Running study: {{STUDY}}"
-    python3 scripts/encode_images.py {{STUDY}}
-
-# Dry-run an encoding study (show what would be done)
-dry-run-study STUDY:
-    python3 scripts/encode_images.py {{STUDY}} --dry-run
-
-# List available study configurations
-list-studies:
-    python3 scripts/encode_images.py --list
-
-# Measure quality metrics for encoded images
-measure RESULTS_FILE:
-    python3 scripts/measure_quality.py {{RESULTS_FILE}}
-
-# Measure quality with custom number of workers
-measure-with-workers RESULTS_FILE WORKERS:
-    python3 scripts/measure_quality.py {{RESULTS_FILE}} --workers {{WORKERS}}
-
-# Measure quality for a specific study by ID (assumes results.json in data/encoded/<study-id>/)
-measure-study STUDY_ID:
-    python3 scripts/measure_quality.py data/encoded/{{STUDY_ID}}/results.json
-
 # Analyze study results and generate plots
 analyze STUDY:
     python3 scripts/analyze_study.py {{STUDY}}
@@ -225,17 +189,6 @@ pipeline-clean STUDY TIME_BUDGET:
 # Dry-run the pipeline (preview tasks without executing)
 pipeline-dry-run STUDY:
     python3 scripts/run_pipeline.py {{STUDY}} --dry-run
-
-# Run old-style separate pipeline: encode + measure + analyze
-pipeline-separate STUDY:
-    @echo "Running separate encode → measure → analyze pipeline for: {{STUDY}}"
-    just run-study {{STUDY}}
-    just measure-study {{STUDY}}
-    just analyze {{STUDY}}
-    @echo "Pipeline complete!"
-    @echo "  Encodings: data/encoded/{{STUDY}}/results.json"
-    @echo "  Quality metrics: data/metrics/{{STUDY}}/quality.json"
-    @echo "  Analysis: data/analysis/{{STUDY}}/"
 
 # Generate interactive HTML report for all studies
 report:
