@@ -25,10 +25,11 @@ def tool_available(name: str) -> bool:
 def create_test_image(
     path: Path,
     size: tuple[int, int] = (64, 64),
-    color: tuple[int, int, int] = (128, 128, 128),
+    mode: str = "RGB",
+    color: tuple[int, ...] = (128, 128, 128),
 ) -> Path:
-    """Create a small RGB PNG test image and return its path."""
-    img = Image.new("RGB", size, color=color)
+    """Create a small test image and return its path."""
+    img = Image.new(mode, size, color=color)
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path)
     return path
