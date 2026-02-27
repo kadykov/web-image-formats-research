@@ -24,12 +24,16 @@ def generate_api_docs(src_dir: Path, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Run lazydocs to generate markdown from Python docstrings
-    # Generate docs for each Python module in src/
+    # Use module names (e.g. src.report_images) instead of file paths so that
+    # Python registers each module in sys.modules before the dataclass decorator
+    # runs - required in Python 3.13 where dataclasses._is_type() accesses
+    # sys.modules[cls.__module__].__dict__ unconditionally.
     python_files = [
         f for f in src_dir.glob("*.py") if f.name != "__init__.py" and not f.name.startswith("_")
     ]
+    modules = [f"{src_dir.name}.{f.stem}" for f in python_files]
 
-    if not python_files:
+    if not modules:
         print("⚠️  No Python files found to document")
         return
 
@@ -47,15 +51,15 @@ def generate_api_docs(src_dir: Path, output_dir: Path) -> None:
         "--src-base-url",
         "https://github.com/kadykov/web-image-formats-research/blob/main/",
         "--no-watermark",
-        *[str(f) for f in python_files],
+        *modules,
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"❌ Error generating API docs: {result.stderr}")
+        print(f"❌ Error generating API docs: {result.stderr or result.stdout}")
         sys.exit(1)
 
-    print(f"✅ Generated API documentation for {len(python_files)} modules")
+    print(f"✅ Generated API documentation for {len(modules)} modules")
 
 
 def copy_docs(docs_dir: Path, content_dir: Path) -> None:
@@ -186,8 +190,8 @@ This section contains automatically generated documentation from the Python sour
         if md_file.name == "index.md":
             continue
         module_name = md_file.stem
-        # Clean up the module name (remove .py extension if present in filename)
-        display_name = module_name.replace(".py", "")
+        # Clean up the module name (remove package prefix and .py extension)
+        display_name = module_name.split(".")[-1].replace(".py", "")
         content += f"- [{display_name}](./{md_file.name})\n"
 
     index_file.write_text(content)
@@ -213,8 +217,8 @@ def add_frontmatter_to_api_docs(api_dir: Path) -> None:
         if content.startswith("---"):
             continue
 
-        # Extract module name from filename
-        module_name = md_file.stem.replace(".py", "")
+        # Extract module name from filename (strip package prefix if present)
+        module_name = md_file.stem.replace(".py", "").split(".")[-1]
 
         # Add frontmatter
         frontmatter = f"""---
