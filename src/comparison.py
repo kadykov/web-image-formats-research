@@ -755,6 +755,7 @@ def encode_image(
     _tmp_dir = None
     if resolution is not None:
         import tempfile as _tempfile
+
         _tmp_dir = _tempfile.mkdtemp(prefix="comparison_resize_")
         preprocessor = ImagePreprocessor(Path(_tmp_dir))
         output_name = f"{source_path.stem}_r{resolution}.png"
@@ -797,11 +798,13 @@ def encode_image(
         print(f"  Warning: Unknown format '{fmt}', skipping")
         if _tmp_dir is not None:
             import shutil as _shutil
+
             _shutil.rmtree(_tmp_dir, ignore_errors=True)
         return None
 
     if _tmp_dir is not None:
         import shutil as _shutil
+
         _shutil.rmtree(_tmp_dir, ignore_errors=True)
 
     if result.success and result.output_path is not None:
@@ -894,6 +897,7 @@ def _resolve_source_for_resolution(
     if resolution in cache:
         return cache[resolution]
     from src.preprocessing import ImagePreprocessor
+
     res_dir = tmpdir / f"r{resolution}"
     preprocessor = ImagePreprocessor(res_dir)
     output_name = f"{original_path.stem}_r{resolution}.png"
@@ -1076,8 +1080,10 @@ def generate_comparison(
         unique_resolutions: list[int | None] = sorted(
             {m.get("resolution") for m in measurements if m.get("resolution") is not None}
         )
-        print(f"  Resolution varies: {len(unique_resolutions)} levels "
-              f"({', '.join(f'r{r}' for r in unique_resolutions if r is not None)})")
+        print(
+            f"  Resolution varies: {len(unique_resolutions)} levels "
+            f"({', '.join(f'r{r}' for r in unique_resolutions if r is not None)})"
+        )
         # Varying params for labels within a resolution group (exclude resolution)
         intra_res_varying = [p for p in varying if p != "resolution"]
     else:
@@ -1101,11 +1107,15 @@ def generate_comparison(
             if resolution_varies:
                 # Group by original_image across all resolutions
                 selected = _find_worst_original_image(
-                    measurements, metric=config.metric, strategy=strat,
+                    measurements,
+                    metric=config.metric,
+                    strategy=strat,
                 )
             else:
                 selected = find_worst_source_image(
-                    measurements, metric=config.metric, strategy=strat,
+                    measurements,
+                    metric=config.metric,
+                    strategy=strat,
                 )
             image_per_strategy[strat] = selected
         print(f"  [{strat}] Selected image: {image_per_strategy[strat]}")
@@ -1123,11 +1133,7 @@ def generate_comparison(
             img_key = image_per_strategy[strat]
 
             # Resolve the original image path
-            if resolution_varies:
-                # img_key is an original_image path
-                original_path = project_root / img_key
-            else:
-                original_path = project_root / img_key
+            original_path = project_root / img_key
 
             if not original_path.exists():
                 msg = f"Source image not found: {original_path}"
@@ -1144,13 +1150,17 @@ def generate_comparison(
             for resolution in unique_resolutions:
                 # Get the right source for this resolution
                 source_path = _resolve_source_for_resolution(
-                    original_path, resolution, preprocess_cache, work / "prep",
+                    original_path,
+                    resolution,
+                    preprocess_cache,
+                    work / "prep",
                 )
 
                 # Filter measurements for this image and resolution
                 if resolution_varies:
                     source_measurements = [
-                        m for m in measurements
+                        m
+                        for m in measurements
                         if m["original_image"] == img_key
                         and m.get("resolution") == resolution
                         and m.get("measurement_error") is None
@@ -1158,7 +1168,8 @@ def generate_comparison(
                     ]
                 else:
                     source_measurements = [
-                        m for m in measurements
+                        m
+                        for m in measurements
                         if m["source_image"] == img_key
                         and m.get("measurement_error") is None
                         and m.get(config.metric) is not None
@@ -1173,9 +1184,11 @@ def generate_comparison(
                 encoded_dir = work / "encoded" / (res_label or "original") / Path(img_key).stem
                 encoded_dir.mkdir(parents=True, exist_ok=True)
 
-                print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                      f"Computing distortion maps for {Path(img_key).name} "
-                      f"({len(source_measurements)} variants)...")
+                print(
+                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                    f"Computing distortion maps for {Path(img_key).name} "
+                    f"({len(source_measurements)} variants)..."
+                )
 
                 avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
                     source_path,
@@ -1203,25 +1216,32 @@ def generate_comparison(
                         height=frag["height"],
                         avg_distortion=frag["avg_distortion"],
                     )
-                    print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                          f"Using pre-computed fragment from pipeline")
+                    print(
+                        f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                        f"Using pre-computed fragment from pipeline"
+                    )
                 else:
                     avg_region = _find_worst_region_in_array(avg_map, crop_size=config.crop_size)
                     var_region = _find_worst_region_in_array(var_map, crop_size=config.crop_size)
                     region = avg_region if strat == "average" else var_region
 
-                print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                      f"Region: ({region.x}, {region.y}) "
-                      f"{region.width}x{region.height} score={region.avg_distortion:.4f}")
+                print(
+                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                    f"Region: ({region.x}, {region.y}) "
+                    f"{region.width}x{region.height} score={region.avg_distortion:.4f}"
+                )
 
                 # Track first resolution's data for per-strategy summary
                 if first_region is None:
                     first_region = region
-                    first_worst_m = find_worst_measurement(source_measurements, metric=config.metric)
+                    first_worst_m = find_worst_measurement(
+                        source_measurements, metric=config.metric
+                    )
                     if resolution_varies:
                         # Compute image-level score across all resolutions
                         all_img_measurements = [
-                            m for m in measurements
+                            m
+                            for m in measurements
                             if m["original_image"] == img_key
                             and m.get("measurement_error") is None
                             and m.get(config.metric) is not None
@@ -1236,7 +1256,10 @@ def generate_comparison(
                             first_image_score = 0.0
                     else:
                         first_image_score = get_worst_image_score(
-                            measurements, img_key, metric=config.metric, strategy=strat,
+                            measurements,
+                            img_key,
+                            metric=config.metric,
+                            strategy=strat,
                         )
 
                 # Build precomputed distmap lookup
@@ -1275,8 +1298,10 @@ def generate_comparison(
 
                 variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
 
-                print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                      f"Obtaining {len(sorted_measurements)} variants...")
+                print(
+                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                    f"Obtaining {len(sorted_measurements)} variants..."
+                )
                 for m in sorted_measurements:
                     enc_path = _get_or_encode(original_path, m, encoded_dir, project_root)
                     if enc_path is None:
@@ -1307,8 +1332,10 @@ def generate_comparison(
                         except (RuntimeError, ValueError) as exc:
                             print(f"    Warning: distortion map for {label} failed: {exc}")
 
-                print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                      f"Cropped {len(crop_entries)} images (including original)")
+                print(
+                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                    f"Cropped {len(crop_entries)} images (including original)"
+                )
 
                 # Assemble comparison grids
                 output_images: list[Path] = []
@@ -1323,8 +1350,10 @@ def generate_comparison(
                         label_font_size=config.label_font_size,
                     )
                     output_images.append(grid_path)
-                    print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                          f"Generated comparison grid: {grid_path}")
+                    print(
+                        f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                        f"Generated comparison grid: {grid_path}"
+                    )
                 else:
                     if intra_res_varying:
                         split_param = intra_res_varying[0]
@@ -1346,8 +1375,10 @@ def generate_comparison(
                                 label_font_size=config.label_font_size,
                             )
                             output_images.append(grid_path)
-                            print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                                  f"Generated comparison grid: {grid_path}")
+                            print(
+                                f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                                f"Generated comparison grid: {grid_path}"
+                            )
                     else:
                         grid_path = res_dir / "comparison.webp"
                         assemble_comparison_grid(
@@ -1367,7 +1398,8 @@ def generate_comparison(
                     orig_thumb = distmap_thumbs_dir / "original.png"
                     with Image.open(source_path) as _src:
                         _src.convert("RGB").resize(
-                            (target_side, target_side), Image.Resampling.LANCZOS,
+                            (target_side, target_side),
+                            Image.Resampling.LANCZOS,
                         ).save(orig_thumb)
 
                     distmap_crop_entries: list[tuple[Path, str, str]] = [
@@ -1393,15 +1425,19 @@ def generate_comparison(
                             label_font_size=config.label_font_size,
                         )
                         output_images.append(dm_grid_path)
-                        print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                              f"Generated distortion map comparison grid: {dm_grid_path}")
+                        print(
+                            f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                            f"Generated distortion map comparison grid: {dm_grid_path}"
+                        )
                     else:
                         if intra_res_varying:
                             split_param = intra_res_varying[0]
                             dm_groups: dict[str, list[tuple[Path, str, str]]] = {}
                             dm_orig_entry = distmap_crop_entries[0]
                             for dm_entry, dm_m in zip(
-                                distmap_crop_entries[1:], sorted_measurements, strict=False,
+                                distmap_crop_entries[1:],
+                                sorted_measurements,
+                                strict=False,
                             ):
                                 group_key = str(dm_m.get(split_param, "unknown"))
                                 if group_key not in dm_groups:
@@ -1418,8 +1454,10 @@ def generate_comparison(
                                     label_font_size=config.label_font_size,
                                 )
                                 output_images.append(dm_grid_path)
-                                print(f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                                      f"Generated distortion map grid: {dm_grid_path}")
+                                print(
+                                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
+                                    f"Generated distortion map grid: {dm_grid_path}"
+                                )
                         else:
                             dm_grid_path = res_dir / "distortion_map_comparison.webp"
                             assemble_comparison_grid(
@@ -1447,34 +1485,42 @@ def generate_comparison(
 
             # Build strategy result from first resolution (or only resolution)
             worst_m = first_worst_m or find_worst_measurement(
-                [m for m in measurements
-                 if (m["original_image"] if resolution_varies else m["source_image"]) == img_key
-                 and m.get("measurement_error") is None
-                 and m.get(config.metric) is not None],
+                [
+                    m
+                    for m in measurements
+                    if (m["original_image"] if resolution_varies else m["source_image"]) == img_key
+                    and m.get("measurement_error") is None
+                    and m.get(config.metric) is not None
+                ],
                 metric=config.metric,
             )
             worst_metric_value = worst_m[config.metric]
 
             image_score = first_image_score if first_image_score is not None else 0.0
-            region_for_result = first_region or WorstRegion(0, 0, config.crop_size, config.crop_size, 0.0)
+            region_for_result = first_region or WorstRegion(
+                0, 0, config.crop_size, config.crop_size, 0.0
+            )
 
-            strategy_results.append(StrategyResult(
-                strategy=strat,
-                source_image=img_key,
-                image_score=image_score,
-                worst_format=worst_m["format"],
-                worst_quality=worst_m["quality"],
-                worst_metric_value=worst_metric_value,
-                region=region_for_result,
-                output_dir=strat_dir,
-                output_images=all_output_images,
-            ))
+            strategy_results.append(
+                StrategyResult(
+                    strategy=strat,
+                    source_image=img_key,
+                    image_score=image_score,
+                    worst_format=worst_m["format"],
+                    worst_quality=worst_m["quality"],
+                    worst_metric_value=worst_metric_value,
+                    region=region_for_result,
+                    output_dir=strat_dir,
+                    output_images=all_output_images,
+                )
+            )
 
     print("\nComparison complete!")
     print(f"  Output directory: {output_dir}")
     for sr in strategy_results:
-        print(f"  [{sr.strategy}] {len(sr.output_images)} comparison images "
-              f"in {sr.output_dir.name}/")
+        print(
+            f"  [{sr.strategy}] {len(sr.output_images)} comparison images in {sr.output_dir.name}/"
+        )
 
     return ComparisonResult(
         study_id=study_id,

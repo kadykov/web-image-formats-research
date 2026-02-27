@@ -210,7 +210,9 @@ def generate_study_page(
     )
     has_comparisons = bool(comparison_images.sets)
     if has_comparisons:
-        print(f"  Optimised {sum(len(s.fragment_grids) + len(s.distmap_grids) + (1 if s.original_annotated else 0) + (1 if s.distortion_map else 0) for s in comparison_images.sets)} comparison images")
+        print(
+            f"  Optimised {sum(len(s.fragment_grids) + len(s.distmap_grids) + (1 if s.original_annotated else 0) + (1 if s.distortion_map else 0) for s in comparison_images.sets)} comparison images"
+        )
 
     # Render template
     template = env.get_template("study.html.j2")

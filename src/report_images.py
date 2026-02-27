@@ -31,6 +31,7 @@ from PIL import Image
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ImageVariant:
     """A single optimised image file.
@@ -128,6 +129,7 @@ WEBP_QUALITY: int = 85
 # Lossless pipeline (fragment comparison grids)
 # ---------------------------------------------------------------------------
 
+
 def optimise_lossless(
     source: Path,
     output_dir: Path,
@@ -180,6 +182,7 @@ def optimise_lossless(
 # Lossy pipeline (distortion maps, annotated originals)
 # ---------------------------------------------------------------------------
 
+
 def _encode_avif(src_png: Path, dst: Path, quality: int = AVIF_QUALITY) -> ImageVariant:
     """Encode a PNG as lossy AVIF.
 
@@ -189,9 +192,12 @@ def _encode_avif(src_png: Path, dst: Path, quality: int = AVIF_QUALITY) -> Image
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "avifenc",
-        "-q", str(quality),
-        "--yuv", "444",
-        "--speed", "4",
+        "-q",
+        str(quality),
+        "--yuv",
+        "444",
+        "--speed",
+        "4",
         str(src_png),
         str(dst),
     ]
@@ -215,9 +221,11 @@ def _encode_webp_lossy(src_png: Path, dst: Path, quality: int = WEBP_QUALITY) ->
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "cwebp",
-        "-q", str(quality),
+        "-q",
+        str(quality),
         str(src_png),
-        "-o", str(dst),
+        "-o",
+        str(dst),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -326,6 +334,7 @@ def optimise_lossy(
 # Discovery and orchestration
 # ---------------------------------------------------------------------------
 
+
 def _strategy_label(strategy: str) -> str:
     """Human-readable strategy label."""
     return {
@@ -390,9 +399,7 @@ def discover_and_optimise(
             continue
 
         # Check for per-resolution subdirectories
-        subdirs = sorted(
-            d for d in strategy_dir.iterdir() if d.is_dir() and d.name.startswith("r")
-        )
+        subdirs = sorted(d for d in strategy_dir.iterdir() if d.is_dir() and d.name.startswith("r"))
         if subdirs:
             # Resolution study: process each sub-directory
             for res_dir in subdirs:
@@ -492,6 +499,7 @@ def _process_directory(
 # Template helpers
 # ---------------------------------------------------------------------------
 
+
 def srcset_lossless(opt: OptimisedImage) -> str:
     """Build a ``srcset`` attribute value for a lossless :class:`OptimisedImage`.
 
@@ -512,7 +520,7 @@ def picture_html(opt: OptimisedImage, *, css_class: str = "", sizes: str = "") -
     if not sizes:
         sizes = "(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1100px"
 
-    lines = ['<picture>']
+    lines = ["<picture>"]
 
     # AVIF sources
     avif_variants = opt.variants.get("image/avif", [])

@@ -5,7 +5,7 @@ expanding parameter sweeps into encoder specifications.
 """
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -156,4 +156,3 @@ def _parse_encoder_config(data: dict[str, Any]) -> EncoderConfig:
         resolution=resolution,
         extra_args=data.get("extra_args"),
     )
-

@@ -6,7 +6,6 @@ import pytest
 from PIL import Image
 
 from src.report_images import (
-    ComparisonImageSet,
     ImageVariant,
     OptimisedImage,
     StudyComparisonImages,
@@ -17,7 +16,6 @@ from src.report_images import (
     optimise_lossy,
     picture_html,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -144,9 +142,7 @@ class TestOptimiseLossless:
         self, sample_lossless_grid: Path, tmp_report_root: Path
     ) -> None:
         out_dir = tmp_report_root / "fragments"
-        opt = optimise_lossless(
-            sample_lossless_grid, out_dir, tmp_report_root, alt="test grid"
-        )
+        opt = optimise_lossless(sample_lossless_grid, out_dir, tmp_report_root, alt="test grid")
         assert opt.kind == "lossless"
         webp = opt.variants["image/webp"]
         assert len(webp) == 1
@@ -158,19 +154,13 @@ class TestOptimiseLossless:
         self, sample_lossless_grid: Path, tmp_report_root: Path
     ) -> None:
         out_dir = tmp_report_root / "fragments"
-        opt = optimise_lossless(
-            sample_lossless_grid, out_dir, tmp_report_root, alt="test"
-        )
+        opt = optimise_lossless(sample_lossless_grid, out_dir, tmp_report_root, alt="test")
         assert opt.default is not None
         assert opt.default.width == 768
 
-    def test_relative_paths(
-        self, sample_lossless_grid: Path, tmp_report_root: Path
-    ) -> None:
+    def test_relative_paths(self, sample_lossless_grid: Path, tmp_report_root: Path) -> None:
         out_dir = tmp_report_root / "fragments"
-        opt = optimise_lossless(
-            sample_lossless_grid, out_dir, tmp_report_root, alt="test"
-        )
+        opt = optimise_lossless(sample_lossless_grid, out_dir, tmp_report_root, alt="test")
         for v in opt.variants["image/webp"]:
             assert not v.rel_path.startswith("/")
             assert "fragments" in v.rel_path
@@ -182,13 +172,9 @@ class TestOptimiseLossless:
 
 
 class TestOptimiseLossy:
-    def test_creates_avif_and_webp(
-        self, sample_lossy_source: Path, tmp_report_root: Path
-    ) -> None:
+    def test_creates_avif_and_webp(self, sample_lossy_source: Path, tmp_report_root: Path) -> None:
         out_dir = tmp_report_root / "overview"
-        opt = optimise_lossy(
-            sample_lossy_source, out_dir, tmp_report_root, alt="test lossy"
-        )
+        opt = optimise_lossy(sample_lossy_source, out_dir, tmp_report_root, alt="test lossy")
         assert opt.kind == "lossy"
         assert "image/avif" in opt.variants
         assert "image/webp" in opt.variants
@@ -200,33 +186,23 @@ class TestOptimiseLossy:
         self, sample_lossy_source: Path, tmp_report_root: Path
     ) -> None:
         out_dir = tmp_report_root / "overview"
-        opt = optimise_lossy(
-            sample_lossy_source, out_dir, tmp_report_root, alt="test"
-        )
+        opt = optimise_lossy(sample_lossy_source, out_dir, tmp_report_root, alt="test")
         avif_widths = [v.width for v in opt.variants["image/avif"]]
         assert 2040 in avif_widths
 
-    def test_no_upscaling(
-        self, tmp_path: Path, tmp_report_root: Path
-    ) -> None:
+    def test_no_upscaling(self, tmp_path: Path, tmp_report_root: Path) -> None:
         """If source is smaller than a target width, skip that width."""
         small = tmp_path / "small.webp"
         Image.new("RGB", (500, 300)).save(small, format="WEBP")
         out_dir = tmp_report_root / "overview"
-        opt = optimise_lossy(
-            small, out_dir, tmp_report_root, alt="small", target_widths=[600, 900]
-        )
+        opt = optimise_lossy(small, out_dir, tmp_report_root, alt="small", target_widths=[600, 900])
         # Only original width (500) should be present
         widths = [v.width for v in opt.variants["image/avif"]]
         assert all(w <= 500 for w in widths)
 
-    def test_default_is_middle_webp(
-        self, sample_lossy_source: Path, tmp_report_root: Path
-    ) -> None:
+    def test_default_is_middle_webp(self, sample_lossy_source: Path, tmp_report_root: Path) -> None:
         out_dir = tmp_report_root / "overview"
-        opt = optimise_lossy(
-            sample_lossy_source, out_dir, tmp_report_root, alt="test"
-        )
+        opt = optimise_lossy(sample_lossy_source, out_dir, tmp_report_root, alt="test")
         assert opt.default is not None
         assert opt.default.media_type == "image/webp"
 
@@ -237,9 +213,7 @@ class TestOptimiseLossy:
 
 
 class TestDiscoverAndOptimise:
-    def test_discovers_both_strategies(
-        self, comparison_tree: Path, tmp_report_root: Path
-    ) -> None:
+    def test_discovers_both_strategies(self, comparison_tree: Path, tmp_report_root: Path) -> None:
         result = discover_and_optimise(
             comparison_tree, "test-study", tmp_report_root, tmp_report_root
         )
@@ -261,14 +235,10 @@ class TestDiscoverAndOptimise:
             assert len(img_set.fragment_grids) >= 1
             assert len(img_set.distmap_grids) >= 1
 
-    def test_no_comparison_dir_returns_empty(
-        self, tmp_path: Path, tmp_report_root: Path
-    ) -> None:
+    def test_no_comparison_dir_returns_empty(self, tmp_path: Path, tmp_report_root: Path) -> None:
         analysis = tmp_path / "analysis"
         analysis.mkdir()
-        result = discover_and_optimise(
-            analysis, "nonexistent", tmp_report_root, tmp_report_root
-        )
+        result = discover_and_optimise(analysis, "nonexistent", tmp_report_root, tmp_report_root)
         assert result.sets == []
 
     def test_resolution_subdirectories(
@@ -294,9 +264,7 @@ class TestDiscoverAndOptimise:
 
 class TestHtmlHelpers:
     def test_img_srcset_html(self) -> None:
-        opt = OptimisedImage(
-            source_path=Path("dummy.webp"), alt="test", kind="lossless"
-        )
+        opt = OptimisedImage(source_path=Path("dummy.webp"), alt="test", kind="lossless")
         opt.variants["image/webp"] = [
             ImageVariant(Path("a.webp"), "img/a_1x.webp", 256, 300, "image/webp", True),
             ImageVariant(Path("b.webp"), "img/a_2x.webp", 512, 600, "image/webp", True),
@@ -313,9 +281,7 @@ class TestHtmlHelpers:
         assert 'src="img/a_2x.webp"' in html
 
     def test_picture_html(self) -> None:
-        opt = OptimisedImage(
-            source_path=Path("dummy.webp"), alt="test lossy", kind="lossy"
-        )
+        opt = OptimisedImage(source_path=Path("dummy.webp"), alt="test lossy", kind="lossy")
         opt.variants["image/avif"] = [
             ImageVariant(Path("a.avif"), "img/a_600.avif", 600, 330, "image/avif"),
             ImageVariant(Path("b.avif"), "img/a_900.avif", 900, 497, "image/avif"),
@@ -336,9 +302,7 @@ class TestHtmlHelpers:
         assert 'alt="test lossy"' in html
 
     def test_picture_html_with_custom_sizes(self) -> None:
-        opt = OptimisedImage(
-            source_path=Path("dummy.webp"), alt="sized", kind="lossy"
-        )
+        opt = OptimisedImage(source_path=Path("dummy.webp"), alt="sized", kind="lossy")
         opt.variants["image/webp"] = [
             ImageVariant(Path("a.webp"), "a.webp", 400, 300, "image/webp"),
         ]
