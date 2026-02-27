@@ -36,6 +36,9 @@
     {% for section in sections %}
         <li><a href="#{{ section.id }}">{{ section.title }}</a></li>
     {% endfor %}
+    {% if comparison_images %}
+        <li><a href="#visual-comparison">Visual Comparison</a></li>
+    {% endif %}
     </ul>
     {% if csv_data_file %}
     <h3 style="margin-top: 1rem;">Data Downloads</h3>
@@ -54,6 +57,147 @@
     {{ section.html_fragment }}
 </div>
 {% endfor %}
+
+{% if comparison_images %}
+<div class="figure-section" id="visual-comparison">
+    <h2>Visual Comparison</h2>
+    <p>
+        Side-by-side comparison of encoding artifacts on the most representative
+        image fragments, selected automatically from the dataset using
+        Butteraugli spatial distortion analysis.
+    </p>
+
+    {# Group sets by strategy #}
+    {% set strategies_seen = [] %}
+    {% for img_set in comparison_images.sets %}
+        {% if img_set.strategy not in strategies_seen %}
+            {% if strategies_seen.append(img_set.strategy) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+
+    {% for strategy in strategies_seen %}
+    {% set strategy_sets = [] %}
+    {% for s in comparison_images.sets %}
+        {% if s.strategy == strategy %}
+            {% if strategy_sets.append(s) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+
+    <details class="comparison-strategy"{% if loop.first %} open{% endif %}>
+        <summary>
+            <h3 style="display: inline;">
+                {% if strategy == "average" %}
+                    Average Distortion Analysis
+                {% elif strategy == "variance" %}
+                    Parameter Sensitivity Analysis
+                {% else %}
+                    {{ strategy | title }} Analysis
+                {% endif %}
+            </h3>
+        </summary>
+
+        {% if strategy == "average" %}
+        <p class="strategy-description">
+            Identifies the image and fragment that are <strong>consistently most
+            challenging</strong> across all parameter combinations. The
+            distortion map below shows the average Butteraugli distortion
+            across every encoding variant.
+        </p>
+        {% elif strategy == "variance" %}
+        <p class="strategy-description">
+            Identifies the image and fragment where the <strong>choice of
+            parameters has the greatest impact</strong> on quality. The map
+            shows the variance of distortion values — bright regions indicate
+            areas where some parameter settings produce much worse results
+            than others.
+        </p>
+        {% endif %}
+
+        {% for img_set in strategy_sets %}
+        {% if img_set.resolution %}
+        <details class="comparison-resolution">
+            <summary><strong>Resolution {{ img_set.resolution }}</strong></summary>
+        {% endif %}
+
+        {# 1. Annotated original #}
+        {% if img_set.original_annotated %}
+        <div class="comparison-figure">
+            <h4>Selected Image &amp; Fragment Location</h4>
+            <p>The dashed rectangle marks the fragment used for the
+            comparisons below.</p>
+            {{ picture_html(img_set.original_annotated, css_class="comparison-img") }}
+        </div>
+        {% endif %}
+
+        {# 2. Aggregated distortion map #}
+        {% if img_set.distortion_map %}
+        <div class="comparison-figure">
+            <h4>
+                {% if strategy == "average" %}
+                    Aggregated Distortion Map (Mean)
+                {% else %}
+                    Distortion Variance Map
+                {% endif %}
+            </h4>
+            <p>
+                {% if strategy == "average" %}
+                    Average per-pixel Butteraugli distortion across all
+                    encoding variants. Darker regions suffered more
+                    distortion on average; the selected fragment targets
+                    the worst area.
+                {% else %}
+                    Per-pixel variance of Butteraugli distortion.
+                    Bright regions show where quality varies most with
+                    parameter changes; the selected fragment targets the
+                    area of highest sensitivity.
+                {% endif %}
+            </p>
+            {{ picture_html(img_set.distortion_map, css_class="comparison-img") }}
+        </div>
+        {% endif %}
+
+        {# 3. Fragment comparison grids #}
+        {% if img_set.fragment_grids %}
+        <div class="comparison-figure">
+            <h4>Fragment Comparison</h4>
+            <p>
+                Nearest-neighbour 3&times; zoom of the selected fragment,
+                comparing original against each encoding variant.
+                Images are served losslessly to preserve pixel fidelity.
+            </p>
+            {% for grid in img_set.fragment_grids %}
+            <div class="comparison-grid-item">
+                {{ img_srcset_html(grid, css_class="comparison-img comparison-img--lossless") }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {# 4. Distortion map comparison grids #}
+        {% if img_set.distmap_grids %}
+        <div class="comparison-figure">
+            <h4>Distortion Map Comparison</h4>
+            <p>
+                Per-variant Butteraugli distortion maps shown as viridis
+                heatmaps at uniform scale (darker = higher distortion).
+                Reveals where each encoder concentrates its errors.
+            </p>
+            {% for grid in img_set.distmap_grids %}
+            <div class="comparison-grid-item">
+                {{ picture_html(grid, css_class="comparison-img") }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if img_set.resolution %}
+        </details>
+        {% endif %}
+        {% endfor %}
+    </details>
+    {% endfor %}
+</div>
+{% endif %}
 
 {% if svg_files %}
 <div class="figure-section" id="static-figures">
