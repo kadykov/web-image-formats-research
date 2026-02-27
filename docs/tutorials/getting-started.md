@@ -1,10 +1,10 @@
 ---
 title: "Getting started"
-description: "Quickstart to set up the dev environment, run the pipeline on a small dataset, and generate your first report."
+description: "Set up the dev environment, run a format comparison study, and generate your first report."
 ---
 
-This tutorial walks you through setting up the development environment
-and running your first image format comparison.
+This tutorial walks you through setting up the environment and running
+a complete image format comparison — from dataset download to interactive report.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ and running your first image format comparison.
   [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 - [Docker](https://www.docker.com/) installed and running
 
-## Setting Up the Environment
+## Step 1: Set up the environment
 
 1. **Clone the repository**:
 
@@ -40,99 +40,84 @@ and running your first image format comparison.
    You should see checkmarks for all encoding tools (cjpeg, cwebp, avifenc, cjxl)
    and quality measurement tools (ssimulacra2, butteraugli_main, ffmpeg).
 
-4. **Run the test suite**:
+4. **Run the quality checks**:
 
    ```bash
    just check
    ```
 
-   This runs linting, type checking, and all tests.
+   This runs formatting checks, linting, type checking, and all tests.
+   Everything should pass in a fresh dev container.
 
-## Your First Encoding
+## Step 2: Fetch a dataset
 
-Open a Python terminal and try encoding a test image:
-
-```python
-from pathlib import Path
-from src.encoder import ImageEncoder
-
-encoder = ImageEncoder(Path("results/encoded"))
-
-# Encode a PNG to WebP at quality 85
-result = encoder.encode_webp(Path("tests/fixtures/test_image.png"), quality=85)
-print(f"Success: {result.success}")
-print(f"File size: {result.file_size} bytes")
-```
-
-## Your First Quality Measurement
-
-```python
-from pathlib import Path
-from src.quality import QualityMeasurer
-
-measurer = QualityMeasurer()
-metrics = measurer.measure_all(
-    Path("tests/fixtures/test_image.png"),
-    Path("results/encoded/test_image_q85.webp"),
-)
-
-print(f"PSNR: {metrics.psnr:.2f} dB")
-print(f"SSIM: {metrics.ssim:.4f}")
-if metrics.ssimulacra2 is not None:
-    print(f"SSIMULACRA2: {metrics.ssimulacra2:.2f}")
-if metrics.butteraugli is not None:
-    print(f"Butteraugli: {metrics.butteraugli:.4f}")
-```
-
-## Fetching Test Datasets
-
-Before running full comparisons, you'll need test images. First, see what's available:
-
-```bash
-just list-available-datasets
-```
-
-Then fetch the DIV2K validation dataset:
+Studies need source images. Fetch the DIV2K validation dataset (100 images, ~450 MB):
 
 ```bash
 just fetch div2k-valid
 ```
 
-This downloads 100 high-quality 2K images (~500MB). For more details, see the
-[Fetch Datasets guide](../how-to/fetch-datasets).
+For higher resolution research, you can also fetch 4K datasets
+(see [Fetch Datasets](../how-to/fetch-datasets) for all options).
 
-## Running Your First Study
+## Step 3: Run a study
 
-Now that you have a dataset, run a complete study with the unified pipeline:
+Run the format comparison study, which encodes each image as JPEG, WebP, AVIF,
+and JPEG XL and measures quality metrics. Give it a 30-minute time budget:
 
 ```bash
-# Run a format comparison for 30 minutes
-just pipeline-analyze format-comparison 30m
+just pipeline format-comparison 30m
 ```
 
-The unified pipeline will:
+The pipeline will:
 
-1. Process images one-by-one until the 30-minute budget is exhausted
-2. Encode each image in all configured formats (JPEG, WebP, AVIF, JPEG XL)
-3. Measure quality metrics for each encoded variant
+1. Pick images from the dataset one at a time
+2. Encode each image in all configured formats and quality levels
+3. Measure SSIMULACRA2, PSNR, SSIM, and Butteraugli for every encoded variant
 4. Save results to `data/metrics/format-comparison/quality.json`
-5. Run analysis and generate plots in `data/analysis/format-comparison/`
+5. Repeat until the 30-minute budget runs out
 
-You can view the results interactively:
+## Step 4: Analyze results
+
+Generate statistical summaries and static plots:
 
 ```bash
-# Generate HTML report
-just report
+just analyze format-comparison
+```
 
-# Serve locally (opens in browser)
+This creates CSV statistics and SVG plots in `data/analysis/format-comparison/`.
+
+## Step 5: Generate visual comparisons
+
+Generate side-by-side comparison images showing the worst-case encoding regions
+with Butteraugli distortion maps:
+
+```bash
+just compare format-comparison
+```
+
+## Step 6: Generate an interactive report
+
+Combine everything into an interactive HTML report with Plotly visualizations:
+
+```bash
+just report
+```
+
+Preview it locally:
+
+```bash
 just serve-report
 ```
 
-## Next Steps
+Open <http://localhost:8000> in your browser to explore rate-distortion curves,
+quality-vs-parameter plots, and comparison images.
 
-- Learn how to [run the unified pipeline](../how-to/run-pipeline) with time budgets
-- See how to [fetch datasets](../how-to/fetch-datasets) for research
-- Read the [How-to guides](../how-to/) for specific tasks
-- See the [Reference](../reference/) for detailed module and tool documentation
-- Check the [Explanation](../explanation/) section for design decisions
-  and quality metric background
+## Next steps
+
+- [Run the pipeline](../how-to/run-pipeline) — time budgets, advanced options
+- [Fetch datasets](../how-to/fetch-datasets) — all supported datasets
+- [Analyze results](../how-to/analyze-results) — understand the CSV and plots
+- [Generate comparisons](../how-to/generate-comparison) — visual comparison options
+- [Generate reports](../how-to/generate-report) — interactive HTML reports
+- [Architecture](../explanation/architecture) — design decisions and rationale

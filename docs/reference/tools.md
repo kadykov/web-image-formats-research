@@ -1,6 +1,6 @@
 ---
 title: "Tools: encoders & metrics"
-description: "Summary of supported encoders, measurement tools and recommended CLI commands for experiments."
+description: "Supported encoders, decoders, and quality measurement tools available in the dev container."
 ---
 
 ## Image Encoders
@@ -22,6 +22,7 @@ cwebp -q 85 input.png -o output.webp
 ```
 
 - Quality range: 0–100 (typical: 75–95)
+- Method (`-m`): 0–6 (higher = slower, better compression)
 - Sharp YUV conversion: `-sharp_yuv`
 - Input: PNG or JPEG
 
@@ -33,7 +34,6 @@ avifenc -s 4 -q 60 input.png output.avif
 
 - Quality (`-q`): 0–100 (typical: 50–85, very efficient at lower values)
 - Speed (`-s`): 0–10 (higher = faster, lower quality; default: 6)
-- Codec: libaom 3.11.0 (encoder), dav1d 1.5.0 (decoder)
 - YUV format: `-y 420`, `-y 444`
 
 ### JPEG XL — `cjxl`
@@ -43,14 +43,34 @@ cjxl input.png output.jxl -q 85
 ```
 
 - Quality range: 0–100 (typical: 75–95)
+- Effort (`-e`): 1–10 (higher = slower, better compression)
 - Also supports distance mode (`-d`)
-- Includes Butteraugli perceptual metric tool
+
+## Image Decoders
+
+### AVIF — `avifdec`
+
+```bash
+avifdec input.avif output.png
+```
+
+Used by the quality measurement pipeline to decode AVIF files back to PNG for metric computation.
+
+### JPEG XL — `djxl`
+
+```bash
+djxl input.jxl output.png
+```
+
+Used by the quality measurement pipeline to decode JXL files back to PNG for metric computation.
+
+JPEG and WebP are decoded via Pillow (no separate CLI decoder needed).
 
 ## Quality Measurement Tools
 
 ### SSIMULACRA2
 
-Perceptual quality metric. Higher is better.
+Perceptual quality metric designed specifically for lossy image compression. Higher is better.
 
 ```bash
 ssimulacra2 original.png compressed.png
@@ -66,7 +86,7 @@ ssimulacra2 original.png compressed.png
 
 ### Butteraugli — `butteraugli_main`
 
-Perceptual distance metric. Lower is better.
+Perceptual distance metric that models the human visual system. Lower is better.
 
 ```bash
 butteraugli_main reference.png distorted.png
@@ -111,10 +131,15 @@ ffmpeg -i original.png -i compressed.png -lavfi ssim -f null -
 | 0.80–0.90 | Fair |
 | < 0.80 | Poor |
 
-### VMAF (via FFmpeg)
+## Tool availability
 
-Netflix's Video Multimethod Assessment Fusion metric.
+All encoders, decoders and metric tools are pre-installed in the dev container and available on `PATH`. Check versions with:
 
 ```bash
-ffmpeg -i compressed.png -i original.png -lavfi libvmaf -f null -
+cjpeg -version
+cwebp -version
+avifenc --version
+cjxl --version
+ffmpeg -version
+ssimulacra2  # prints usage if no args
 ```

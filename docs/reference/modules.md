@@ -1,83 +1,100 @@
 ---
-title: "Code modules reference"
-description: "Overview of Python modules in `src/`, their responsibilities, and key public APIs for integration."
+title: "Code modules"
+description: "Overview of Python modules in `src/` and their responsibilities."
 ---
 
-## Pipeline Overview
+This is a lightweight overview. For full API signatures and docstrings,
+see the auto-generated [API reference](api/).
+
+## Pipeline overview
 
 ```text
-Dataset Fetching → Preprocessing → Encoding → Quality Measurement → Analysis
+StudyConfig → PipelineRunner → Analysis → Comparison → Report
 ```
 
-## `src/dataset.py` — Dataset Fetching
+## `src/study.py` — Study configuration
 
-**Class: `DatasetFetcher`**
+Loads and validates study JSON configs from `config/studies/`.
 
-Downloads and organizes test image datasets.
+- `StudyConfig` — dataclass with id, name, dataset_id, encoders, time_budget, description
+- `EncoderConfig` — per-format settings: quality, chroma_subsampling, speed, effort, method, resolution
 
-- `__init__(base_dir: Path)` — Set base directory for datasets
-- `download_image(url: str, output_path: Path) -> bool` — Download a single image
-- `list_datasets() -> list[str]` — List available dataset directories
+## `src/dataset.py` — Dataset fetching
 
-## `src/preprocessing.py` — Image Preprocessing
+Downloads and manages image datasets using `config/datasets.json`.
 
-**Class: `ImagePreprocessor`**
+- `DatasetFetcher` — main class: `fetch_dataset()`, `list_available_datasets()`, `get_dataset_config()`
+- `DatasetConfig` — dataclass with id, name, url, storage_type, folder_id, post_process, etc.
+- Supports direct HTTP, Google Drive, and Dropbox downloads
 
-Prepares images for encoding.
+## `src/preprocessing.py` — Image preprocessing
 
-- `__init__(output_dir: Path)` — Set output directory
-- `resize_image(input_path, target_size, ...) -> Path` — Resize with optional aspect ratio preservation
-- `convert_to_png(input_path, ...) -> Path` — Convert any image to PNG
-- `get_image_info(image_path) -> dict` — Extract format, dimensions, mode, file size
+Resizes images for resolution-impact studies.
 
-## `src/encoder.py` — Image Encoding
+- `ImagePreprocessor` — `resize_image()` with configurable target size and aspect ratio
 
-**Class: `ImageEncoder`**
+## `src/encoder.py` — Image encoding
 
-Encodes images to various formats using external CLI tools.
+Encodes images using external CLI tools (cjpeg, cwebp, avifenc, cjxl).
 
-- `__init__(output_dir: Path)` — Set output directory
-- `encode_jpeg(input_path, quality, ...) -> EncodeResult` — Encode via `cjpeg`
-- `encode_webp(input_path, quality, ...) -> EncodeResult` — Encode via `cwebp`
-- `encode_avif(input_path, quality, speed=4, ...) -> EncodeResult` — Encode via `avifenc`
-- `encode_jxl(input_path, quality, ...) -> EncodeResult` — Encode via `cjxl`
+- `ImageEncoder` — `encode_jpeg()`, `encode_webp()`, `encode_avif()`, `encode_jxl()`
+- `EncodeResult` — dataclass: success, output_path, file_size, error_message
+- `get_encoder_version()` — query version of installed encoders
+- All encoders forced to single-threaded mode for consistent benchmarking
 
-**Dataclass: `EncodeResult`**
+## `src/quality.py` — Quality measurement
 
-- `success: bool`
-- `output_path: Path | None`
-- `file_size: int | None`
-- `error_message: str | None`
+Measures perceptual and traditional quality metrics.
 
-## `src/quality.py` — Quality Measurement
+- `QualityMeasurer` — `measure_ssimulacra2()`, `measure_psnr()`, `measure_ssim()`, `measure_butteraugli()`, `measure_butteraugli_with_distmap()`, `measure_all()`
+- `QualityMetrics` — dataclass: ssimulacra2, psnr, ssim, butteraugli
+- `QualityRecord`, `QualityResults` — structured containers for pipeline output, with `save()` to JSON
+- `to_png()` — converts AVIF/JXL/WebP to PNG for measurement tools
+- `read_pfm()` — reads Butteraugli PFM distortion maps
+- `find_worst_region_in_array()` — sliding-window worst-region detection using integral images
 
-**Class: `QualityMeasurer`**
+## `src/pipeline.py` — Unified pipeline
 
-Measures image quality using external tools.
+Runs encode + measure for each image with time-budget control.
 
-- `measure_ssimulacra2(original, compressed) -> float | None`
-- `measure_psnr(original, compressed) -> float | None`
-- `measure_ssim(original, compressed) -> float | None`
-- `measure_butteraugli(original, compressed) -> float | None`
-- `measure_all(original, compressed) -> QualityMetrics`
+- `PipelineRunner` — main class: `run(config, time_budget, save_artifacts, save_worst_image, num_workers)`
+- `parse_time_budget()` — parses "30m", "1h", "90s" format strings
+- Worker-per-image architecture using `ProcessPoolExecutor`
 
-**Dataclass: `QualityMetrics`**
+## `src/analysis.py` — Statistical analysis
 
-- `ssimulacra2: float | None`
-- `psnr: float | None`
-- `ssim: float | None`
-- `butteraugli: float | None`
-- `error_message: str | None`
+Computes statistics and generates static matplotlib plots.
 
-## `src/analysis.py` — Analysis and Visualization
+- `load_quality_results()` — load quality.json
+- `create_analysis_dataframe()` — build DataFrame with derived metrics (bytes_per_pixel, compression_ratio, efficiency)
+- `compute_statistics()` — mean, min, max, percentiles (5/25/50/75/95)
+- `determine_sweep_parameter()`, `determine_secondary_sweep_parameter()` — auto-detect what varies
+- `plot_quality_metrics()`, `plot_rate_distortion()` — SVG output with mean + worst-case lines
+- `analyze_study()` — full analysis pipeline entry point
 
-**Class: `CompressionAnalyzer`**
+## `src/interactive.py` — Interactive visualizations
 
-Analyzes compression results and generates plots.
+Generates interactive Plotly figures for the HTML report.
 
-- `__init__(results_dir: Path)` — Set results directory
-- `create_dataframe(results) -> DataFrame` — Build DataFrame from result dicts
-- `calculate_compression_ratio(df) -> DataFrame` — Add ratio and percentage columns
-- `plot_quality_vs_size(df, quality_metric, ...) -> None` — Scatter plot with trend lines
-- `plot_compression_efficiency(df, ...) -> None` — Bar chart comparing formats
-- `generate_summary_report(df, ...) -> str` — Markdown summary report
+- `generate_study_figures()` — creates all Plotly figures for a study
+- `plot_quality_vs_param()`, `plot_rate_distortion()` — Plotly equivalents of analysis plots
+- `figure_to_html_fragment()` — convert Plotly figure to embeddable HTML div
+
+## `src/comparison.py` — Visual comparisons
+
+Generates side-by-side comparison images with distortion maps.
+
+- `ComparisonConfig` — crop_size, zoom_factor, metric, strategy (average/variance/both)
+- `find_worst_source_image()` — select worst-performing image by metric
+- `generate_distortion_map()` — create Butteraugli PFM distortion maps
+- `generate_comparison()` — main entry point: find worst image, crop, assemble montage
+- Uses ImageMagick 7 (`magick montage`) for grid assembly
+
+## `src/report_images.py` — Report image optimization
+
+Optimizes comparison images for the HTML report with responsive formats.
+
+- `optimise_lossless()` — single lossless WebP variant
+- `optimise_lossy()` — multi-format (AVIF + WebP) at multiple widths
+- `discover_and_optimise()` — find and optimize all comparison images for a study
+- `picture_html()`, `img_srcset_html()` — generate `<picture>` and `<img srcset>` HTML

@@ -33,20 +33,26 @@ See the [Getting Started tutorial](docs/tutorials/getting-started) for detailed 
 
 ```text
 ├── src/                     # Source code modules
+│   ├── study.py             # Study configuration loading
 │   ├── dataset.py           # Dataset fetching and management
 │   ├── preprocessing.py     # Image preprocessing (resize, convert)
 │   ├── encoder.py           # Format encoding (JPEG, WebP, AVIF, JXL)
 │   ├── quality.py           # Quality measurement (SSIMULACRA2, PSNR, SSIM, Butteraugli)
-│   └── analysis.py          # Analysis and visualization
-├── tests/                   # Unit and integration tests
-├── scripts/                 # Executable pipeline scripts
-├── config/                  # Configuration files (datasets, encoding, etc.)
-├── data/                    # All research data
+│   ├── pipeline.py          # Unified pipeline with time-budget control
+│   ├── analysis.py          # Statistical analysis and static plotting
+│   ├── interactive.py       # Interactive Plotly visualizations
+│   ├── comparison.py        # Visual comparison image generation
+│   └── report_images.py     # Responsive image optimization for reports
+├── scripts/                 # CLI entry points for each workflow step
+├── config/                  # Configuration files (datasets, studies)
+│   └── studies/             # Per-study JSON configurations
+├── data/                    # All research data (git-ignored)
 │   ├── datasets/            # Raw image datasets
 │   ├── preprocessed/        # Preprocessed images
 │   ├── encoded/             # Encoded images (JPEG, WebP, AVIF, JXL)
-│   ├── metrics/             # Quality measurements (JSON/CSV)
-│   └── analysis/            # Analysis outputs (plots, reports)
+│   ├── metrics/             # Quality measurements (JSON)
+│   ├── analysis/            # Analysis outputs (CSV, SVG plots)
+│   └── report/              # Generated HTML reports
 ├── docs/                    # Documentation (Diátaxis framework)
 ├── .devcontainer/           # Dev container configuration
 ├── .github/workflows/       # CI pipeline
@@ -63,46 +69,33 @@ just check         # Run all quality checks (lint + typecheck + test)
 just test          # Run tests
 just lint          # Check code style
 just lint-fix      # Fix auto-fixable lint issues
-just format        # Format code
+just format        # Format code and markdown
 just typecheck     # Run type checking
 just verify-tools  # Verify encoding and measurement tools
 
-# Dataset Management
-just fetch <dataset-id>          # Fetch a dataset (e.g., div2k-valid, div2k-train)
-just list-available-datasets     # List all datasets in configuration
-just list-datasets               # List downloaded datasets
+# Study Workflow
+just fetch <dataset-id>              # Fetch a dataset (e.g., div2k-valid, liu4k-v1-valid)
+just pipeline <study-id> <time>      # Run unified encode+measure pipeline (e.g., 30m, 1h)
+just analyze <study-id>              # Analyze results and generate plots
+just compare <study-id>              # Generate visual comparison images
+just report                          # Generate interactive HTML report for all studies
+just serve-report [port]             # Serve report locally (default: http://localhost:8000)
 
-# Analysis
-just analyze <study-id>          # Analyze study results and generate plots
-just analyze-to <study-id> <dir> # Analyze with custom output directory
-just list-analyzed               # List studies available for analysis
-
-# Report Generation
-just report                      # Generate interactive HTML report for all studies
-just report-studies <study-ids>  # Generate report for specific studies
-just list-report-studies         # List studies available for report generation
-just serve-report <port>         # Serve report locally (default: http://localhost:8000)
-
-# Complete Pipeline
-just pipeline <study-id> <time-budget>      # Run unified encode+measure with time budget
-just pipeline-all                            # Run all studies with configured time budgets
-just pipeline-save <study-id> <time-budget> # Run pipeline and save encoded artifacts
-just pipeline-analyze <study-id> <time-budget>  # Run pipeline then analyze
-just pipeline-dry-run <study-id> <time-budget>  # Preview what would run
-just pipeline-clean <study-id>              # Remove pipeline output data
-just pipeline-separate <study-id>           # Legacy: run separate encode→measure stages
+# Release
+just release-notes                   # Generate release notes from study results
+just release-assets                  # Prepare release assets (zip + CSV files)
 
 # Cleanup
-just clean                       # Clean Python cache and build artifacts
-just clean-study <study-id>      # Remove all data for a specific study
-just clean-studies               # Remove all study data (preserves datasets)
-just clean-all-data              # Remove ALL data including datasets (careful!)
+just clean                           # Clean Python cache and build artifacts
+just clean-study <study-id>          # Remove all data for a specific study
+just clean-studies                   # Remove all study data (preserves datasets)
 
 # Documentation
-just docs-generate               # Generate docs from source files and Python docstrings
-just docs-dev                    # Start documentation development server (http://localhost:4321)
-just docs-build                  # Build optimized documentation site
-just docs-preview                # Preview built documentation
+just docs-generate                   # Generate docs from source files and Python docstrings
+just docs-install                    # Install documentation site dependencies
+just docs-dev                        # Start documentation dev server (http://localhost:4321)
+just docs-build                      # Build optimized documentation site
+just docs-preview                    # Preview built documentation
 ```
 
 ## Documentation
@@ -126,7 +119,7 @@ just docs-dev
 just docs-build
 ```
 
-The documentation includes automatically generated API reference from Python docstrings. See [docs-site/DOCS_SETUP.md](docs-site/DOCS_SETUP.md) for details.
+The documentation includes automatically generated API reference from Python docstrings.
 
 ## License
 

@@ -1,152 +1,149 @@
 ---
-title: "Project architecture and design"
-description: "Overview of the project's architecture, core components, and rationale behind key design decisions."
+title: "Architecture and design decisions"
+description: "Why the project is structured the way it is — pipeline design, tool choices, and key trade-offs."
 ---
 
-## Pipeline Architecture
+## Pipeline design
 
-The project supports two pipeline workflows:
-
-### Unified Pipeline (Recommended)
-
-The unified pipeline processes images atomically with time-budget control:
+The pipeline processes images **one at a time**, completing all encoding variants and quality measurements for each image before moving to the next:
 
 ```text
 For each image (until time budget exhausted):
-  └─→ Encode (all variants in parallel)
-      └─→ Measure (all variants in parallel)
-          └─→ Save results
+  └─ Encode all variants (formats × quality levels)
+      └─ Measure all variants (SSIMULACRA2, Butteraugli, PSNR, SSIM)
+          └─ Save results to disk
 ```
 
-**Key features:**
+This "atomic per-image" design was chosen over the alternative of encoding all images first, then measuring all:
 
-- **Time-budget control**: Set runtime budget instead of guessing `max_images`
-- **Atomic processing**: Each image completes encode+measure before moving to next
-- **Memory-backed storage**: Uses `/dev/shm` for temporary files (reduced disk I/O)
-- **Error isolation**: Failures on one image don't block others
-- **Progress guarantees**: Partial results are always complete and usable
+- **Partial results are always usable.** If a study is interrupted or the time budget expires, every completed image has full encoding + measurement data. There are no orphaned encodings without metrics.
+- **Error isolation.** A failure on one image (e.g., an encoder crash on a specific input) does not block other images.
 
-This is the primary workflow for running studies. See `src/pipeline.py` and `scripts/run_pipeline.py`.
+### Time-budget approach
 
-### Legacy Separate Pipeline
+Studies are configured with a **time budget** (e.g., `30m`, `2h`) rather than a fixed image count. The pipeline encodes images from the dataset until the budget expires, then stops. This is more practical than guessing how many images to process:
 
-The traditional linear pipeline separates stages:
+- Different encoder/quality combinations have wildly different speeds (AVIF speed 0 is ~100× slower than speed 10).
+- Multi-format studies multiply the per-image time by the number of variants.
+- The user sets a wall-clock time they're willing to wait, and gets as many data points as fit.
 
-```text
-Dataset Fetching → Preprocessing → Encoding → Quality Measurement → Analysis
-```
+### Worker model
 
-Each stage is implemented as an independent module that can be used
-standalone or composed into a pipeline. This makes individual components
-easy to test and replace.
+Each image is processed by a single worker thread. The `--workers` flag controls parallelism. Because the encoding tools (`cjpeg`, `cwebp`, `avifenc`, `cjxl`) are CPU-intensive native binaries, the bottleneck is CPU time, and Python's GIL does not limit throughput here — subprocess calls release the GIL.
 
-### Data Organization
+## Study system
 
-All research data is organized under the `data/` directory:
+A **study** is the central unit of work. Each study is defined by a JSON config file in `config/studies/` that specifies:
+
+- Which dataset to use
+- Which formats and parameter ranges to encode
+- Study metadata (name, description)
+
+The study ID (filename without `.json`) is used everywhere: directory names under `data/encoded/<study-id>/`, `data/metrics/<study-id>/`, `data/analysis/<study-id>/`, and in CLI commands (`just pipeline <study-id> <time-budget>`).
+
+This design means:
+
+- **Adding a new experiment** is just creating a new JSON file — no code changes.
+- **Reproducibility** — the config file fully describes what was run.
+- **Multiple studies coexist** — each study's outputs are isolated in its own subdirectory.
+
+## Data separation
+
+All data lives under `data/`, strictly separated from code:
 
 ```text
 data/
-├── datasets/        # Raw downloaded datasets
-├── preprocessed/    # Preprocessed images
-├── encoded/         # Encoded images (JPEG, WebP, AVIF, JXL)
-├── metrics/         # Quality measurements (JSON/CSV)
-└── analysis/        # Analysis outputs (plots, reports)
+├── datasets/        # Raw downloads (from just fetch)
+├── preprocessed/    # Resolution-scaled images (per study)
+├── encoded/         # Compressed images (per study, per format)
+├── metrics/         # Quality measurements (per study)
+├── analysis/        # Plots and statistics (per study)
+└── report/          # Generated HTML reports
 ```
 
-This structure supports the full pipeline workflow and makes it easy to:
+Everything under `data/` is git-ignored (except `.gitkeep` markers). This means:
 
-- Track data lineage from raw to analysis
-- Organize outputs from each stage
-- Share intermediate results
-- Clean up specific pipeline stages
+- The repository stays small regardless of how many studies are run.
+- Datasets can be re-downloaded; encoded/metrics/analysis can be regenerated.
+- Code changes are cleanly separated from data changes in version control.
 
-### Configuration Management
+## Configuration over code
 
-All pipeline configuration is centralized in the `config/` directory:
+Pipeline parameters live in JSON config files rather than being hardcoded:
 
-- `datasets.json` - Dataset definitions and sources
-- Future: `preprocessing.json`, `encoding.json`, `quality.json`, `analysis.json`
+- `config/datasets.json` — dataset sources, URLs, storage types
+- `config/studies/*.json` — study definitions (formats, quality ranges, speeds)
+- JSON schemas (`config/*.schema.json`) — validate configs at load time
 
-This separation allows:
+There are no "future" config files for preprocessing, quality, or analysis — those behaviours are determined by the study config and the source code defaults. This keeps the config surface small and avoids speculative abstraction.
 
-- Version control of configurations
-- Easy parameter tuning
-- Schema validation
-- Configuration sharing between team members
+## Format choices
 
-### Dataset Module
+| Format | Role | Why included |
+|--------|------|-------------|
+| JPEG | Baseline | Universal support, well-understood, the format everything is compared against |
+| WebP | Established alternative | Broad browser support, good compression, Google-backed |
+| AVIF | Primary research target | Based on AV1, excellent low-bitrate compression, the main focus of this project |
+| JPEG XL | Next-generation | Strong technical merits (progressive decode, lossless round-trip), limited browser support |
 
-The dataset fetching module provides:
+## Metric choices
 
-- **Extensible architecture** — Easy to add support for new dataset sources
-- **DIV2K support** — Training (800 images) and validation (100 images) sets
-- **Archive handling** — Automatic download, extraction, and cleanup
-- **Progress tracking** — Visual feedback for long-running downloads
+The project measures both **perceptual** and **traditional** metrics:
 
-The module is designed to support future additions like Flickr2K, HuggingFace
-datasets, and custom URL sources without major refactoring.
+| Metric | Type | Why |
+|--------|------|-----|
+| SSIMULACRA2 | Perceptual | Designed specifically for lossy compression evaluation; most accurate for this use case |
+| Butteraugli | Perceptual | Models human visual system with a different mathematical approach; complements SSIMULACRA2 |
+| PSNR | Traditional | Simple, widely used, easy to compare with published literature |
+| SSIM | Traditional | Better than PSNR for structural comparison, well-known baseline |
 
-## Why These Formats?
+Perceptual metrics (SSIMULACRA2, Butteraugli) are prioritised in analysis because they correlate better with human judgement than PSNR/SSIM for compression artifacts.
 
-- **JPEG** — The baseline. Universally supported, well-understood.
-- **WebP** — Google's format with broad browser support and good compression.
-- **AVIF** — Based on AV1 video codec. Excellent compression at low bitrates.
-  The primary focus of this research.
-- **JPEG XL** — Next-generation format with advanced features.
-  Limited browser support but strong technical merits.
+## Dev container
 
-## Why These Quality Metrics?
+The encoding tools (`avifenc`, `cjxl`, `cwebp`, `cjpeg`) and measurement tools (`ssimulacra2`, `butteraugli_main`, `avifdec`, `djxl`) require specific builds. A dev container ensures:
 
-The project uses both **perceptual** and **traditional** metrics to give
-a complete picture:
+- **Reproducibility** — everyone gets the exact same tool versions.
+- **No host pollution** — build dependencies don't touch the host system.
+- **CI parity** — the same image runs in CI and locally.
 
-- **SSIMULACRA2** — Modern perceptual metric designed specifically for
-  evaluating lossy image compression. More accurate than SSIM for this use case.
-- **Butteraugli** — Models the human visual system to compute perceptual distance.
-  Complements SSIMULACRA2 with a different mathematical approach.
-- **PSNR** — Simple pixel-difference metric. Not perceptually accurate,
-  but widely used and easy to compare with published literature.
-- **SSIM** — Structural similarity. Better than PSNR but still not
-  specifically designed for compression evaluation.
+## Python 3.13, single target
 
-## Why a Dev Container?
+This is a research project, not a distributable library. Targeting a single Python version (3.13) simplifies testing, avoids compatibility workarounds, and lets the code use the latest language features without conditional logic.
 
-The encoding tools (libaom, dav1d, libjxl, ssimulacra2) require specific
-versions built from source. A dev container ensures:
+## Dependency management
 
-- **Reproducibility** — Everyone gets the exact same tool versions.
-- **No host pollution** — Build dependencies don't touch the host system.
-- **CI parity** — The same image runs in CI and locally.
+All dependencies are declared in `pyproject.toml`:
 
-## Why Python 3.13?
+- `pip install -e .` — production dependencies
+- `pip install -e ".[dev]"` — adds pytest, mypy, ruff, type stubs
 
-The project targets a single Python version (3.13) because:
+There is no `requirements.txt`. The pyproject is the single source of truth.
 
-- This is a research project, not a distributable library.
-- A single target simplifies testing and avoids compatibility workarounds.
-- Python 3.13 is the latest stable release with broad library support.
+## CI design
 
-## Dependency Management
+1. **Lint & type check** — runs on bare Ubuntu with Python 3.13 for fast feedback.
+2. **Build image** — builds the dev container and pushes to GHCR with layer caching.
+3. **Test suite** — runs inside the built container (depends on both above), ensuring encoding/measurement tools are available for integration tests.
+4. **Markdown lint** — runs independently in parallel.
 
-Dependencies are managed entirely through `pyproject.toml`:
+Running tests inside the dev container (rather than on bare Ubuntu) ensures that all native tools are available and integration tests produce accurate results.
 
-- `pip install -e .` — Install production dependencies only.
-- `pip install -e ".[dev]"` — Install production + development dependencies
-  (pytest, mypy, ruff, type stubs).
+## Module architecture
 
-There is no separate `requirements.txt`. The `pyproject.toml` is the
-single source of truth for all dependencies.
+The `src/` modules map to pipeline stages and post-processing:
 
-## CI Design
+| Module | Purpose |
+|--------|---------|
+| `study.py` | Load and validate study configs |
+| `dataset.py` | Fetch and manage image datasets |
+| `preprocessing.py` | Resize images by longest edge |
+| `encoder.py` | Encode images via subprocess calls to native tools |
+| `quality.py` | Measure quality metrics via subprocess calls |
+| `pipeline.py` | Orchestrate encode → measure per image with time budget |
+| `analysis.py` | Generate plots and statistics from quality results |
+| `comparison.py` | Generate side-by-side visual comparison images |
+| `interactive.py` | Build interactive HTML report |
+| `report_images.py` | Generate report visualisation assets |
 
-The CI pipeline is structured to be both fast and correct:
-
-1. **Lint & Type Check** runs on bare Ubuntu with Python 3.13 for fast feedback.
-2. **Build Image** builds the dev container and pushes to GHCR with layer caching.
-3. **Test Suite** runs inside the built container (depends on both steps above),
-   ensuring tests execute in the same environment as local development.
-4. **Markdown Lint** runs independently in parallel.
-
-Running tests inside the dev container (rather than on bare Ubuntu)
-ensures that all encoding and measurement tools are available, so
-integration tests produce accurate coverage results.
+Each module is independently testable. Scripts in `scripts/` provide CLI entry points that compose these modules.
