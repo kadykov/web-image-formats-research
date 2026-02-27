@@ -1,63 +1,32 @@
 ---
 title: "Configuration reference"
-description: "Detailed reference for `config/` files and schemas (datasets, studies, encoders, analysis)."
+description: "Schema and field reference for dataset and study configuration files."
 ---
 
-This reference describes all configuration files used in the project.
+## `config/datasets.json`
 
-## Location
+Defines all datasets available for fetching. Validated by `config/datasets.schema.json`.
 
-All configuration files are stored in the `config/` directory.
-
-## datasets.json
-
-Defines available datasets for fetching.
-
-### Schema
-
-Validated by `config/datasets.schema.json`.
-
-### Structure
-
-```json
-{
-  "datasets": [
-    {
-      "id": "string",
-      "name": "string",
-      "description": "string",
-      "type": "zip|tar|tar.gz|tgz",
-      "url": "string",
-      "size_mb": number,
-      "image_count": number,
-      "resolution": "string",
-      "format": "string",
-      "extracted_folder": "string (optional)",
-      "rename_to": "string (optional)",
-      "license": "string (optional)",
-      "source": "string (optional)"
-    }
-  ]
-}
-```
-
-### Field Descriptions
+### Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string | Yes | Unique identifier. Lowercase with hyphens only. Used in CLI commands. |
-| `name` | string | Yes | Human-readable name displayed in listings. |
-| `description` | string | Yes | Brief description of the dataset. |
-| `type` | string | Yes | Archive format: `zip`, `tar`, `tar.gz`, or `tgz`. |
-| `url` | string | Yes | Download URL (HTTP/HTTPS). |
-| `size_mb` | number | Yes | Approximate download size in megabytes. |
-| `image_count` | number | Yes | Number of images in the dataset. |
-| `resolution` | string | Yes | Resolution description (e.g., "2K", "4K", "1080p"). |
+| `id` | string | Yes | Unique identifier (`^[a-z0-9-]+$`). Used in CLI commands. |
+| `name` | string | Yes | Human-readable name. |
+| `description` | string | Yes | Brief description. |
+| `type` | string | Yes | Archive format: `zip`, `tar`, `tar.gz`, `tgz`, or `folder` (Google Drive). |
+| `url` | string | Yes | Download URL (HTTP/HTTPS, Google Drive, Dropbox). |
+| `size_mb` | number | Yes | Approximate download size in MB. |
+| `image_count` | number | Yes | Number of images. |
+| `resolution` | string | Yes | Resolution description (e.g., "2K", "4K"). |
 | `format` | string | Yes | Image format (e.g., "PNG", "JPEG"). |
-| `extracted_folder` | string | No | Name of folder created after extraction. |
+| `storage_type` | string | No | Storage provider: `direct` (default), `google_drive`, or `dropbox`. |
+| `folder_id` | string | No | Google Drive folder ID (for folder-type downloads). |
+| `post_process` | string | No | Post-processing action: `extract_multipart_zips` (for LIU4K v2). |
+| `extracted_folder` | string | No | Folder name after extraction. |
 | `rename_to` | string | No | Rename extracted folder to this name. |
-| `license` | string | No | License information or URL. |
-| `source` | string | No | Organization or project providing the dataset. |
+| `license` | string | No | License information. |
+| `source` | string | No | Organization providing the dataset. |
 
 ### Example
 
@@ -83,125 +52,56 @@ Validated by `config/datasets.schema.json`.
 }
 ```
 
-### Adding a New Dataset
+## Study configuration files
 
-1. Edit `config/datasets.json`
-2. Add a new entry following the schema
-3. Verify with `python scripts/fetch_dataset.py --list`
-4. Fetch with `just fetch <dataset-id>`
-
-### Validation
-
-The schema `config/datasets.schema.json` enforces:
-
-- Required fields are present
-- Types are correct (string, number)
-- `id` matches pattern `^[a-z0-9-]+$`
-- `type` is one of the allowed values
-- `url` is a valid URI
-- Numeric fields are positive
-
-## Future Configuration Files
-
-As the pipeline develops, additional configuration files will be added:
-
-### quality.json (Planned)
-
-Will define quality measurement settings:
-
-- Which metrics to compute (SSIMULACRA2, Butteraugli, PSNR, SSIM)
-- Metric-specific parameters
-- Output format (JSON, CSV)
-
-### analysis.json (Planned)
-
-Will define analysis parameters:
-
-- Plot types to generate
-- Statistical tests to perform
-- Report formats
-- Visualization settings
-
-## Study Configuration Files
-
-Study configurations live in the `studies/` directory
-and define targeted encoding experiments.
-
-### Schema
-
+Study configs live in `config/studies/` and define encoding experiments.
 Validated by `config/study.schema.json`.
 
-### Structure
+### Available studies
 
-```json
-{
-  "id": "string",
-  "name": "string",
-  "description": "string (optional)",
-  "time_budget": "number (optional)",
-  "dataset": {
-    "id": "string",
-    "max_images": "integer (optional)"
-  },
-  "encoders": [
-    {
-      "format": "jpeg|webp|avif|jxl",
-      "quality": 75,
-      "chroma_subsampling": ["444", "420"],
-      "speed": [4, 6],
-      "resolution": [1920, 1280, 640],
-      "extra_args": {}
-    }
-  ]
-}
-```
+| File | Study ID | Description |
+|------|----------|-------------|
+| `format-comparison.json` | `format-comparison` | Compare JPEG, WebP, AVIF, JPEG XL |
+| `avif-speed-sweep.json` | `avif-speed-sweep` | AVIF speed parameter sweep |
+| `avif-chroma-subsampling.json` | `avif-chroma-subsampling` | AVIF chroma subsampling comparison |
+| `jxl-effort-sweep.json` | `jxl-effort-sweep` | JPEG XL effort level comparison |
+| `webp-method-sweep.json` | `webp-method-sweep` | WebP method parameter sweep |
+| `resolution-impact.json` | `resolution-impact` | Impact of resolution on quality |
 
-### Quality Specification
+### Fields
 
-The `quality` field supports three formats:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Unique study identifier. |
+| `name` | string | No | Human-readable name. Defaults to `id`. |
+| `description` | string | No | Purpose of the study. |
+| `time_budget` | number | No | Default time budget in seconds. Overridden by CLI. |
+| `dataset.id` | string | Yes | Dataset identifier from `datasets.json`. |
+| `dataset.max_images` | integer | No | Limit images from dataset. |
+| `encoders` | array | Yes | List of encoder configurations. |
 
-| Format | Example | Result |
-|--------|---------|--------|
+### Encoder fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `format` | string | Yes | One of: `jpeg`, `webp`, `avif`, `jxl`. |
+| `quality` | int/list/range | Yes | Quality settings to sweep (0–100). |
+| `chroma_subsampling` | string[] | No | Subsampling modes: `444`, `422`, `420`, `400`. |
+| `speed` | int/int[] | No | AVIF speed setting(s) (0–10). |
+| `effort` | int/int[] | No | JXL effort setting(s) (1–10). |
+| `method` | int/int[] | No | WebP method setting(s) (0–6). |
+| `resolution` | int/int[] | No | Target resolution(s) in pixels (longest edge). |
+| `extra_args` | object | No | Encoder-specific CLI arguments. |
+
+### Quality specification formats
+
+| Format | Example | Expanded |
+|--------|---------|----------|
 | Single integer | `75` | `[75]` |
 | Explicit list | `[60, 75, 90]` | `[60, 75, 90]` |
 | Range object | `{"start": 30, "stop": 90, "step": 10}` | `[30, 40, 50, 60, 70, 80, 90]` |
 
-### Field Descriptions
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique identifier for the study. |
-| `name` | string | No | Human-readable name. Defaults to `id`. |
-| `description` | string | No | Purpose of the study. |
-| `time_budget` | number | No | Default time budget in seconds for unified pipeline runs. Can be overridden via CLI. |
-| `dataset.id` | string | Yes | Dataset identifier from `datasets.json`. |
-| `dataset.max_images` | integer | No | Limit images from dataset (useful for testing). |
-| `encoders[].format` | string | Yes | One of: `jpeg`, `webp`, `avif`, `jxl`. |
-| `encoders[].quality` | int/list/range | Yes | Quality settings to sweep (0–100). |
-| `encoders[].chroma_subsampling` | string[] | No | Subsampling modes: `444`, `422`, `420`, `400`. |
-| `encoders[].speed` | int/int[] | No | Encoder speed/effort setting(s). |
-| `encoders[].extra_args` | object | No | Encoder-specific CLI arguments. |
-
-### Example: Quality Sweep
-
-```json
-{
-  "id": "avif-quality-sweep",
-  "name": "AVIF Quality Sweep",
-  "time_budget": 3600,
-  "dataset": { "id": "div2k-valid", "max_images": 10 },
-  "encoders": [
-    {
-      "format": "avif",
-      "quality": { "start": 30, "stop": 90, "step": 5 },
-      "chroma_subsampling": ["444", "420"],
-      "speed": 4
-    }
-  ]
-}
-```
-
-### Example: Format Comparison
+### Example: format comparison
 
 ```json
 {
@@ -218,88 +118,42 @@ The `quality` field supports three formats:
 }
 ```
 
-### Running Studies
-
-```bash
-# Run a study with the unified pipeline
-just pipeline avif-quality-sweep
-
-# Run with a time budget and analysis
-just pipeline-analyze avif-quality-sweep 1h
-```
-
-## Encoding Results
-
-The output of each study run is a JSON file matching
-`config/encoding-results.schema.json`.
-
-### Structure
+### Example: parameter sweep with range
 
 ```json
 {
-  "study_id": "string",
-  "study_name": "string",
-  "dataset": {
-    "id": "string",
-    "path": "string",
-    "image_count": "integer"
-  },
-  "timestamp": "ISO 8601 string",
-  "encodings": [
+  "id": "avif-speed-sweep",
+  "name": "AVIF Speed Sweep",
+  "time_budget": 3600,
+  "dataset": { "id": "div2k-valid", "max_images": 10 },
+  "encoders": [
     {
-      "source_image": "string",
-      "original_image": "string",
-      "encoded_path": "string",
-      "format": "string",
-      "quality": "integer",
-      "file_size": "integer",
-      "width": "integer",
-      "height": "integer",
-      "source_file_size": "integer",
-      "chroma_subsampling": "string (optional)",
-      "speed": "integer (optional)",
-      "resolution": "integer (optional)",
-      "extra_args": "object (optional)"
+      "format": "avif",
+      "quality": { "start": 30, "stop": 90, "step": 10 },
+      "speed": [2, 4, 6, 8]
     }
   ]
 }
 ```
 
-The results file is saved at `data/encoded/<study-id>/results.json`
-and serves as the input for the quality measurement stage.
+## Quality results schema
 
-## Loading Configuration
+Pipeline output is saved as `data/metrics/<study-id>/quality.json`,
+validated by `config/quality-results.schema.json`.
 
-### From Python
+Key fields per measurement:
 
-```python
-from pathlib import Path
-from src.dataset import DatasetFetcher
-
-# Uses config/datasets.json by default
-fetcher = DatasetFetcher(Path("data/datasets"))
-
-# Or specify custom config
-fetcher = DatasetFetcher(
-    Path("data/datasets"),
-    config_file=Path("custom/datasets.json")
-)
-```
-
-### From Command Line
-
-```bash
-# Uses config/datasets.json by default
-python scripts/fetch_dataset.py --list
-
-# Or specify custom config
-python scripts/fetch_dataset.py --list --config custom/datasets.json
-```
-
-## Configuration Best Practices
-
-1. **Version Control**: Always commit configuration changes
-2. **Documentation**: Add comments in commit messages explaining parameter choices
-3. **Validation**: Run `--list` or similar commands to validate before committing
-4. **Consistency**: Use consistent naming conventions across configs
-5. **Comments**: JSON doesn't support comments, so document choices in git commits or related docs
+| Field | Description |
+|-------|-------------|
+| `source_image` | Path to preprocessed source image |
+| `original_image` | Path to original dataset image |
+| `format` | Encoding format |
+| `quality` | Quality setting used |
+| `file_size` | Encoded file size in bytes |
+| `width`, `height` | Image dimensions |
+| `ssimulacra2` | SSIMULACRA2 score (or null on error) |
+| `psnr` | PSNR in dB |
+| `ssim` | SSIM score |
+| `butteraugli` | Butteraugli distance |
+| `encoding_time` | Time taken to encode in seconds |
+| `measurement_error` | Error message (null if successful) |

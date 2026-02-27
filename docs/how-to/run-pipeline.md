@@ -1,180 +1,118 @@
 ---
-title: "Run the processing pipeline"
-description: "How to run the unified pipeline (fetch → preprocess → encode → measure → analyze) with examples and time-budget options."
+title: "Run the pipeline"
+description: "Run encoding studies with the unified pipeline, control time budgets, and manage study data."
 ---
 
-This guide shows how to run image encoding studies using the unified pipeline with time-budget control.
+## Run a study
 
-## Quick Start
-
-Run a study with a time budget:
+The pipeline encodes images and measures quality metrics in a single pass.
+Both a study ID and a time budget are required:
 
 ```bash
-# Run for 30 minutes, then analyze  
-just pipeline-analyze format-comparison 30m
+just pipeline format-comparison 30m
 ```
 
-This runs the unified pipeline (encode + measure for each image) for 30 minutes,
-then automatically analyzes the collected data.
+This processes images one at a time — encoding all configured format variants and
+measuring quality metrics for each — until the time budget runs out.
 
-## Time Budget Format
+Results are saved to `data/metrics/<study-id>/quality.json`.
 
-Time budgets can be specified in several formats:
+## Time budget format
 
-- `30m` — 30 minutes
-- `2h` — 2 hours  
-- `1h30m` — 1 hour and 30 minutes
-- `3600` — 3600 seconds (1 hour)
-- `90s` — 90 seconds
+| Example | Meaning |
+|---------|---------|
+| `30m` | 30 minutes |
+| `2h` | 2 hours |
+| `1h30m` | 1 hour 30 minutes |
+| `3600` | 3600 seconds |
+| `90s` | 90 seconds |
 
-## Unified Pipeline Architecture
+## Available studies
 
-The unified pipeline processes each image atomically:
+These study configurations ship in `config/studies/`:
 
-1. **Select next image** from the dataset
-2. **Encode** all format variants for that image (in parallel)
-3. **Measure** quality of all variants (in parallel)
-4. **Save results** to quality JSON
-5. **Repeat** until time budget is exhausted
-
-This approach provides:
-
-- **Predictable runtime**: Set time budget instead of guessing `max_images`
-- **Progress guarantees**: Always completes full encode+measure for each image
-- **Reduced disk I/O**: Uses `/dev/shm` for temporary storage
-- **Error isolation**: Failures on one image don't block others
+| Study ID | Description |
+|----------|-------------|
+| `format-comparison` | Compare JPEG, WebP, AVIF, JPEG XL |
+| `avif-speed-sweep` | AVIF speed parameter sweep |
+| `avif-chroma-subsampling` | AVIF chroma subsampling comparison |
+| `jxl-effort-sweep` | JPEG XL effort level comparison |
+| `webp-method-sweep` | WebP method parameter sweep |
+| `resolution-impact` | Impact of image resolution on quality |
 
 ## Prerequisites
 
-First, ensure the required dataset is downloaded:
+Ensure the study's dataset is downloaded first:
 
 ```bash
-# List available datasets
-just list-available-datasets
-
-# Fetch a specific dataset
 just fetch div2k-valid
 ```
 
-## Pipeline Commands
+## Advanced options via the script
 
-### Run Full Pipeline
-
-```bash
-# Encode + measure with time budget, then analyze
-just pipeline-analyze format-comparison 30m
-
-# Run all studies with their configured time budgets
-just pipeline-all
-```
-
-### Run with Artifact Saving
-
-By default, encoded images are stored in memory (`/dev/shm`) and discarded
-after measurement. To save artifacts to disk:
+The `just pipeline` command runs with `--save-worst-image` enabled by default.
+For additional control, use the script directly:
 
 ```bash
-# Save encoded images to data/encoded/<study-id>/
-just pipeline-save avif-quality-sweep 1h
+# Dry run — preview what would run without executing
+python3 scripts/run_pipeline.py format-comparison --time-budget 30m --dry-run
 
-# Or use the CLI directly
-python3 scripts/run_pipeline.py avif-quality-sweep 1h --save-artifacts
+# Save encoded artifacts to disk (normally discarded after measurement)
+python3 scripts/run_pipeline.py format-comparison --time-budget 1h --save-artifacts
+
+# Disable worst-image saving
+python3 scripts/run_pipeline.py format-comparison --time-budget 30m --no-save-worst-image
+
+# Control parallelism
+python3 scripts/run_pipeline.py format-comparison --time-budget 30m --workers 8
 ```
 
-### Preview Without Running
-
-```bash
-# See what would be executed without running
-just pipeline-dry-run format-comparison 30m
-
-# Example output:
-# Study: Format Comparison (format-comparison)
-# Dataset: DIV2K Validation (div2k-valid) - 10 images max
-# Time Budget: 1800.0 seconds (30 minutes)
-# 
-# Tasks per image: 16
-#   - jpeg (quality: 60, 75, 85, 95)
-#   - webp (quality: 60, 75, 85, 95)
-#   - avif (quality: 60, 75, 85, 95; speed: 4)
-#   - jxl (quality: 60, 75, 85, 95)
-```
-
-### Control Worker Count
-
-```bash
-# Use more workers for parallelism
-python3 scripts/run_pipeline.py format-comparison 30m --workers 16
-```
-
-### Clean Pipeline Data
-
-```bash
-# Remove metrics for a study
-just pipeline-clean format-comparison
-```
-
-## Output Structure
-
-After running the pipeline, your data directory will look like:
+## Output structure
 
 ```text
-data/
-└── metrics/
-    └── format-comparison/
-        └── quality.json        # Quality measurements (encoding + metrics)
+data/metrics/<study-id>/
+└── quality.json        # All quality measurements
 ```
 
-If using `--save-artifacts`, you'll also see:
+With `--save-artifacts`, encoded images are also saved:
 
 ```text
-data/
-├── encoded/
-│   └── format-comparison/
-│       ├── jpeg/           # Encoded JPEG files
-│       ├── webp/           # Encoded WebP files
-│       ├── avif/           # Encoded AVIF files
-│       └── jxl/            # Encoded JXL files
-└── metrics/
-    └── format-comparison/
-        └── quality.json
+data/encoded/<study-id>/
+├── jpeg/               # Encoded JPEG files
+├── webp/               # Encoded WebP files
+├── avif/               # Encoded AVIF files
+└── jxl/                # Encoded JXL files
 ```
 
-## Study Configuration
+## Clean study data
 
-Studies can optionally specify a default `time_budget` in their configuration:
-
-```json
-{
-  "id": "format-comparison",
-  "name": "Format Comparison",
-  "time_budget": 1800,
-  "dataset": { "id": "div2k-valid", "max_images": 10 },
-  "encoders": [
-    { "format": "jpeg", "quality": [60, 75, 85, 95] }
-  ]
-}
-```
-
-Time budget can be overridden on the command line:
+Remove all generated data for a specific study:
 
 ```bash
-# Use configured time_budget (1800 seconds)
-just pipeline format-comparison
-
-# Override with 1 hour
-just pipeline format-comparison 1h
+just clean-study format-comparison
 ```
 
-Common configured studies:
+Remove all study data (preserves datasets):
 
-- `avif-quality-sweep` — AVIF quality parameter sweep
-- `format-comparison` — Compare JPEG, WebP, AVIF, JPEG XL
-- `jxl-effort-sweep` — JPEG XL effort level comparison
-- `resolution-impact` — Test different image resolutions
+```bash
+just clean-studies
+```
 
-## Related Documentation
+## Typical workflow
 
-- [Fetch Datasets](fetch-datasets) — Download image datasets
-- [Configuration Reference](../reference/configuration) — Study configuration with time budgets
-- [Architecture](../explanation/architecture) — Pipeline design rationale
-- [Data Structure](../reference/data-structure) — Output formats
+```bash
+just fetch div2k-valid                  # 1. Get images
+just pipeline format-comparison 30m     # 2. Encode + measure
+just analyze format-comparison          # 3. Generate plots
+just compare format-comparison          # 4. Visual comparisons
+just report                             # 5. Interactive report
+just serve-report                       # 6. View in browser
+```
+
+## See also
+
+- [Fetch datasets](fetch-datasets) — download source images
+- [Analyze results](analyze-results) — generate statistics and plots
+- [Generate comparisons](generate-comparison) — visual comparison images
+- [Configuration reference](../reference/configuration) — study config schema
+- [Architecture](../explanation/architecture) — pipeline design rationale
