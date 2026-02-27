@@ -17,6 +17,11 @@ from urllib.request import urlretrieve
 from jinja2 import Environment, FileSystemLoader
 
 from src.interactive import figure_to_html_fragment, generate_study_figures
+from src.report_images import (
+    discover_and_optimise,
+    img_srcset_html,
+    picture_html,
+)
 
 # Paths relative to project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -24,6 +29,7 @@ REPORT_DIR = PROJECT_ROOT / "report"
 TEMPLATES_DIR = REPORT_DIR / "templates"
 ASSETS_DIR = REPORT_DIR / "assets"
 METRICS_DIR = PROJECT_ROOT / "data" / "metrics"
+ANALYSIS_DIR = PROJECT_ROOT / "data" / "analysis"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "report"
 
 # Plotly CDN URL for the basic bundle
@@ -195,6 +201,17 @@ def generate_study_page(
             }
         )
 
+    # Discover and optimise comparison images
+    comparison_images = discover_and_optimise(
+        ANALYSIS_DIR,
+        study_id,
+        output_dir,
+        output_dir,
+    )
+    has_comparisons = bool(comparison_images.sets)
+    if has_comparisons:
+        print(f"  Optimised {sum(len(s.fragment_grids) + len(s.distmap_grids) + (1 if s.original_annotated else 0) + (1 if s.distortion_map else 0) for s in comparison_images.sets)} comparison images")
+
     # Render template
     template = env.get_template("study.html.j2")
     html = template.render(
@@ -208,6 +225,9 @@ def generate_study_page(
         sections=sections,
         csv_data_file=csv_relative,
         svg_files=svg_files,
+        comparison_images=comparison_images if has_comparisons else None,
+        img_srcset_html=img_srcset_html,
+        picture_html=picture_html,
         plotly_js_path=plotly_js_path,
         index_path=index_path,
         generation_timestamp=timestamp,
