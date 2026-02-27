@@ -181,10 +181,14 @@ jobs:
       - name: Run pipeline
         run: |
           python3 scripts/run_pipeline.py "${{ matrix.study }}" \
-            --time-budget "${{ inputs.time_budget || '2h' }}"
+            --time-budget "${{ inputs.time_budget || '2h' }}" \
+            --save-worst-image
 
       - name: Run analysis
         run: python3 scripts/analyze_study.py "${{ matrix.study }}"
+
+      - name: Generate visual comparison
+        run: python3 scripts/generate_comparison.py "${{ matrix.study }}"
 
       - name: Upload study results
         uses: actions/upload-artifact@v4
@@ -226,7 +230,9 @@ jobs:
           echo "=== Metrics ==="
           find data/metrics -name "*.json" -type f 2>/dev/null || echo "  (none)"
           echo "=== Analysis ==="
-          find data/analysis -type f 2>/dev/null | head -20 || echo "  (none)"
+          find data/analysis -type f -not -path "*/comparison/*" 2>/dev/null | head -20 || echo "  (none)"
+          echo "=== Comparison images ==="
+          find data/analysis -path "*/comparison/*" -type f 2>/dev/null | head -30 || echo "  (none)"
 
       - name: Generate report
         run: python3 scripts/generate_report.py
