@@ -1,32 +1,35 @@
-"""Integration tests for the complete encoding and quality measurement pipeline."""
+"""Integration tests for encoding, quality measurement, and basic module smoke tests."""
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from src.encoder import ImageEncoder
-from src.quality import QualityMeasurer
+from src.quality import QualityMeasurer, QualityMetrics
+
+# ---------------------------------------------------------------------------
+# Basic module smoke tests (merged from test_encoder.py and test_quality.py)
+# ---------------------------------------------------------------------------
 
 
-def _command_available(command: str) -> bool:
-    """Check if a command is available on PATH."""
-    try:
-        subprocess.run([command, "--version"], capture_output=True, check=False)
-        return True
-    except FileNotFoundError:
-        return False
+def test_encoder_initialization(tmp_path: Path) -> None:
+    """Test ImageEncoder initialization."""
+    encoder = ImageEncoder(tmp_path / "output")
+    assert encoder.output_dir.exists()
 
 
-def _avifenc_has_codec() -> bool:
-    """Check if avifenc has codec support."""
-    try:
-        result = subprocess.run(["avifenc", "--help"], capture_output=True, text=True, check=False)
-        # If avifenc runs without error, check if codecs are available by trying a simple encode
-        # We'll just check if it's installed for now; actual codec check would need a test file
-        return result.returncode == 0
-    except FileNotFoundError:
-        return False
+def test_quality_metrics_dataclass() -> None:
+    """Test QualityMetrics dataclass."""
+    metrics = QualityMetrics(ssimulacra2=85.5, psnr=42.3, ssim=0.98)
+    assert metrics.ssimulacra2 == 85.5
+    assert metrics.psnr == 42.3
+    assert metrics.ssim == 0.98
+    assert metrics.butteraugli is None
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture

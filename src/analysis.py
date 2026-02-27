@@ -26,10 +26,23 @@ def load_quality_results(quality_json_path: Path) -> dict[str, Any]:
 
     Returns:
         Quality results dictionary
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        ValueError: If the JSON has no 'measurements' field
     """
-    with open(quality_json_path) as f:
+    if not quality_json_path.exists():
+        msg = f"Quality results file not found: {quality_json_path}"
+        raise FileNotFoundError(msg)
+
+    with open(quality_json_path, encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
-        return data
+
+    if "measurements" not in data:
+        msg = f"No 'measurements' field in {quality_json_path}"
+        raise ValueError(msg)
+
+    return data
 
 
 def create_analysis_dataframe(quality_results: dict[str, Any]) -> pd.DataFrame:

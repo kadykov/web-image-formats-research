@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from src.analysis import (
     METRIC_DIRECTIONS,
@@ -16,104 +15,6 @@ from src.analysis import (
     get_worst_percentile_col,
     load_quality_results,
 )
-
-
-@pytest.fixture
-def sample_quality_data() -> dict:
-    """Create sample quality measurement data for testing."""
-    return {
-        "study_id": "test-study",
-        "study_name": "Test Study",
-        "dataset": {
-            "id": "test-dataset",
-            "path": "data/datasets/test",
-            "image_count": 2,
-        },
-        "encoding_timestamp": "2026-02-11T12:00:00+00:00",
-        "timestamp": "2026-02-11T12:30:00+00:00",
-        "measurements": [
-            {
-                "source_image": "data/datasets/test/image1.png",
-                "original_image": "data/datasets/test/image1.png",
-                "encoded_path": "data/encoded/test/avif/image1_q50.avif",
-                "format": "avif",
-                "quality": 50,
-                "file_size": 100000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1000000,
-                "ssimulacra2": 75.5,
-                "psnr": 38.5,
-                "ssim": 0.95,
-                "butteraugli": 2.5,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-            {
-                "source_image": "data/datasets/test/image2.png",
-                "original_image": "data/datasets/test/image2.png",
-                "encoded_path": "data/encoded/test/avif/image2_q50.avif",
-                "format": "avif",
-                "quality": 50,
-                "file_size": 120000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1100000,
-                "ssimulacra2": 73.2,
-                "psnr": 37.8,
-                "ssim": 0.94,
-                "butteraugli": 2.8,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-            {
-                "source_image": "data/datasets/test/image1.png",
-                "original_image": "data/datasets/test/image1.png",
-                "encoded_path": "data/encoded/test/avif/image1_q70.avif",
-                "format": "avif",
-                "quality": 70,
-                "file_size": 150000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1000000,
-                "ssimulacra2": 82.3,
-                "psnr": 40.2,
-                "ssim": 0.97,
-                "butteraugli": 1.8,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-            {
-                "source_image": "data/datasets/test/image2.png",
-                "original_image": "data/datasets/test/image2.png",
-                "encoded_path": "data/encoded/test/avif/image2_q70.avif",
-                "format": "avif",
-                "quality": 70,
-                "file_size": 170000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1100000,
-                "ssimulacra2": 80.1,
-                "psnr": 39.5,
-                "ssim": 0.96,
-                "butteraugli": 2.0,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-        ],
-    }
 
 
 def test_load_quality_results(tmp_path: Path, sample_quality_data: dict) -> None:

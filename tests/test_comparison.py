@@ -17,9 +17,7 @@ from src.comparison import (
     WorstRegion,
     _build_label,
     _build_metric_label,
-    _find_worst_region_in_array,
     _get_or_encode,
-    _read_pfm,
     _render_distmap_thumbnail,
     _resolve_encoded_path,
     assemble_comparison_grid,
@@ -35,6 +33,7 @@ from src.comparison import (
     get_worst_image_score,
     load_quality_results,
 )
+from src.quality import find_worst_region_in_array, read_pfm
 
 # ---------------------------------------------------------------------------
 # PFM helpers
@@ -447,7 +446,7 @@ def test_find_worst_region_uniform(tmp_path: Path) -> None:
 
 
 def test_find_worst_region_pfm(tmp_path: Path) -> None:
-    """find_worst_region uses _read_pfm branch for .pfm files."""
+    """find_worst_region uses _read_pfm (now read_pfm) branch for .pfm files."""
     arr = np.zeros((64, 64), dtype=np.float32)
     arr[10:20, 40:50] = 5.0  # hot-spot
     pfm_path = tmp_path / "distmap.pfm"
@@ -463,23 +462,23 @@ def test_find_worst_region_pfm(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _read_pfm
+# Tests: read_pfm
 # ---------------------------------------------------------------------------
 
 
 def test_read_pfm_grayscale(tmp_path: Path) -> None:
-    """_read_pfm returns correct values for a Pf (grayscale) PFM file."""
+    """read_pfm returns correct values for a Pf (grayscale) PFM file."""
     arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
     pfm_path = tmp_path / "gray.pfm"
     _write_pfm_grayscale(pfm_path, arr)
 
-    result = _read_pfm(pfm_path)
+    result = read_pfm(pfm_path)
     assert result.shape == (2, 3)
     np.testing.assert_allclose(result, arr, rtol=1e-5)
 
 
 def test_read_pfm_color(tmp_path: Path) -> None:
-    """_read_pfm returns max-across-channels for PF (colour) PFM files."""
+    """read_pfm returns max-across-channels for PF (colour) PFM files."""
     # Shape (2, 2, 3)
     arr = np.array(
         [[[1.0, 2.0, 0.5], [0.1, 0.2, 0.3]], [[3.0, 1.0, 2.0], [0.0, 0.0, 4.0]]], dtype=np.float32
@@ -487,7 +486,7 @@ def test_read_pfm_color(tmp_path: Path) -> None:
     pfm_path = tmp_path / "color.pfm"
     _write_pfm_color(pfm_path, arr)
 
-    result = _read_pfm(pfm_path)
+    result = read_pfm(pfm_path)
     assert result.shape == (2, 2)
     # max across channels per pixel
     expected = np.array([[2.0, 0.3], [3.0, 4.0]], dtype=np.float64)
@@ -495,36 +494,36 @@ def test_read_pfm_color(tmp_path: Path) -> None:
 
 
 def test_read_pfm_bottom_to_top_flip(tmp_path: Path) -> None:
-    """_read_pfm flips rows so the first row in result is the top of the image."""
+    """read_pfm flips rows so the first row in result is the top of the image."""
     # Row 0 has value 10, row 1 has value 20
     arr = np.array([[10.0, 10.0], [20.0, 20.0]], dtype=np.float32)
     pfm_path = tmp_path / "flip.pfm"
     _write_pfm_grayscale(pfm_path, arr)
 
-    result = _read_pfm(pfm_path)
+    result = read_pfm(pfm_path)
     # After flip, top row should still be [10, 10]
     np.testing.assert_allclose(result[0], [10.0, 10.0], rtol=1e-5)
     np.testing.assert_allclose(result[1], [20.0, 20.0], rtol=1e-5)
 
 
 def test_read_pfm_invalid_magic(tmp_path: Path) -> None:
-    """_read_pfm raises ValueError for non-PFM files."""
+    """read_pfm raises ValueError for non-PFM files."""
     bad = tmp_path / "bad.pfm"
     bad.write_bytes(b"P6\n2 2\n255\n" + bytes(12))
     with pytest.raises(ValueError, match="Not a PFM file"):
-        _read_pfm(bad)
+        read_pfm(bad)
 
 
 # ---------------------------------------------------------------------------
-# Tests: _find_worst_region_in_array
+# Tests: find_worst_region_in_array
 # ---------------------------------------------------------------------------
 
 
 def test_find_worst_region_in_array_finds_hotspot() -> None:
-    """_find_worst_region_in_array locates the hot-spot in a float array."""
+    """find_worst_region_in_array locates the hot-spot in a float array."""
     arr = np.zeros((64, 64), dtype=np.float64)
     arr[20:30, 40:50] = 10.0  # hot-spot at col 40-50, row 20-30
-    region = _find_worst_region_in_array(arr, crop_size=16)
+    region = find_worst_region_in_array(arr, crop_size=16)
     assert 24 <= region.x <= 50
     assert 4 <= region.y <= 30
     assert region.width == 16
@@ -535,7 +534,7 @@ def test_find_worst_region_in_array_finds_hotspot() -> None:
 def test_find_worst_region_in_array_small_image() -> None:
     """Returns whole image when smaller than crop_size."""
     arr = np.full((20, 30), 5.0, dtype=np.float64)
-    region = _find_worst_region_in_array(arr, crop_size=64)
+    region = find_worst_region_in_array(arr, crop_size=64)
     assert region.x == 0
     assert region.y == 0
     assert region.width == 30
@@ -546,7 +545,7 @@ def test_find_worst_region_in_array_small_image() -> None:
 def test_find_worst_region_in_array_uniform() -> None:
     """Any position is equally valid for a uniform array."""
     arr = np.full((128, 128), 3.0, dtype=np.float64)
-    region = _find_worst_region_in_array(arr, crop_size=32)
+    region = find_worst_region_in_array(arr, crop_size=32)
     assert region.width == 32
     assert region.height == 32
     assert abs(region.avg_distortion - 3.0) < 1e-9
@@ -590,7 +589,7 @@ def test_compute_aggregate_distortion_maps_unit(
         _compressed: Path,
         output_pfm: Path,
     ) -> Path:
-        # Write a synthetic PFM so _read_pfm can load it
+        # Write a synthetic PFM so read_pfm can load it
         arr = arr1 if "q50" in str(output_pfm) else arr2
         _write_pfm_grayscale(output_pfm, arr)
         return output_pfm
@@ -817,7 +816,7 @@ def test_generate_distortion_map(tmp_path: Path) -> None:
     assert output_pfm.exists()
 
     # PFM should be readable and contain float values
-    arr = _read_pfm(output_pfm)
+    arr = read_pfm(output_pfm)
     assert arr.shape == (64, 64)
     assert arr.dtype == np.float64
 

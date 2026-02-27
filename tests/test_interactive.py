@@ -21,150 +21,6 @@ from src.interactive import (
 
 
 @pytest.fixture
-def sample_quality_data() -> dict:
-    """Create sample quality measurement data for testing."""
-    return {
-        "study_id": "test-study",
-        "study_name": "Test Study",
-        "dataset": {
-            "id": "test-dataset",
-            "path": "data/datasets/test",
-            "image_count": 2,
-        },
-        "encoding_timestamp": "2026-02-11T12:00:00+00:00",
-        "timestamp": "2026-02-11T12:30:00+00:00",
-        "measurements": [
-            {
-                "source_image": "data/datasets/test/image1.png",
-                "original_image": "data/datasets/test/image1.png",
-                "encoded_path": "data/encoded/test/avif/image1_q50.avif",
-                "format": "avif",
-                "quality": 50,
-                "file_size": 100000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1000000,
-                "ssimulacra2": 75.5,
-                "psnr": 38.5,
-                "ssim": 0.95,
-                "butteraugli": 2.5,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-            {
-                "source_image": "data/datasets/test/image2.png",
-                "original_image": "data/datasets/test/image2.png",
-                "encoded_path": "data/encoded/test/avif/image2_q50.avif",
-                "format": "avif",
-                "quality": 50,
-                "file_size": 120000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1100000,
-                "ssimulacra2": 73.2,
-                "psnr": 37.8,
-                "ssim": 0.94,
-                "butteraugli": 2.8,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-            {
-                "source_image": "data/datasets/test/image1.png",
-                "original_image": "data/datasets/test/image1.png",
-                "encoded_path": "data/encoded/test/avif/image1_q70.avif",
-                "format": "avif",
-                "quality": 70,
-                "file_size": 150000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1000000,
-                "ssimulacra2": 82.3,
-                "psnr": 40.2,
-                "ssim": 0.97,
-                "butteraugli": 1.8,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-            {
-                "source_image": "data/datasets/test/image2.png",
-                "original_image": "data/datasets/test/image2.png",
-                "encoded_path": "data/encoded/test/avif/image2_q70.avif",
-                "format": "avif",
-                "quality": 70,
-                "file_size": 170000,
-                "width": 1920,
-                "height": 1080,
-                "source_file_size": 1100000,
-                "ssimulacra2": 80.1,
-                "psnr": 39.5,
-                "ssim": 0.96,
-                "butteraugli": 2.0,
-                "chroma_subsampling": "420",
-                "speed": 4,
-                "resolution": None,
-                "extra_args": None,
-                "measurement_error": None,
-            },
-        ],
-    }
-
-
-@pytest.fixture
-def multi_format_quality_data() -> dict:
-    """Create sample data with multiple formats for testing grouping."""
-    measurements = []
-    for fmt in ["jpeg", "webp", "avif"]:
-        for q in [60, 80]:
-            for img_idx in range(1, 3):
-                measurements.append(
-                    {
-                        "source_image": f"data/datasets/test/image{img_idx}.png",
-                        "original_image": f"data/datasets/test/image{img_idx}.png",
-                        "encoded_path": f"data/encoded/test/{fmt}/image{img_idx}_q{q}.{fmt}",
-                        "format": fmt,
-                        "quality": q,
-                        "file_size": 50000 + q * 1000 + img_idx * 5000,
-                        "width": 1920,
-                        "height": 1080,
-                        "source_file_size": 1000000,
-                        "ssimulacra2": 60.0 + q * 0.3 + img_idx,
-                        "psnr": 30.0 + q * 0.1 + img_idx * 0.5,
-                        "ssim": 0.85 + q * 0.001 + img_idx * 0.01,
-                        "butteraugli": 4.0 - q * 0.03 + img_idx * 0.1,
-                        "chroma_subsampling": None,
-                        "speed": None,
-                        "effort": None,
-                        "method": None,
-                        "resolution": None,
-                        "extra_args": None,
-                        "measurement_error": None,
-                    }
-                )
-
-    return {
-        "study_id": "multi-format-test",
-        "study_name": "Multi-Format Test",
-        "dataset": {
-            "id": "test-dataset",
-            "path": "data/datasets/test",
-            "image_count": 2,
-        },
-        "encoding_timestamp": "2026-02-11T12:00:00+00:00",
-        "timestamp": "2026-02-11T12:30:00+00:00",
-        "measurements": measurements,
-    }
-
-
-@pytest.fixture
 def single_quality_stats(sample_quality_data: dict):
     """Compute statistics from single-format sample data."""
     df = create_analysis_dataframe(sample_quality_data)
@@ -308,48 +164,28 @@ class TestFigureToHtmlFragment:
 class TestGenerateStudyFigures:
     """Tests for generate_study_figures."""
 
-    def test_generates_figures(self, tmp_path: Path, sample_quality_data: dict):
-        quality_file = tmp_path / "quality.json"
-        with open(quality_file, "w") as f:
-            json.dump(sample_quality_data, f)
-
-        figures = generate_study_figures(quality_file)
+    def test_generates_figures(self, quality_json_file: Path):
+        figures = generate_study_figures(quality_json_file)
         assert isinstance(figures, dict)
         assert len(figures) > 0
 
-    def test_figure_keys_contain_study_id(self, tmp_path: Path, sample_quality_data: dict):
-        quality_file = tmp_path / "quality.json"
-        with open(quality_file, "w") as f:
-            json.dump(sample_quality_data, f)
-
-        figures = generate_study_figures(quality_file)
+    def test_figure_keys_contain_study_id(self, quality_json_file: Path):
+        figures = generate_study_figures(quality_json_file)
         for key in figures:
             assert key.startswith("test-study_")
 
-    def test_all_figures_are_plotly(self, tmp_path: Path, sample_quality_data: dict):
-        quality_file = tmp_path / "quality.json"
-        with open(quality_file, "w") as f:
-            json.dump(sample_quality_data, f)
-
-        figures = generate_study_figures(quality_file)
+    def test_all_figures_are_plotly(self, quality_json_file: Path):
+        figures = generate_study_figures(quality_json_file)
         for fig in figures.values():
             assert isinstance(fig, go.Figure)
 
-    def test_includes_rate_distortion(self, tmp_path: Path, sample_quality_data: dict):
-        quality_file = tmp_path / "quality.json"
-        with open(quality_file, "w") as f:
-            json.dump(sample_quality_data, f)
-
-        figures = generate_study_figures(quality_file)
+    def test_includes_rate_distortion(self, quality_json_file: Path):
+        figures = generate_study_figures(quality_json_file)
         bpp_keys = [k for k in figures if "bytes_per_pixel" in k]
         assert len(bpp_keys) > 0
 
-    def test_includes_quality_metrics(self, tmp_path: Path, sample_quality_data: dict):
-        quality_file = tmp_path / "quality.json"
-        with open(quality_file, "w") as f:
-            json.dump(sample_quality_data, f)
-
-        figures = generate_study_figures(quality_file)
+    def test_includes_quality_metrics(self, quality_json_file: Path):
+        figures = generate_study_figures(quality_json_file)
         metric_keys = [k for k in figures if "ssimulacra2" in k or "psnr" in k]
         assert len(metric_keys) > 0
 
@@ -369,13 +205,9 @@ class TestGenerateStudyFigures:
             fig = figures[rd_keys[0]]
             assert len(fig.data) == 4
 
-    def test_accepts_string_path(self, tmp_path: Path, sample_quality_data: dict):
-        quality_file = tmp_path / "quality.json"
-        with open(quality_file, "w") as f:
-            json.dump(sample_quality_data, f)
-
+    def test_accepts_string_path(self, quality_json_file: Path):
         # Pass as string, not Path
-        figures = generate_study_figures(str(quality_file))
+        figures = generate_study_figures(str(quality_json_file))
         assert len(figures) > 0
 
 
