@@ -5,19 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from src.preprocessing import ImagePreprocessor
-
-
-def create_test_image(
-    path: Path,
-    size: tuple[int, int] = (100, 80),
-    mode: str = "RGB",
-    color: tuple[int, ...] = (128, 128, 128),
-) -> Path:
-    """Create a test image at the given path."""
-    img = Image.new(mode, size, color=color)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(path)
-    return path
+from tests.conftest import create_test_image
 
 
 class TestImagePreprocessor:
