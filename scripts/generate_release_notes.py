@@ -261,8 +261,8 @@ def generate_release_notes(metrics_dir: Path, configs_dir: Path) -> str:
 
     # Asset description
     lines.append("### Release Assets\n")
-    lines.append("- **`study-results.zip`** — Complete archive of all study data")
-    lines.append("  (quality measurements JSON + analysis CSV + SVG figures)")
+    lines.append("- **`<study-id>.zip`** — Per-study archive of study data")
+    lines.append("  (quality measurements JSON + analysis CSV/SVG + comparison images)")
     lines.append("- **`*_statistics.csv`** — Per-study aggregated statistics")
     lines.append("  (suitable for spreadsheet analysis or plotting)")
 
