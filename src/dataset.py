@@ -315,8 +315,8 @@ class DatasetFetcher:
 
             # Clean up archive files after successful extraction
             print("\nCleaning up archive files...")
-            archive_files = list(dataset_dir.glob("*.zip")) + list(dataset_dir.glob("*.z*"))
-            for archive_file in archive_files:
+            archive_files = set(dataset_dir.glob("*.zip")) | set(dataset_dir.glob("*.z[0-9]*"))
+            for archive_file in sorted(archive_files):
                 archive_file.unlink()
                 print(f"  Removed {archive_file.name}")
             print(f"✓ Removed {len(archive_files)} archive file(s)")
