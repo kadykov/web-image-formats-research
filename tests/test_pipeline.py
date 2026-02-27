@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import tool_available
 
 from src.pipeline import (
     PipelineRunner,
@@ -345,13 +346,8 @@ class TestEncodeAndMeasure:
     def project_root(self, tmp_path: Path) -> Path:
         return tmp_path
 
-    def _tool_available(self, tool: str) -> bool:
-        import shutil
-
-        return shutil.which(tool) is not None
-
     def test_jpeg_encode_and_measure(self, test_image: Path, project_root: Path) -> None:
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         result = _encode_and_measure(
@@ -376,7 +372,7 @@ class TestEncodeAndMeasure:
         # SSIMULACRA2 may or may not be available
 
     def test_webp_encode_and_measure(self, test_image: Path, project_root: Path) -> None:
-        if not self._tool_available("cwebp"):
+        if not tool_available("cwebp"):
             pytest.skip("cwebp not available")
 
         record, distmap = _encode_and_measure(
@@ -404,7 +400,7 @@ class TestEncodeAndMeasure:
         assert distmap is None
 
     def test_save_artifact(self, test_image: Path, project_root: Path, tmp_path: Path) -> None:
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         save_dir = tmp_path / "saved"
@@ -424,7 +420,7 @@ class TestEncodeAndMeasure:
         assert any(f.suffix == ".jpg" for f in saved_files)
 
     def test_source_image_label(self, test_image: Path, project_root: Path) -> None:
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         record, distmap = _encode_and_measure(
@@ -542,14 +538,9 @@ class TestPipelineRunnerIntegration:
 
         return project
 
-    def _tool_available(self, tool: str) -> bool:
-        import shutil
-
-        return shutil.which(tool) is not None
-
     def test_run_basic(self, project_with_dataset: Path) -> None:
         """Run pipeline with a simple JPEG config."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -580,7 +571,7 @@ class TestPipelineRunnerIntegration:
         budget constraint. The exact number processed depends on timing and
         worker performance, so we verify the mechanism works with range checks.
         """
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -610,7 +601,7 @@ class TestPipelineRunnerIntegration:
         After first completes, another is submitted. After second completes,
         budget expires but the third in-flight image still completes.
         """
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -635,7 +626,7 @@ class TestPipelineRunnerIntegration:
 
     def test_run_save_artifacts(self, project_with_dataset: Path) -> None:
         """Artifacts are saved when flag is set."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -659,7 +650,7 @@ class TestPipelineRunnerIntegration:
 
     def test_run_without_save_artifacts(self, project_with_dataset: Path) -> None:
         """Without save_artifacts, encoded_path is empty string."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -678,7 +669,7 @@ class TestPipelineRunnerIntegration:
 
     def test_run_with_preprocessing(self, project_with_dataset: Path) -> None:
         """Pipeline with resize preprocessing."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -700,7 +691,7 @@ class TestPipelineRunnerIntegration:
 
     def test_run_multiple_resolutions(self, project_with_dataset: Path) -> None:
         """Multiple resolutions produce tasks for each."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -721,7 +712,7 @@ class TestPipelineRunnerIntegration:
 
     def test_results_saveable(self, project_with_dataset: Path) -> None:
         """Results can be saved and loaded."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -801,7 +792,7 @@ class TestPipelineRunnerIntegration:
 
     def test_save_worst_image_saves_artifacts(self, project_with_dataset: Path) -> None:
         """save_worst_image should encode the worst image and save its files."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(
@@ -834,7 +825,7 @@ class TestPipelineRunnerIntegration:
 
     def test_save_worst_image_noop_with_save_artifacts(self, project_with_dataset: Path) -> None:
         """save_worst_image is skipped when save_artifacts is already True."""
-        if not self._tool_available("cjpeg"):
+        if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         config = StudyConfig(

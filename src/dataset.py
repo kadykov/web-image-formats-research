@@ -222,18 +222,6 @@ class DatasetFetcher:
 
         return self.download_file(direct_url, output_path, description)
 
-    def download_image(self, url: str, output_path: Path) -> bool:
-        """Download a single image from URL.
-
-        Args:
-            url: URL of the image to download
-            output_path: Path where the image will be saved
-
-        Returns:
-            True if download succeeded, False otherwise
-        """
-        return self.download_file(url, output_path)
-
     def extract_archive(self, archive_path: Path, extract_dir: Path) -> bool:
         """Extract a ZIP or TAR archive.
 

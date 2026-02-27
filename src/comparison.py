@@ -25,7 +25,6 @@ This module requires:
 - Encoding tools (cjpeg, cwebp, avifenc, cjxl) matching the study formats
 """
 
-import json
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -35,8 +34,10 @@ import matplotlib
 import numpy as np
 from PIL import Image
 
+# Re-exported for backward compatibility — canonical version lives in analysis.py
+from src.analysis import load_quality_results as load_quality_results
 from src.encoder import ImageEncoder
-from src.quality import WorstRegion, find_worst_region_in_array, read_pfm
+from src.quality import WorstRegion, find_worst_region_in_array, read_pfm, to_png
 
 
 @dataclass
@@ -133,33 +134,6 @@ class ComparisonResult:
     study_id: str
     strategies: list[StrategyResult] = field(default_factory=list)
     varying_parameters: list[str] = field(default_factory=list)
-
-
-def load_quality_results(quality_json_path: Path) -> dict:
-    """Load quality measurement results from JSON file.
-
-    Args:
-        quality_json_path: Path to quality.json file
-
-    Returns:
-        Quality results dictionary
-
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-        ValueError: If the JSON is invalid
-    """
-    if not quality_json_path.exists():
-        msg = f"Quality results file not found: {quality_json_path}"
-        raise FileNotFoundError(msg)
-
-    with open(quality_json_path, encoding="utf-8") as f:
-        data: dict = json.load(f)
-
-    if "measurements" not in data:
-        msg = f"No 'measurements' field in {quality_json_path}"
-        raise ValueError(msg)
-
-    return data
 
 
 def find_worst_measurement(
@@ -376,52 +350,6 @@ def get_worst_image_score(
     return sum((s - mean) ** 2 for s in scores) / len(scores)
 
 
-def _to_png(image_path: Path, output_path: Path) -> None:
-    """Convert an image to PNG format for measurement tools.
-
-    Handles JPEG XL and AVIF via external decoders, other formats via Pillow.
-
-    Args:
-        image_path: Path to the source image
-        output_path: Path where PNG will be written
-
-    Raises:
-        OSError: If conversion fails
-    """
-    if image_path.suffix.lower() in (".jxl", ".jpegxl"):
-        try:
-            cmd = ["djxl", str(image_path), str(output_path)]
-            subprocess.run(cmd, capture_output=True, check=True)
-            return
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            msg = f"Failed to decode JXL file {image_path}: {e}"
-            raise OSError(msg) from e
-
-    if image_path.suffix.lower() == ".avif":
-        try:
-            cmd = ["avifdec", str(image_path), str(output_path)]
-            subprocess.run(cmd, capture_output=True, check=True)
-            return
-        except FileNotFoundError:
-            pass
-
-    try:
-        with Image.open(image_path) as img:
-            if img.mode not in ("RGB", "L"):
-                converted = img.convert("RGB")
-                converted.save(output_path, format="PNG")
-            else:
-                img.save(output_path, format="PNG")
-    except Exception as e:
-        msg = f"Failed to convert {image_path} to PNG: {e}"
-        raise OSError(msg) from e
-
-
-def _read_pfm(pfm_path: Path) -> np.ndarray:
-    """Read a PFM file.  Delegates to :func:`src.quality.read_pfm`."""
-    return read_pfm(pfm_path)
-
-
 def generate_distortion_map(
     original: Path,
     compressed: Path,
@@ -453,10 +381,10 @@ def generate_distortion_map(
         comp_png = compressed
         if original.suffix.lower() != ".png":
             orig_png = tmpdir_path / "original.png"
-            _to_png(original, orig_png)
+            to_png(original, orig_png)
         if compressed.suffix.lower() != ".png":
             comp_png = tmpdir_path / "compressed.png"
-            _to_png(compressed, comp_png)
+            to_png(compressed, comp_png)
 
         output_pfm.parent.mkdir(parents=True, exist_ok=True)
         # butteraugli_main requires at least --distmap; route it to a
@@ -479,17 +407,6 @@ def generate_distortion_map(
     return output_pfm
 
 
-def _find_worst_region_in_array(
-    arr: np.ndarray,
-    crop_size: int,
-) -> WorstRegion:
-    """Find the worst region in a 2-D distortion value array.
-
-    Delegates to :func:`src.quality.find_worst_region_in_array`.
-    """
-    return find_worst_region_in_array(arr, crop_size)
-
-
 def find_worst_region(
     pfm_path: Path,
     crop_size: int = 128,
@@ -506,8 +423,8 @@ def find_worst_region(
     Returns:
         :class:`WorstRegion` with coordinates and average distortion score.
     """
-    arr = _read_pfm(pfm_path)
-    return _find_worst_region_in_array(arr, crop_size)
+    arr = read_pfm(pfm_path)
+    return find_worst_region_in_array(arr, crop_size)
 
 
 def crop_and_zoom(
@@ -532,11 +449,11 @@ def crop_and_zoom(
         src = image_path
         if image_path.suffix.lower() in (".jxl", ".jpegxl"):
             src = Path(tmpdir) / "decoded.png"
-            _to_png(image_path, src)
+            to_png(image_path, src)
         elif image_path.suffix.lower() == ".avif":
             try:
                 src = Path(tmpdir) / "decoded.png"
-                _to_png(image_path, src)
+                to_png(image_path, src)
             except OSError:
                 src = image_path  # Try Pillow directly
 
@@ -970,7 +887,7 @@ def compute_aggregate_distortion_maps(
         colocated_pfm = enc_path.with_suffix(".pfm")
         if colocated_pfm.exists():
             try:
-                arr = _read_pfm(colocated_pfm)
+                arr = read_pfm(colocated_pfm)
                 arrays.append(arr)
                 variant_pairs.append((arr, m))
                 continue
@@ -985,7 +902,7 @@ def compute_aggregate_distortion_maps(
             continue
 
         try:
-            arr = _read_pfm(raw_pfm)
+            arr = read_pfm(raw_pfm)
         except ValueError as exc:
             print(f"    Warning: could not read PFM for {fmt} q{quality}: {exc}")
             continue
@@ -1221,8 +1138,8 @@ def generate_comparison(
                         f"Using pre-computed fragment from pipeline"
                     )
                 else:
-                    avg_region = _find_worst_region_in_array(avg_map, crop_size=config.crop_size)
-                    var_region = _find_worst_region_in_array(var_map, crop_size=config.crop_size)
+                    avg_region = find_worst_region_in_array(avg_map, crop_size=config.crop_size)
+                    var_region = find_worst_region_in_array(var_map, crop_size=config.crop_size)
                     region = avg_region if strat == "average" else var_region
 
                 print(
@@ -1327,7 +1244,7 @@ def generate_comparison(
                         variant_pfm = work / f"dm_{strat}_{res_label or 'orig'}_{safe_name}.pfm"
                         try:
                             generate_distortion_map(source_path, enc_path, variant_pfm)
-                            dm_arr = _read_pfm(variant_pfm)
+                            dm_arr = read_pfm(variant_pfm)
                             variant_distmap_entries.append((dm_arr, label, metric_label))
                         except (RuntimeError, ValueError) as exc:
                             print(f"    Warning: distortion map for {label} failed: {exc}")
@@ -1668,63 +1585,6 @@ def _visualize_distortion_map(
         pil_img.save(output_path)
 
     _draw_annotation_on_image(output_path, region, output_path, dash_color=dash_color)
-
-
-def _save_annotated_original_dual(
-    source_path: Path,
-    avg_region: WorstRegion,
-    var_region: WorstRegion,
-    output_path: Path,
-) -> None:
-    """Save a copy of the source image annotated with both strategy regions.
-
-    Draws two overlapping annotation boxes with distinct colours and labels
-    so the viewer can compare both selection strategies at a glance:
-
-    * **cyan / dashed** — region selected by the *average* distortion strategy.
-    * **orange / dashed** — region selected by the *variance* strategy.
-
-    Each box carries a small coloured text badge (``"avg"`` / ``"var"``)
-    at its top-left corner so the two annotations remain identifiable even
-    when the regions overlap.
-
-    Args:
-        source_path: Path to the original source image.
-        avg_region: Region chosen by the average-distortion strategy.
-        var_region: Region chosen by the variance strategy.
-        output_path: Destination image path (PNG or lossless WebP by suffix).
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    def _region_draw_cmd(reg: WorstRegion, color: str, text: str) -> str:
-        x1, y1 = reg.x, reg.y
-        x2, y2 = reg.x + reg.width, reg.y + reg.height
-        tx, ty = x1 + 2, y1 + 2
-        return (
-            f"push graphic-context "
-            f"fill none stroke white stroke-width 5 "
-            f"rectangle {x1},{y1} {x2},{y2} "
-            f"stroke-dasharray 10,6 stroke {color} stroke-width 2 "
-            f"rectangle {x1},{y1} {x2},{y2} "
-            f"fill rgba(255,255,255,0.82) stroke none "
-            f"roundrectangle {tx},{ty} {tx + 34},{ty + 18} 3,3 "
-            f"fill {color} font DejaVu-Sans font-size 13 stroke none "
-            f"text {tx + 4},{ty + 14} '{text}' "
-            f"pop graphic-context"
-        )
-
-    draw_cmd = (
-        _region_draw_cmd(avg_region, "cyan", "avg")
-        + " "
-        + _region_draw_cmd(var_region, "orange", "var")
-    )
-    extra_args: list[str] = []
-    if output_path.suffix.lower() == ".webp":
-        extra_args = ["-define", "webp:lossless=true"]
-    cmd = ["magick", str(source_path), "-draw", draw_cmd, *extra_args, str(output_path)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"  Warning: Could not annotate image: {result.stderr}")
 
 
 def _save_annotated_original(

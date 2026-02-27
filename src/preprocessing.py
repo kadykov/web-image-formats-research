@@ -1,7 +1,6 @@
 """Image preprocessing module.
 
-This module handles image preprocessing tasks such as resizing,
-format conversion, and preparation for encoding.
+This module handles image resizing for encoding at specific resolutions.
 """
 
 from pathlib import Path
@@ -59,45 +58,3 @@ class ImagePreprocessor:
             resized_img.save(output_path)
 
         return output_path
-
-    def convert_to_png(self, input_path: Path, output_name: str | None = None) -> Path:
-        """Convert image to PNG format.
-
-        Args:
-            input_path: Path to the input image
-            output_name: Optional output filename (without extension)
-
-        Returns:
-            Path to the converted PNG image
-        """
-        if output_name is None:
-            output_name = input_path.stem
-        output_path = self.output_dir / f"{output_name}.png"
-
-        with Image.open(input_path) as img:
-            # Convert to RGB if necessary (PNG supports both RGB and RGBA)
-            converted_img = img
-            if img.mode not in ["RGB", "RGBA"]:
-                converted_img = img.convert("RGB")  # type: ignore
-            converted_img.save(output_path, "PNG")
-
-        return output_path
-
-    def get_image_info(self, image_path: Path) -> dict[str, int | str | tuple[int, int]]:
-        """Get basic information about an image.
-
-        Args:
-            image_path: Path to the image
-
-        Returns:
-            Dictionary with image information (format, size, mode, dimensions)
-        """
-        with Image.open(image_path) as img:
-            return {
-                "format": img.format or "unknown",
-                "size": image_path.stat().st_size,
-                "mode": img.mode,
-                "dimensions": img.size,
-                "width": img.width,
-                "height": img.height,
-            }

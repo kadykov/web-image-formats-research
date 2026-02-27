@@ -24,6 +24,57 @@ from typing import Any
 import numpy as np
 
 
+def to_png(image_path: Path, output_path: Path) -> None:
+    """Convert an image to PNG format for measurement tools.
+
+    Many quality measurement tools have limited format support (e.g.,
+    ssimulacra2 and butteraugli can't read AVIF or JXL directly).
+    This function converts any image format to PNG.
+
+    For most formats, Pillow is used. For formats Pillow doesn't support
+    (like JPEG XL), format-specific decoders are used.
+
+    Args:
+        image_path: Path to the source image (any format)
+        output_path: Path where PNG will be written
+
+    Raises:
+        OSError: If image cannot be read or written
+    """
+    from PIL import Image
+
+    # Handle JPEG XL separately since Pillow doesn't support it
+    if image_path.suffix.lower() in (".jxl", ".jpegxl"):
+        try:
+            cmd = ["djxl", str(image_path), str(output_path)]
+            subprocess.run(cmd, capture_output=True, check=True)
+            return
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            msg = f"Failed to decode JXL file {image_path}: {e}"
+            raise OSError(msg) from e
+
+    # Handle AVIF separately since Pillow support may be limited
+    if image_path.suffix.lower() == ".avif":
+        try:
+            cmd = ["avifdec", str(image_path), str(output_path)]
+            subprocess.run(cmd, capture_output=True, check=True)
+            return
+        except FileNotFoundError:
+            pass
+
+    # Use Pillow for all other formats
+    try:
+        with Image.open(image_path) as img:
+            if img.mode not in ("RGB", "L"):
+                converted_img = img.convert("RGB")
+                converted_img.save(output_path, format="PNG")
+            else:
+                img.save(output_path, format="PNG")
+    except Exception as e:
+        msg = f"Failed to convert {image_path} to PNG: {e}"
+        raise OSError(msg) from e
+
+
 def get_measurement_tool_version(tool: str) -> str | None:
     """Get version string for a measurement tool.
 
@@ -233,56 +284,9 @@ class QualityMeasurer:
     def _to_png(image_path: Path, output_path: Path) -> None:
         """Convert an image to PNG format for measurement tools.
 
-        Many quality measurement tools have limited format support (e.g.,
-        ssimulacra2 and butteraugli can't read AVIF or JXL directly).
-        This method converts any image format to PNG.
-
-        For most formats, Pillow is used. For formats Pillow doesn't support
-        (like JPEG XL), format-specific decoders are used.
-
-        Args:
-            image_path: Path to the source image (any format)
-            output_path: Path where PNG will be written
-
-        Raises:
-            IOError: If image cannot be read or written
-            subprocess.CalledProcessError: If external decoder fails
+        Delegates to the module-level :func:`to_png`.
         """
-        from PIL import Image
-
-        # Handle JPEG XL separately since Pillow doesn't support it
-        if image_path.suffix.lower() in (".jxl", ".jpegxl"):
-            try:
-                cmd = ["djxl", str(image_path), str(output_path)]
-                subprocess.run(cmd, capture_output=True, check=True)
-                return
-            except (subprocess.CalledProcessError, FileNotFoundError) as e:
-                msg = f"Failed to decode JXL file {image_path}: {e}"
-                raise OSError(msg) from e
-
-        # Handle AVIF separately since Pillow support may be limited
-        if image_path.suffix.lower() == ".avif":
-            try:
-                # Try avifdec if available
-                cmd = ["avifdec", str(image_path), str(output_path)]
-                subprocess.run(cmd, capture_output=True, check=True)
-                return
-            except FileNotFoundError:
-                # Fall back to Pillow if avifdec not available
-                pass
-
-        # Use Pillow for all other formats
-        try:
-            with Image.open(image_path) as img:
-                # Convert to RGB if necessary (some formats use different color modes)
-                if img.mode not in ("RGB", "L"):
-                    converted_img = img.convert("RGB")
-                    converted_img.save(output_path, format="PNG")
-                else:
-                    img.save(output_path, format="PNG")
-        except Exception as e:
-            msg = f"Failed to convert {image_path} to PNG: {e}"
-            raise OSError(msg) from e
+        to_png(image_path, output_path)
 
     def measure_ssimulacra2(self, original: Path, compressed: Path) -> float | None:
         """Measure SSIMULACRA2 score between two images.
