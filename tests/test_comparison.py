@@ -366,7 +366,9 @@ def test_find_worst_source_image_variance(sample_quality_data: dict) -> None:
     # image1 scores: [55, 75, 70, 85] → mean=71.25, var=((55-71.25)^2+(75-71.25)^2+(70-71.25)^2+(85-71.25)^2)/4 = 112.1875
     # image2 scores: [50, 70] → mean=60, var=((50-60)^2+(70-60)^2)/2 = 100.0
     worst = find_worst_source_image(
-        sample_quality_data["measurements"], metric="ssimulacra2", strategy="variance",
+        sample_quality_data["measurements"],
+        metric="ssimulacra2",
+        strategy="variance",
     )
     assert worst == "data/datasets/test/image1.png"
 
@@ -375,7 +377,8 @@ def test_find_worst_source_image_unknown_strategy(sample_quality_data: dict) -> 
     """Test that unknown strategy raises ValueError."""
     with pytest.raises(ValueError, match="Unknown image selection strategy"):
         find_worst_source_image(
-            sample_quality_data["measurements"], strategy="unknown",
+            sample_quality_data["measurements"],
+            strategy="unknown",
         )
 
 

@@ -197,8 +197,7 @@ Examples:
             print(f"    Worst format: {sr.worst_format} q{sr.worst_quality}")
             print(f"    {config.metric}: {sr.worst_metric_value:.2f}")
             print(
-                f"    Region: ({sr.region.x}, {sr.region.y}) "
-                f"{sr.region.width}x{sr.region.height}"
+                f"    Region: ({sr.region.x}, {sr.region.y}) {sr.region.width}x{sr.region.height}"
             )
             print(f"    Output images: {len(sr.output_images)}")
             for img in sr.output_images:

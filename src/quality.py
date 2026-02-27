@@ -571,7 +571,9 @@ class QualityMeasurer:
         """
         if distmap_path is not None:
             butteraugli = self.measure_butteraugli_with_distmap(
-                original, compressed, distmap_path,
+                original,
+                compressed,
+                distmap_path,
             )
         else:
             butteraugli = self.measure_butteraugli(original, compressed)
