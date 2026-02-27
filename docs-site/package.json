@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "description": "Documentation for web-image-formats-research project",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
+    "dev": "astro dev --host",
+    "start": "astro dev --host",
     "build": "GITHUB_PAGES=true astro build",
     "build:local": "astro build",
-    "preview": "astro preview",
+    "preview": "astro preview --host",
     "astro": "astro"
   },
   "dependencies": {
