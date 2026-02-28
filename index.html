@@ -111,18 +111,12 @@
     .figures > h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
     .figures > p { color: var(--muted); font-size: 0.95rem; margin-bottom: 1.5rem; }
     .figure-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 1.5rem;
-    }
-    @media (min-width: 48rem) {
-      .figure-grid { grid-template-columns: 1fr 1fr; }
+      display: flex;
+      flex-direction: column;
+      gap: 2.5rem;
     }
     figure {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 0.75rem;
-      padding: 1.25rem;
+      margin: 0;
     }
     figure img {
       width: 100%;
