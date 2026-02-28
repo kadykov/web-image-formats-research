@@ -120,7 +120,7 @@ def sample_svg(tmp_path: Path) -> Path:
     svg_content = (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<svg xmlns="http://www.w3.org/2000/svg" width="400.123456" height="300.654321">\n'
-        '  <style>rect { fill: red; } line { stroke: blue; }</style>\n'
+        "  <style>rect { fill: red; } line { stroke: blue; }</style>\n"
         '  <rect x="10.123456" y="10.654321" width="380.246813" height="280.975309" fill="red"/>\n'
         '  <line x1="0.111111" y1="0.222222" x2="399.888889" y2="299.777778" stroke="blue"/>\n'
         "</svg>\n"
