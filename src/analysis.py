@@ -920,9 +920,12 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     stats = compute_statistics(df, varying)
 
     # Save statistics to CSV
+    # Use %.4g format: 4 significant figures with automatic scientific notation for
+    # very large/small values, trailing zeros stripped — far more compact than the
+    # default full float64 representation (e.g. 66.93242556999999 → 66.93).
     study_id = quality_results.get("study_id", "unknown")
     stats_path = output_dir / f"{study_id}_statistics.csv"
-    stats.to_csv(stats_path, index=False)
+    stats.to_csv(stats_path, index=False, float_format="%.4g")
     print(f"Statistics saved to: {stats_path}")
 
     # Determine sweep parameter for plots
