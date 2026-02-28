@@ -345,6 +345,7 @@ def plot_rate_distortion(
     metric: str,
     grouping_param: str | None,
     title: str | None = None,
+    primary_param: str | None = None,
 ) -> go.Figure:
     """Create interactive rate-distortion plot (quality vs bytes per pixel).
 
@@ -353,6 +354,10 @@ def plot_rate_distortion(
         metric: Quality metric (e.g., 'ssimulacra2')
         grouping_param: Parameter to group lines by (e.g., 'format')
         title: Optional custom title
+        primary_param: Primary sweep parameter to sort points by (e.g., 'quality', 'speed').
+            When provided, points within each group are connected in the order of this
+            parameter rather than by bytes_per_pixel, giving a meaningful line for
+            non-monotonic sweeps such as speed or effort settings.
 
     Returns:
         Plotly Figure object
@@ -377,7 +382,8 @@ def plot_rate_distortion(
         groups = stats.groupby(grouping_param, dropna=False)
         for idx, (name, group) in enumerate(groups):
             label = str(name) if name is not None else "default"
-            group = group.sort_values(bpp_col)
+            sort_col = primary_param if (primary_param and primary_param in group.columns) else bpp_col
+            group = group.sort_values(sort_col)
             color = _group_color(label, idx)
             marker = PLOTLY_MARKERS[idx % len(PLOTLY_MARKERS)]
 
@@ -410,7 +416,8 @@ def plot_rate_distortion(
                 )
             )
     else:
-        stats_sorted = stats.sort_values(bpp_col)
+        sort_col = primary_param if (primary_param and primary_param in stats.columns) else bpp_col
+        stats_sorted = stats.sort_values(sort_col)
         fig.add_trace(
             go.Scatter(
                 x=stats_sorted[bpp_col],
@@ -973,7 +980,7 @@ def generate_study_figures(
         for metric in quality_metrics:
             if f"{metric}_mean" in stats.columns:
                 key = f"{study_id}_{metric}_vs_bytes_per_pixel"
-                figures[key] = plot_rate_distortion(stats, metric, secondary_param)
+                figures[key] = plot_rate_distortion(stats, metric, secondary_param, primary_param=x_param)
 
     # 2. Quality metric plots vs sweep parameter
     for metric in quality_metrics:

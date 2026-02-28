@@ -389,6 +389,7 @@ def plot_rate_distortion(
     grouping_param: str | None,
     output_path: Path,
     title: str | None = None,
+    primary_param: str | None = None,
 ) -> None:
     """Plot quality metric vs bytes_per_pixel (rate-distortion curve).
 
@@ -398,6 +399,10 @@ def plot_rate_distortion(
         grouping_param: Parameter to group lines by (e.g., 'format', 'chroma_subsampling')
         output_path: Path to save plot (WebP format)
         title: Optional custom title
+        primary_param: Primary sweep parameter to sort points by (e.g., 'quality', 'speed').
+            When provided, points within each group are connected in the order of this
+            parameter rather than by bytes_per_pixel, giving a meaningful line for
+            non-monotonic sweeps such as speed or effort settings.
     """
     mean_col = f"{metric}_mean"
     worst_col = f"{metric}_{get_worst_percentile_col(metric)}"
@@ -424,8 +429,10 @@ def plot_rate_distortion(
             # Create label from group name
             label = str(name) if name is not None else "default"
 
-            # Sort by bytes per pixel for proper line connection
-            group = group.sort_values(bpp_col)
+            # Sort by primary parameter (if given) so points are connected in the
+            # logical sweep order; fall back to bytes_per_pixel.
+            sort_col = primary_param if (primary_param and primary_param in group.columns) else bpp_col
+            group = group.sort_values(sort_col)
 
             # Select marker and color
             marker = MARKERS[idx % len(MARKERS)]
@@ -455,7 +462,8 @@ def plot_rate_distortion(
             )
     else:
         # No grouping, just plot all data as one series
-        stats_sorted = stats.sort_values(bpp_col)
+        sort_col = primary_param if (primary_param and primary_param in stats.columns) else bpp_col
+        stats_sorted = stats.sort_values(sort_col)
         ax.plot(
             stats_sorted[bpp_col],
             stats_sorted[mean_col],
@@ -937,7 +945,7 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
         for metric in quality_metrics:
             if f"{metric}_mean" in stats.columns:
                 plot_path = output_dir / f"{study_id}_{metric}_vs_bytes_per_pixel.svg"
-                plot_rate_distortion(stats, metric, secondary_param, plot_path)
+                plot_rate_distortion(stats, metric, secondary_param, plot_path, primary_param=x_param)
                 print(f"Rate-distortion plot saved: {plot_path}")
 
     # Generate bytes per pixel plot (with p05 and p95)
