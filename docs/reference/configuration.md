@@ -157,3 +157,9 @@ Key fields per measurement:
 | `butteraugli` | Butteraugli distance |
 | `encoding_time` | Time taken to encode in seconds |
 | `measurement_error` | Error message (null if successful) |
+
+## See also
+
+- [Add a custom dataset](../how-to/add-dataset) — register new datasets in `datasets.json`
+- [Create a custom study](../how-to/create-study) — define new study configurations
+- [Extend formats and metrics](../how-to/extend-formats-and-metrics) — add new encoder parameters, formats, or metrics

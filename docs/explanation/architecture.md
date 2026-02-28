@@ -77,6 +77,8 @@ Pipeline parameters live in JSON config files rather than being hardcoded:
 
 There are no "future" config files for preprocessing, quality, or analysis — those behaviours are determined by the study config and the source code defaults. This keeps the config surface small and avoids speculative abstraction.
 
+See [Add a custom dataset](../how-to/add-dataset) and [Create a custom study](../how-to/create-study) for guides on extending the configuration.
+
 ## Format choices
 
 | Format | Role | Why included |
@@ -129,6 +131,8 @@ There is no `requirements.txt`. The pyproject is the single source of truth.
 
 Running tests inside the dev container (rather than on bare Ubuntu) ensures that all native tools are available and integration tests produce accurate results.
 
+Beyond CI, the project also uses GitHub Actions as a public research platform — see [Public research with GitHub Actions](github-actions-research) for details.
+
 ## Module architecture
 
 The `src/` modules map to pipeline stages and post-processing:
@@ -147,3 +151,5 @@ The `src/` modules map to pipeline stages and post-processing:
 | `report_images.py` | Generate report visualisation assets |
 
 Each module is independently testable. Scripts in `scripts/` provide CLI entry points that compose these modules.
+
+For guidance on extending the codebase with new formats or metrics, see [Extend formats and metrics](../how-to/extend-formats-and-metrics).

@@ -121,3 +121,10 @@ quality-vs-parameter plots, and comparison images.
 - [Generate comparisons](../how-to/generate-comparison) — visual comparison options
 - [Generate reports](../how-to/generate-report) — interactive HTML reports
 - [Architecture](../explanation/architecture) — design decisions and rationale
+
+### Customize your research
+
+- [Add a custom dataset](../how-to/add-dataset) — register new image sources
+- [Create a custom study](../how-to/create-study) — define your own encoding experiments
+- [Extend formats and metrics](../how-to/extend-formats-and-metrics) — add new encoders or quality metrics
+- [Run studies on GitHub Actions](../how-to/run-studies-on-github-actions) — run studies on CI infrastructure
