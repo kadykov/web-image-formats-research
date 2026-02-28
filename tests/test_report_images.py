@@ -6,6 +6,7 @@ import pytest
 from PIL import Image
 
 from src.report_images import (
+    SVG_PRECISION,
     ImageVariant,
     OptimisedImage,
     StudyComparisonImages,
@@ -14,6 +15,7 @@ from src.report_images import (
     img_srcset_html,
     optimise_lossless,
     optimise_lossy,
+    optimise_svg,
     picture_html,
 )
 
@@ -107,8 +109,81 @@ def comparison_tree_with_resolution(tmp_path: Path) -> Path:
     return analysis
 
 
+@pytest.fixture()
+def sample_svg(tmp_path: Path) -> Path:
+    """Create a minimal SVG imitating Matplotlib output.
+
+    Includes:
+    - 6-decimal-place coordinates (to verify precision reduction)
+    - A ``<style>`` block (to verify ``removeStyleElement`` is applied)
+    """
+    svg_content = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400.123456" height="300.654321">\n'
+        '  <style>rect { fill: red; } line { stroke: blue; }</style>\n'
+        '  <rect x="10.123456" y="10.654321" width="380.246813" height="280.975309" fill="red"/>\n'
+        '  <line x1="0.111111" y1="0.222222" x2="399.888889" y2="299.777778" stroke="blue"/>\n'
+        "</svg>\n"
+    )
+    p = tmp_path / "figure.svg"
+    p.write_text(svg_content, encoding="utf-8")
+    return p
+
+
 # ---------------------------------------------------------------------------
-# _classify_image
+# optimise_svg
+# ---------------------------------------------------------------------------
+
+
+class TestOptimiseSvg:
+    def test_creates_output_file(self, sample_svg: Path, tmp_path: Path) -> None:
+        dest = tmp_path / "out" / "figure.svg"
+        result = optimise_svg(sample_svg, dest)
+        assert result == dest
+        assert dest.exists()
+        assert dest.stat().st_size > 0
+
+    def test_output_is_valid_svg(self, sample_svg: Path, tmp_path: Path) -> None:
+        dest = tmp_path / "figure_opt.svg"
+        optimise_svg(sample_svg, dest)
+        content = dest.read_text(encoding="utf-8")
+        assert "<svg" in content
+        assert "</svg>" in content
+
+    def test_output_is_smaller_or_equal(self, sample_svg: Path, tmp_path: Path) -> None:
+        dest = tmp_path / "figure_opt.svg"
+        optimise_svg(sample_svg, dest)
+        assert dest.stat().st_size <= sample_svg.stat().st_size
+
+    def test_precision_applied(self, sample_svg: Path, tmp_path: Path) -> None:
+        """Values like 10.123456 should be rounded to 1 decimal place."""
+        import re
+
+        dest = tmp_path / "figure_opt.svg"
+        optimise_svg(sample_svg, dest, precision=1)
+        content = dest.read_text(encoding="utf-8")
+        # No multi-digit decimal runs should remain
+        assert not re.search(r"\d+\.\d{3,}", content), (
+            "Expected precision to be reduced to ≤2 decimal places"
+        )
+
+    def test_style_element_removed(self, sample_svg: Path, tmp_path: Path) -> None:
+        """The ``<style>`` block should be stripped by ``removeStyleElement``."""
+        dest = tmp_path / "figure_opt.svg"
+        optimise_svg(sample_svg, dest)
+        content = dest.read_text(encoding="utf-8")
+        assert "<style" not in content
+
+    def test_creates_parent_directories(self, sample_svg: Path, tmp_path: Path) -> None:
+        dest = tmp_path / "a" / "b" / "c" / "figure.svg"
+        optimise_svg(sample_svg, dest)
+        assert dest.exists()
+
+    def test_default_precision_is_svg_precision_constant(self) -> None:
+        """SVG_PRECISION constant value is 1 (sufficient for screen rendering)."""
+        assert SVG_PRECISION == 1
+
+
 # ---------------------------------------------------------------------------
 
 

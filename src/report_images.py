@@ -116,6 +116,15 @@ class StudyComparisonImages:
 #: Target display widths for lossy images (px).
 LOSSY_TARGET_WIDTHS: list[int] = [600, 900, 1400]
 
+#: Number of decimal places kept by SVGO when optimising SVG files.
+#: Matplotlib typically emits 6+ significant digits; 1 is sufficient for
+#: screen rendering and yields the greatest file-size savings.
+SVG_PRECISION: int = 1
+
+#: Absolute path to the SVGO configuration file bundled with this project.
+#: The config enables ``removeStyleElement`` on top of the default preset.
+_SVGO_CONFIG: Path = Path(__file__).resolve().parent.parent / "config" / "svgo.config.mjs"
+
 #: AVIF quality for lossy pipeline (0–100 scale, where 100 is lossless).
 # YUV444 chroma is used to avoid sub-sampling artefacts on synthetic / visualisation content,
 # so a lower quality setting can be used without introducing visible colour degradation.
@@ -123,6 +132,70 @@ AVIF_QUALITY: int = 60
 
 #: WebP quality for lossy pipeline (0–100 scale).
 WEBP_QUALITY: int = 85
+
+
+# ---------------------------------------------------------------------------
+# SVG optimisation
+# ---------------------------------------------------------------------------
+
+
+def optimise_svg(
+    source: Path,
+    dest: Path,
+    *,
+    precision: int = SVG_PRECISION,
+) -> Path:
+    """Optimise an SVG file with SVGO and write the result to *dest*.
+
+    Runs ``npx svgo`` using :data:`_SVGO_CONFIG`, which enables
+    ``removeStyleElement`` on top of the default preset, combined with
+    ``--multipass`` and the given floating-point *precision*.
+
+    ``removeStyleElement`` strips the embedded ``<style>`` block that
+    Matplotlib writes into every SVG.  Those rules are redundantly
+    inlined on individual elements, so their removal is lossless and
+    typically yields the largest share of size reduction.
+
+    If SVGO is unavailable or fails the source file is copied verbatim
+    and a warning is printed so that report generation is never blocked.
+
+    Args:
+        source: Path to the original ``.svg`` file.
+        dest: Destination path (parent directories are created as needed).
+        precision: Number of digits in the fractional part of numeric
+            values.  Lower values yield smaller files at the cost of
+            sub-pixel accuracy — ``1`` is sufficient for screen rendering.
+
+    Returns:
+        Path to the written file (*dest*).
+    """
+    import shutil
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "npx",
+        "--yes",
+        "svgo",
+        "--config",
+        str(_SVGO_CONFIG),
+        "--precision",
+        str(precision),
+        "--multipass",
+        "--quiet",
+        "-i",
+        str(source),
+        "-o",
+        str(dest),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(
+            f"  Warning: SVGO failed for {source.name} "
+            f"(exit {result.returncode}) — copying verbatim.\n"
+            f"  {result.stderr.strip()}"
+        )
+        shutil.copy2(source, dest)
+    return dest
 
 
 # ---------------------------------------------------------------------------

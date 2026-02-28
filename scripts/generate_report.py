@@ -20,6 +20,7 @@ from src.interactive import figure_to_html_fragment, generate_study_figures
 from src.report_images import (
     discover_and_optimise,
     img_srcset_html,
+    optimise_svg,
     picture_html,
 )
 
@@ -177,15 +178,15 @@ def generate_study_page(
         csv_relative = f"data/{study_id}/{study_id}_statistics.csv"
         print(f"  Copied CSV: {csv_dest}")
 
-    # Copy SVG static figures
+    # Copy and optimise SVG static figures
     svg_files = []
     if analysis_dir.exists():
         for svg_path in analysis_dir.glob("*.svg"):
             svg_dest = data_output / svg_path.name
-            shutil.copy2(svg_path, svg_dest)
+            optimise_svg(svg_path, svg_dest)
             svg_files.append(f"data/{study_id}/{svg_path.name}")
         if svg_files:
-            print(f"  Copied {len(svg_files)} SVG files")
+            print(f"  Optimised {len(svg_files)} SVG files")
 
     # Build sections for template
     sections = []
