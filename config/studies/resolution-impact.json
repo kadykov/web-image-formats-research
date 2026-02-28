@@ -2,10 +2,10 @@
   "$schema": "../study.schema.json",
   "id": "resolution-impact",
   "name": "Resolution Impact Study",
-  "description": "Study how input resolution affects compression efficiency across different image formats (JPEG, WebP, AVIF, JPEG XL). Tests the same images at multiple downscaled resolutions to understand resolution-dependent performance characteristics.",
+  "description": "Study how input resolution affects compression efficiency across different image formats (JPEG, WebP, AVIF, JPEG XL). Tests the same images at multiple downscaled resolutions to understand resolution-dependent performance characteristics. Quality settings are chosen to target around 80 SSIMULACRA2 score for each format at the original resolution.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 10
+    "max_images": 100
   },
   "encoders": [
     {
@@ -22,7 +22,7 @@
     {
       "format": "avif",
       "quality": 65,
-      "speed": 3,
+      "speed": 4,
       "resolution": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
     },
     {

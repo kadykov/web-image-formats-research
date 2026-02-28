@@ -5,7 +5,7 @@
   "description": "Study how AVIF encoding speed affects quality and file size. Tests speed settings from 0 (slowest/best) to 10 (fastest) at representative quality levels to find the optimal speed/quality tradeoff.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 10
+    "max_images": 100
   },
   "encoders": [
     {

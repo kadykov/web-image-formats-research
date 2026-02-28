@@ -5,14 +5,14 @@
   "description": "Compare AVIF with 4:4:4 and 4:2:0 chroma subsampling at the same quality levels using the DIV2K validation set.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 10
+    "max_images": 100
   },
   "encoders": [
     {
       "format": "avif",
-      "quality": { "start": 40, "stop": 90, "step": 10 },
+      "quality": { "start": 40, "stop": 90, "step": 5 },
       "chroma_subsampling": ["444", "420"],
-      "speed": 3
+      "speed": 4
     }
   ]
 }

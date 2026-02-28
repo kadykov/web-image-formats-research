@@ -5,12 +5,12 @@
   "description": "Study how JPEG XL encoding effort affects quality and file size. Tests effort settings from 1 (fastest) to 10 (slowest/best) at representative quality levels to find the optimal effort/quality tradeoff.",
   "dataset": {
     "id": "div2k-valid",
-    "max_images": 10
+    "max_images": 100
   },
   "encoders": [
     {
       "format": "jxl",
-      "quality": [70, 75, 80, 85, 90],
+      "quality": [50, 60, 70, 80, 90],
       "effort": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     }
   ]
