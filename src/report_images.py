@@ -223,6 +223,8 @@ def _encode_webp_lossy(src_png: Path, dst: Path, quality: int = WEBP_QUALITY) ->
         "cwebp",
         "-q",
         str(quality),
+        "-m",
+        "6",
         str(src_png),
         "-o",
         str(dst),
