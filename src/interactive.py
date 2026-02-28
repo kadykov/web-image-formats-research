@@ -382,7 +382,9 @@ def plot_rate_distortion(
         groups = stats.groupby(grouping_param, dropna=False)
         for idx, (name, group) in enumerate(groups):
             label = str(name) if name is not None else "default"
-            sort_col = primary_param if (primary_param and primary_param in group.columns) else bpp_col
+            sort_col = (
+                primary_param if (primary_param and primary_param in group.columns) else bpp_col
+            )
             group = group.sort_values(sort_col)
             color = _group_color(label, idx)
             marker = PLOTLY_MARKERS[idx % len(PLOTLY_MARKERS)]
@@ -980,7 +982,9 @@ def generate_study_figures(
         for metric in quality_metrics:
             if f"{metric}_mean" in stats.columns:
                 key = f"{study_id}_{metric}_vs_bytes_per_pixel"
-                figures[key] = plot_rate_distortion(stats, metric, secondary_param, primary_param=x_param)
+                figures[key] = plot_rate_distortion(
+                    stats, metric, secondary_param, primary_param=x_param
+                )
 
     # 2. Quality metric plots vs sweep parameter
     for metric in quality_metrics:

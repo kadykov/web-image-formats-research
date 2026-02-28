@@ -431,7 +431,9 @@ def plot_rate_distortion(
 
             # Sort by primary parameter (if given) so points are connected in the
             # logical sweep order; fall back to bytes_per_pixel.
-            sort_col = primary_param if (primary_param and primary_param in group.columns) else bpp_col
+            sort_col = (
+                primary_param if (primary_param and primary_param in group.columns) else bpp_col
+            )
             group = group.sort_values(sort_col)
 
             # Select marker and color
@@ -945,7 +947,9 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
         for metric in quality_metrics:
             if f"{metric}_mean" in stats.columns:
                 plot_path = output_dir / f"{study_id}_{metric}_vs_bytes_per_pixel.svg"
-                plot_rate_distortion(stats, metric, secondary_param, plot_path, primary_param=x_param)
+                plot_rate_distortion(
+                    stats, metric, secondary_param, plot_path, primary_param=x_param
+                )
                 print(f"Rate-distortion plot saved: {plot_path}")
 
     # Generate bytes per pixel plot (with p05 and p95)
