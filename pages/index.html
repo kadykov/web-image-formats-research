@@ -56,11 +56,14 @@
     /* Cards */
     .cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+      grid-template-columns: 1fr;
       gap: 1.5rem;
       max-width: 56rem;
       margin: 0 auto;
       padding: 0 1.5rem 3rem;
+    }
+    @media (min-width: 40rem) {
+      .cards { grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
     }
     .card {
       background: var(--card-bg);
@@ -98,6 +101,42 @@
       background: var(--badge-bg);
       color: var(--badge-text);
     }
+
+    /* Figures */
+    .figures {
+      max-width: 56rem;
+      margin: 0 auto;
+      padding: 0 1.5rem 3rem;
+    }
+    .figures > h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .figures > p { color: var(--muted); font-size: 0.95rem; margin-bottom: 1.5rem; }
+    .figure-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    @media (min-width: 48rem) {
+      .figure-grid { grid-template-columns: 1fr 1fr; }
+    }
+    figure {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+    }
+    figure img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 0.375rem;
+    }
+    figcaption {
+      margin-top: 0.75rem;
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    figcaption strong { color: var(--text); }
 
     /* About section */
     .about {
@@ -172,6 +211,36 @@
     </a>
   </div>
 </div>
+
+<section class="figures">
+  <h2>Key Findings</h2>
+  <p>A preview of results from the format comparison study &mdash; two metrics, one story with a twist.</p>
+  <div class="figure-grid">
+    <figure>
+      <img
+        src="report/data/format-comparison/format-comparison_ssimulacra2_vs_bytes_per_pixel.svg"
+        alt="SSIMULACRA2 vs bytes per pixel: AVIF and JPEG XL both clearly outperform WebP and JPEG across all quality levels."
+        loading="lazy"
+      />
+      <figcaption>
+        <strong>SSIMULACRA2 metric.</strong> AVIF and JPEG&nbsp;XL deliver comparable
+        perceptual quality at significantly lower file sizes than WebP and JPEG.
+      </figcaption>
+    </figure>
+    <figure>
+      <img
+        src="report/data/format-comparison/format-comparison_butteraugli_vs_bytes_per_pixel.svg"
+        alt="Butteraugli vs bytes per pixel: JPEG XL consistently outperforms AVIF, while both outperform WebP and JPEG."
+        loading="lazy"
+      />
+      <figcaption>
+        <strong>Butteraugli metric.</strong> Under this distortion model JPEG&nbsp;XL
+        consistently edges ahead of AVIF &mdash; a different verdict than SSIMULACRA2,
+        highlighting how metric choice matters.
+      </figcaption>
+    </figure>
+  </div>
+</section>
 
 <div class="about">
   <h2>About This Project</h2>
