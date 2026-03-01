@@ -95,14 +95,9 @@ Examples:
     parser.add_argument(
         "--strategy",
         type=str,
-        default="both",
-        choices=["average", "variance", "both"],
-        help=(
-            "Strategy for both image and fragment selection (default: both). "
-            "'average' selects the consistently worst image/fragment. "
-            "'variance' selects the most parameter-sensitive image/fragment. "
-            "'both' outputs separate comparison sets for each strategy."
-        ),
+        default="anisotropic",
+        choices=["anisotropic"],
+        help="Fragment selection strategy (default: anisotropic).",
     )
 
     parser.add_argument(
@@ -212,8 +207,7 @@ Examples:
         )
         print("\nSummary:")
         for sr in result.strategies:
-            print(f"\n  [{sr.strategy}] Strategy:")
-            print(f"    Source image: {sr.source_image}")
+            print(f"\n  Source image: {sr.source_image}")
             print(f"    Image score: {sr.image_score:.2f}")
             print(f"    Worst format: {sr.worst_format} q{sr.worst_quality}")
             print(f"    {config.metric}: {sr.worst_metric_value:.2f}")

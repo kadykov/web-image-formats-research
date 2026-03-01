@@ -348,62 +348,74 @@ def test_find_worst_measurement_none_metric(sample_quality_data: dict) -> None:
 
 
 def test_find_worst_source_image_ssimulacra2(sample_quality_data: dict) -> None:
-    """Test finding worst source image by average SSIMULACRA2."""
-    # image1 avg: (55 + 75 + 70 + 85) / 4 = 71.25
-    # image2 avg: (50 + 70) / 2 = 60.0
-    worst = find_worst_source_image(sample_quality_data["measurements"], metric="ssimulacra2")
+    """Test finding worst source image by anisotropic SSIMULACRA2 variance.
+
+    With tile_param="format" and split_params=["quality"]:
+    - image1: group q50 → [jpeg=55, avif=70] var=56.25; group q80 → [jpeg=75, avif=85] var=25.0
+      anisotropic score = (56.25 + 25.0) / 2 = 40.625
+    - image2: only jpeg, so each quality group has 1 variant → falls back to overall variance
+      all_scores=[50, 70], var=100.0 → anisotropic score = 100.0
+    image2 wins (100.0 > 40.625).
+    """
+    worst = find_worst_source_image(
+        sample_quality_data["measurements"],
+        metric="ssimulacra2",
+        tile_param="format",
+        split_params=["quality"],
+    )
     assert worst == "data/datasets/test/image2.png"
 
 
 def test_find_worst_source_image_butteraugli(sample_quality_data: dict) -> None:
-    """Test finding worst source image by average Butteraugli."""
-    # image1 avg: (5.5 + 2.0 + 3.0 + 1.2) / 4 = 2.925
-    # image2 avg: (6.0 + 2.5) / 2 = 4.25
-    worst = find_worst_source_image(sample_quality_data["measurements"], metric="butteraugli")
+    """Test finding worst source image by anisotropic Butteraugli variance.
+
+    With tile_param="format" and split_params=["quality"]:
+    - image1: group q50 → [jpeg=5.5, avif=3.0] var=1.5625; group q80 → [jpeg=2.0, avif=1.2] var=0.16
+      anisotropic score = (1.5625 + 0.16) / 2 = 0.86125
+    - image2: single-variant groups → fallback: all_scores=[6.0, 2.5], var=6.125
+    image2 wins.
+    """
+    worst = find_worst_source_image(
+        sample_quality_data["measurements"],
+        metric="butteraugli",
+        tile_param="format",
+        split_params=["quality"],
+    )
     assert worst == "data/datasets/test/image2.png"
 
 
-def test_find_worst_source_image_variance(sample_quality_data: dict) -> None:
-    """Test finding worst source image by SSIMULACRA2 variance."""
-    # image1 scores: [55, 75, 70, 85] → mean=71.25, var=((55-71.25)^2+(75-71.25)^2+(70-71.25)^2+(85-71.25)^2)/4 = 112.1875
-    # image2 scores: [50, 70] → mean=60, var=((50-60)^2+(70-60)^2)/2 = 100.0
-    worst = find_worst_source_image(
-        sample_quality_data["measurements"],
-        metric="ssimulacra2",
-        strategy="variance",
-    )
-    assert worst == "data/datasets/test/image1.png"
+def test_get_worst_image_score_anisotropic(sample_quality_data: dict) -> None:
+    """Test computing anisotropic image score.
 
-
-def test_find_worst_source_image_unknown_strategy(sample_quality_data: dict) -> None:
-    """Test that unknown strategy raises ValueError."""
-    with pytest.raises(ValueError, match="Unknown image selection strategy"):
-        find_worst_source_image(
-            sample_quality_data["measurements"],
-            strategy="unknown",
-        )
-
-
-def test_get_worst_image_score_average(sample_quality_data: dict) -> None:
-    """Test computing average image score."""
+    image2 has only one format (jpeg), so all quality groups have a single
+    variant each → falls back to overall variance.
+    all_scores=[50, 70], var = ((50-60)^2 + (70-60)^2) / 2 = 100.0
+    """
     score = get_worst_image_score(
         sample_quality_data["measurements"],
         "data/datasets/test/image2.png",
         metric="ssimulacra2",
-        strategy="average",
-    )
-    assert abs(score - 60.0) < 0.01
-
-
-def test_get_worst_image_score_variance(sample_quality_data: dict) -> None:
-    """Test computing variance image score."""
-    score = get_worst_image_score(
-        sample_quality_data["measurements"],
-        "data/datasets/test/image2.png",
-        metric="ssimulacra2",
-        strategy="variance",
+        tile_param="format",
+        split_params=["quality"],
     )
     assert abs(score - 100.0) < 0.01
+
+
+def test_get_worst_image_score_anisotropic_multi_format(sample_quality_data: dict) -> None:
+    """Anisotropic score for image1 averages per-quality-group format variance.
+
+    q50 group: [jpeg=55, avif=70] → var=56.25
+    q80 group: [jpeg=75, avif=85] → var=25.0
+    anisotropic score = (56.25 + 25.0) / 2 = 40.625
+    """
+    score = get_worst_image_score(
+        sample_quality_data["measurements"],
+        "data/datasets/test/image1.png",
+        metric="ssimulacra2",
+        tile_param="format",
+        split_params=["quality"],
+    )
+    assert abs(score - 40.625) < 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +616,7 @@ def test_compute_aggregate_distortion_maps_unit(
         patch("src.comparison._get_or_encode", return_value=fake_enc),
         patch("src.comparison.generate_distortion_map", side_effect=fake_gen_distortion_map),
     ):
-        avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
+        aniso_map, variant_pairs = compute_aggregate_distortion_maps(
             source_path,
             measurements,
             output_dir,
@@ -612,12 +624,10 @@ def test_compute_aggregate_distortion_maps_unit(
             encoded_dir=encoded_dir,
         )
 
-    assert avg_map.shape == (8, 8)
-    assert var_map.shape == (8, 8)
-    # Average of 4.0 and 2.0 = 3.0
-    np.testing.assert_allclose(avg_map, 3.0, rtol=1e-5)
-    # Variance of [4.0, 2.0] = 1.0
-    np.testing.assert_allclose(var_map, 1.0, rtol=1e-5)
+    assert aniso_map.shape == (8, 8)
+    # Two measurements, same quality group (split_params=[]) → fallback to
+    # overall pixel-wise variance: var([4.0, 2.0]) = 1.0
+    np.testing.assert_allclose(aniso_map, 1.0, rtol=1e-5)
     # Both measurements should have produced arrays
     assert len(variant_pairs) == 2
     arrs = [a for a, _ in variant_pairs]
@@ -913,14 +923,14 @@ def test_comparison_config_defaults() -> None:
     assert config.metric == "ssimulacra2"
     assert config.max_columns == 4
     assert config.label_font_size == 22
-    assert config.strategy == "both"
+    assert config.strategy == "anisotropic"
     assert config.distmap_vmax == 5.0
     assert config.source_image is None
 
 
 def test_comparison_config_strategies() -> None:
-    """Test all supported strategy values."""
-    for strategy in ("average", "variance", "both"):
+    """Test supported strategy values."""
+    for strategy in ("anisotropic",):
         config = ComparisonConfig(strategy=strategy)
         assert config.strategy == strategy
 
@@ -943,14 +953,14 @@ def test_comparison_result() -> None:
     """Test ComparisonResult dataclass."""
     region = WorstRegion(x=10, y=20, width=128, height=128, avg_distortion=150.0)
     sr = StrategyResult(
-        strategy="average",
+        strategy="anisotropic",
         source_image="image.png",
         image_score=60.0,
         worst_format="jpeg",
         worst_quality=50,
         worst_metric_value=55.0,
         region=region,
-        output_dir=Path("comparison/average"),
+        output_dir=Path("comparison"),
         output_images=[Path("comparison.png")],
     )
     result = ComparisonResult(
@@ -961,23 +971,23 @@ def test_comparison_result() -> None:
     assert result.study_id == "test"
     assert len(result.strategies) == 1
     assert result.strategies[0].region.x == 10
-    assert result.strategies[0].strategy == "average"
+    assert result.strategies[0].strategy == "anisotropic"
 
 
 def test_strategy_result() -> None:
     """StrategyResult records all per-strategy fields."""
     region = WorstRegion(x=0, y=0, width=64, height=64, avg_distortion=1.0)
     sr = StrategyResult(
-        strategy="variance",
+        strategy="anisotropic",
         source_image="img.png",
         image_score=15.0,
         worst_format="avif",
         worst_quality=60,
         worst_metric_value=60.0,
         region=region,
-        output_dir=Path("comparison/variance"),
+        output_dir=Path("comparison"),
     )
-    assert sr.strategy == "variance"
+    assert sr.strategy == "anisotropic"
     assert sr.image_score == 15.0
     assert sr.output_images == []
 
@@ -1056,7 +1066,7 @@ def test_generate_comparison_integration(
         for img_path in sr.output_images:
             assert img_path.exists()
 
-        # Each strategy subdir has its own distortion map and annotated original
+        # Check that distortion map and annotated original were generated
         assert (sr.output_dir / f"distortion_map_{sr.strategy}.webp").exists()
         assert (sr.output_dir / "original_annotated.webp").exists()
         assert (sr.output_dir / "distortion_map_comparison.webp").exists()
