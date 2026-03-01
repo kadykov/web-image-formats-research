@@ -5,6 +5,10 @@
   "type": "object",
   "required": ["study_id", "study_name", "dataset", "timestamp", "measurements"],
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URI or relative path used to validate this file"
+    },
     "study_id": {
       "type": "string",
       "description": "Identifier of the study these measurements belong to"
@@ -35,8 +39,8 @@
       "additionalProperties": false
     },
     "encoding_timestamp": {
-      "type": "string",
-      "description": "ISO 8601 timestamp from the encoding stage",
+      "type": ["string", "null"],
+      "description": "ISO 8601 timestamp from the encoding stage. Null when encoding and measurement run in the same merged pipeline pass.",
       "format": "date-time"
     },
     "timestamp": {
@@ -214,25 +218,25 @@
             "maximum": 100
           },
           "chroma_subsampling": {
-            "type": "string",
-            "description": "Chroma subsampling mode used, if applicable",
-            "enum": ["444", "422", "420", "400"]
+            "type": ["string", "null"],
+            "description": "Chroma subsampling mode used, if applicable. Null for formats that do not support chroma subsampling selection.",
+            "enum": ["444", "422", "420", "400", null]
           },
           "speed": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "description": "Speed setting for AVIF encoder (0-10, lower is slower/better), if applicable"
           },
           "effort": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "description": "Effort setting for JPEG XL encoder (1-10, higher is slower/better), if applicable"
           },
           "method": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "description": "Compression method for WebP encoder (0-6, higher is slower/better), if applicable"
           },
           "resolution": {
-            "type": "integer",
-            "description": "Target resolution (longest edge in pixels) if preprocessing was applied"
+            "type": ["integer", "null"],
+            "description": "Target resolution (longest edge in pixels) if preprocessing was applied. Null when no resolution constraint was used."
           },
           "width": {
             "type": "integer",
@@ -248,6 +252,10 @@
             "type": "integer",
             "description": "File size of the source image in bytes",
             "minimum": 0
+          },
+          "encoding_time": {
+            "type": ["number", "null"],
+            "description": "Wall-clock time in seconds taken to encode this image"
           },
           "file_size": {
             "type": "integer",
@@ -275,8 +283,8 @@
             "description": "Error message if any measurements failed"
           },
           "extra_args": {
-            "type": "object",
-            "description": "Any encoder-specific extra arguments that were used",
+            "type": ["object", "null"],
+            "description": "Any encoder-specific extra arguments that were used. Null when no extra arguments were provided.",
             "additionalProperties": {
               "type": ["string", "integer", "boolean"]
             }

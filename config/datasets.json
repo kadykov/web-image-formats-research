@@ -1,4 +1,5 @@
 {
+  "$schema": "datasets.schema.json",
   "datasets": [
     {
       "id": "div2k-valid",

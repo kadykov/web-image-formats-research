@@ -13,6 +13,7 @@ which is required by all quality measurement tools.
 """
 
 import json
+import os
 import re
 import struct
 import subprocess
@@ -642,7 +643,11 @@ class QualityResults:
         """
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Compute relative path to schema file
+        schema_rel_path = self._compute_schema_path(path)
+
         data: dict[str, Any] = {
+            "$schema": schema_rel_path,
             "study_id": self.study_id,
             "study_name": self.study_name,
             "dataset": self.dataset,
@@ -684,3 +689,49 @@ class QualityResults:
 
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+
+    @staticmethod
+    def _compute_schema_path(output_file: Path) -> str:
+        """Compute relative path from output file to the schema.
+
+        Searches up the directory tree for the schema file and computes
+        the relative path from the output file's directory to it. If not
+        found, returns a sensible default based on the standard location
+        (data/metrics/*/quality.json).
+
+        Args:
+            output_file: Absolute path to the quality results JSON file.
+
+        Returns:
+            Relative path to the schema file (using forward slashes).
+        """
+        schema_filename = "quality-results.schema.json"
+        output_dir = output_file.resolve().parent
+
+        # Walk up from the output directory to find the schema file
+        current = output_dir
+        for _ in range(20):  # Limit search depth
+            schema_candidate = current / "config" / schema_filename
+            if schema_candidate.exists():
+                # Compute relative path from output dir to schema file
+                try:
+                    rel_path = os.path.relpath(
+                        schema_candidate,
+                        output_dir,
+                    )
+                    # Normalize to forward slashes for JSON
+                    return rel_path.replace(os.sep, "/")
+                except ValueError:
+                    # Cannot compute relative path (e.g., different drives on Windows)
+                    break
+
+            parent = current.parent
+            if parent == current:
+                # Reached filesystem root
+                break
+            current = parent
+
+        # Fallback: assume standard location (data/metrics/*/quality.json)
+        # Three levels up from data/metrics/<study>/ to the root,
+        # then down to config/quality-results.schema.json
+        return "../../../config/quality-results.schema.json"
