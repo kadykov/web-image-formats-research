@@ -222,9 +222,17 @@ def _process_image(
     # In-worker preprocessing cache: resolution → preprocessed path
     preprocessed_cache: dict[int, Path] = {}
 
-    # Running distortion-map accumulators per resolution group.
-    # Using running sums instead of stacking all arrays keeps memory
-    # constant regardless of the number of encoding variants.
+    # Anisotropic distortion-map accumulators.
+    # Grouped by (resolution, split_key) where split_key is a tuple of
+    # split_param values — one group per comparison figure.  Within each
+    # group, pixel-wise variance across tile-parameter values gives the
+    # anisotropic distortion signal.
+    # Global sums (keyed by resolution only) serve as a fallback when no
+    # group has ≥2 variants.
+    split_params: list[str] = config_dict.get("split_params", [])
+    group_distmap_sums: dict[tuple, np.ndarray] = {}
+    group_distmap_sumsq: dict[tuple, np.ndarray] = {}
+    group_distmap_counts: dict[tuple, int] = {}
     distmap_sums: dict[int | None, np.ndarray] = {}
     distmap_sumsq: dict[int | None, np.ndarray] = {}
     distmap_counts: dict[int | None, int] = {}
@@ -272,8 +280,20 @@ def _process_image(
                 )
                 all_records.append(record)
 
-                # Accumulate distortion map into running sums
+                # Accumulate distortion map into global and per-group running sums
                 if distmap_arr is not None:
+                    # Anisotropic group key: (resolution, split_params_values)
+                    split_key = tuple(str(task_kw.get(p)) for p in split_params)
+                    group_key: tuple = (resolution, split_key)
+
+                    if group_key not in group_distmap_sums:
+                        group_distmap_sums[group_key] = np.zeros_like(distmap_arr)
+                        group_distmap_sumsq[group_key] = np.zeros_like(distmap_arr)
+                        group_distmap_counts[group_key] = 0
+                    group_distmap_sums[group_key] += distmap_arr
+                    group_distmap_sumsq[group_key] += distmap_arr**2
+                    group_distmap_counts[group_key] += 1
+
                     if resolution not in distmap_sums:
                         distmap_sums[resolution] = np.zeros_like(distmap_arr)
                         distmap_sumsq[resolution] = np.zeros_like(distmap_arr)
@@ -282,33 +302,48 @@ def _process_image(
                     distmap_sumsq[resolution] += distmap_arr**2
                     distmap_counts[resolution] += 1
 
-    # --- Compute worst fragments per resolution per strategy ----------------
+    # --- Compute anisotropic worst fragments per resolution -----------------
     fragment_info: dict[str, dict] = {}
-    for res, n in distmap_counts.items():
-        if n == 0:
+
+    # Collect unique resolutions that have at least one distortion map
+    all_resolutions_with_data: set[int | None] = set(distmap_counts.keys())
+
+    for res in all_resolutions_with_data:
+        # Collect per-group variance maps for this resolution
+        group_var_maps: list[np.ndarray] = []
+        for (gr, _split_key), count in group_distmap_counts.items():
+            if gr != res or count < 2:
+                continue
+            avg_g = group_distmap_sums[(gr, _split_key)] / count
+            var_g = np.maximum(
+                group_distmap_sumsq[(gr, _split_key)] / count - avg_g**2,
+                0.0,
+            )
+            group_var_maps.append(var_g)
+
+        if group_var_maps:
+            aniso_map = np.stack(group_var_maps, axis=0).mean(axis=0)
+        elif res in distmap_counts and distmap_counts[res] >= 2:
+            # Fallback: overall variance (single-parameter sweep)
+            avg_all = distmap_sums[res] / distmap_counts[res]
+            aniso_map = np.maximum(
+                distmap_sumsq[res] / distmap_counts[res] - avg_all**2,
+                0.0,
+            )
+        elif res in distmap_counts and distmap_counts[res] == 1:
+            # Single variant: use the distortion map itself as proxy
+            aniso_map = distmap_sums[res] / 1
+        else:
             continue
-        avg_map = distmap_sums[res] / n
-        # Numerically stable variance: E[X^2] - E[X]^2, clamped to >= 0
-        var_map = np.maximum(distmap_sumsq[res] / n - avg_map**2, 0.0)
 
-        avg_region = find_worst_region_in_array(avg_map, crop_size=DEFAULT_CROP_SIZE)
-        var_region = find_worst_region_in_array(var_map, crop_size=DEFAULT_CROP_SIZE)
-
-        # Use the raw resolution key (int or None) — it's JSON-serialisable
+        aniso_region = find_worst_region_in_array(aniso_map, crop_size=DEFAULT_CROP_SIZE)
         res_key: int | None = res
-        fragment_info.setdefault("average", {})[res_key] = {
-            "x": avg_region.x,
-            "y": avg_region.y,
-            "width": avg_region.width,
-            "height": avg_region.height,
-            "avg_distortion": avg_region.avg_distortion,
-        }
-        fragment_info.setdefault("variance", {})[res_key] = {
-            "x": var_region.x,
-            "y": var_region.y,
-            "width": var_region.width,
-            "height": var_region.height,
-            "avg_distortion": var_region.avg_distortion,
+        fragment_info.setdefault("anisotropic", {})[res_key] = {
+            "x": aniso_region.x,
+            "y": aniso_region.y,
+            "width": aniso_region.width,
+            "height": aniso_region.height,
+            "avg_distortion": aniso_region.avg_distortion,
         }
 
     return all_records, fragment_info
@@ -612,43 +647,44 @@ def _error_record(
 
 def _find_worst_original(
     records: list[QualityRecord],
-    strategy: str = "average",
+    split_params: list[str] | None = None,
 ) -> str | None:
-    """Return the ``original_image`` path with the worst SSIMULACRA2.
+    """Return the ``original_image`` path with the highest anisotropic SSIMULACRA2 variance.
 
-    Supports two strategies:
-
-    * ``"average"`` — groups records by ``original_image`` and returns
-      the one whose mean SSIMULACRA2 is lowest.
-    * ``"variance"`` — groups records by ``original_image`` and returns
-      the one whose SSIMULACRA2 variance is highest.
+    Groups records by *split_params* (one group per comparison figure) and
+    returns the image whose mean within-group metric variance is highest.
+    Falls back to overall variance when no group has ≥2 records.
 
     Returns ``None`` if no valid scores exist.
     """
-    image_scores: dict[str, list[float]] = {}
+    if split_params is None:
+        split_params = []
+
+    # Build a list[dict] from QualityRecord so we can reuse the comparison helper
+    ms: list[dict] = []
     for rec in records:
         if rec.measurement_error is None and rec.ssimulacra2 is not None:
-            key = rec.original_image
-            if key not in image_scores:
-                image_scores[key] = []
-            image_scores[key].append(rec.ssimulacra2)
-
-    if not image_scores:
+            ms.append(
+                {
+                    "source_image": rec.original_image,
+                    "original_image": rec.original_image,
+                    "ssimulacra2": rec.ssimulacra2,
+                    "format": rec.format,
+                    "quality": rec.quality,
+                    "chroma_subsampling": rec.chroma_subsampling,
+                    "speed": rec.speed,
+                    "effort": rec.effort,
+                    "method": rec.method,
+                    "resolution": rec.resolution,
+                    "measurement_error": None,
+                }
+            )
+    if not ms:
         return None
 
-    if strategy == "variance":
-        image_var: dict[str, float] = {}
-        for img, scores in image_scores.items():
-            if len(scores) < 2:
-                image_var[img] = 0.0
-            else:
-                mean = sum(scores) / len(scores)
-                image_var[img] = sum((s - mean) ** 2 for s in scores) / len(scores)
-        return max(image_var, key=lambda k: image_var[k])
+    from src.comparison import find_worst_source_image
 
-    # strategy == "average"
-    image_avgs = {img: sum(s) / len(s) for img, s in image_scores.items()}
-    return min(image_avgs, key=lambda k: image_avgs[k])
+    return find_worst_source_image(ms, metric="ssimulacra2", split_params=split_params)
 
 
 # ---------------------------------------------------------------------------
@@ -757,19 +793,13 @@ class PipelineRunner:
         self.project_root = project_root
         self.data_dir = project_root / "data"
 
-        # Worst-image tracking state per strategy (used by _update_worst_image).
+        # Worst-image tracking state (used by _update_worst_image).
         # Fragment-level comparison: higher distortion score = worse.
-        # Each strategy tracks: staging_dir, score, original_key, fragment_info.
+        # Tracks: staging_dir, score, original_key, fragment_info.
         self._worst: dict[str, dict] = {
-            "average": {
+            "anisotropic": {
                 "staging_dir": None,
-                "score": float("-inf"),  # higher avg distortion is worse
-                "original_key": None,
-                "fragment_info": None,
-            },
-            "variance": {
-                "staging_dir": None,
-                "score": float("-inf"),  # higher var distortion is worse
+                "score": float("-inf"),
                 "original_key": None,
                 "fragment_info": None,
             },
@@ -838,82 +868,39 @@ class PipelineRunner:
         staging_base: Path,
         fragment_info: dict[str, dict],
     ) -> None:
-        """Compare a newly-completed image against the current worst for each strategy.
+        """Compare a newly-completed image against the current worst (anisotropic).
 
-        Uses **fragment-level** distortion scores from the Butteraugli
-        distortion maps rather than image-level SSIMULACRA2.  For both
-        ``"average"`` and ``"variance"`` strategies, the image with the
-        highest worst-fragment distortion score is considered worst.
-
-        When the study uses multiple resolutions, the per-image score is
-        the maximum fragment score across all resolutions.
-
-        Staging directories that are no longer the worst for any strategy
-        are deleted immediately to save disk space.
-
-        Internal state is stored in ``self._worst`` dict keyed by
-        strategy name.
+        Uses the anisotropic fragment-level distortion score.  The image with
+        the highest worst-fragment score (max across resolutions) replaces the
+        current worst.  Staging directories of displaced images are deleted
+        immediately to save disk space.
         """
         candidate_dir = staging_base / img_path.stem
         original_key = image_records[0].original_image if image_records else None
 
-        # Compute per-strategy fragment score (max across resolutions)
-        candidate_scores: dict[str, float] = {}
-        for strat in ("average", "variance"):
-            regions = fragment_info.get(strat, {})
-            if regions:
-                candidate_scores[strat] = max(r["avg_distortion"] for r in regions.values())
-
-        if not candidate_scores:
-            # No fragments (butteraugli unavailable or all measurements failed)
+        regions = fragment_info.get("anisotropic", {})
+        if not regions:
             shutil.rmtree(candidate_dir, ignore_errors=True)
             return
 
-        # Determine if candidate is worst for each strategy
-        is_worst_avg = (
-            candidate_scores.get("average", float("-inf")) > self._worst["average"]["score"]
-        )
-        is_worst_var = (
-            candidate_scores.get("variance", float("-inf")) > self._worst["variance"]["score"]
-        )
+        candidate_score = max(r["avg_distortion"] for r in regions.values())
+        is_worst = candidate_score > self._worst["anisotropic"]["score"]
 
-        # Collect dirs being replaced
-        dirs_released: set[Path] = set()
-
-        if is_worst_avg:
-            old_dir = self._worst["average"]["staging_dir"]
-            if old_dir is not None:
-                dirs_released.add(old_dir)
-            self._worst["average"] = {
+        if is_worst:
+            old_dir = self._worst["anisotropic"]["staging_dir"]
+            if old_dir is not None and old_dir != candidate_dir:
+                shutil.rmtree(old_dir, ignore_errors=True)
+            self._worst["anisotropic"] = {
                 "staging_dir": candidate_dir,
-                "score": candidate_scores.get("average", float("-inf")),
+                "score": candidate_score,
                 "original_key": original_key,
-                "fragment_info": fragment_info.get("average"),
+                "fragment_info": fragment_info.get("anisotropic"),
             }
-
-        if is_worst_var:
-            old_dir = self._worst["variance"]["staging_dir"]
-            if old_dir is not None:
-                dirs_released.add(old_dir)
-            self._worst["variance"] = {
-                "staging_dir": candidate_dir,
-                "score": candidate_scores.get("variance", float("-inf")),
-                "original_key": original_key,
-                "fragment_info": fragment_info.get("variance"),
-            }
-
-        # A dir is still needed if it's the current staging_dir for either strategy
-        active_dirs = {
-            self._worst["average"]["staging_dir"],
-            self._worst["variance"]["staging_dir"],
-        }
-        for d in dirs_released:
-            if d not in active_dirs:
-                shutil.rmtree(d, ignore_errors=True)
-
-        # If candidate was not claimed by either strategy, delete it
-        if not is_worst_avg and not is_worst_var and candidate_dir not in active_dirs:
-            shutil.rmtree(candidate_dir, ignore_errors=True)
+        else:
+            # Candidate is not the worst; discard its staging dir unless it's
+            # already the active dir (shouldn't happen, but guard anyway).
+            if candidate_dir != self._worst["anisotropic"]["staging_dir"]:
+                shutil.rmtree(candidate_dir, ignore_errors=True)
 
     def _finalize_worst_image(
         self,
@@ -921,94 +908,71 @@ class PipelineRunner:
         staging_base: Path,
         all_records: list[QualityRecord],
     ) -> tuple[dict[str, dict], dict[str, dict]]:
-        """Move worst image artifacts to final locations and return metadata.
+        """Move the worst-image artifacts to their final location and return metadata.
 
-        Handles both ``"average"`` and ``"variance"`` strategies.  Each
-        strategy's files are placed in a dedicated subdirectory under
-        ``data/encoded/<study_id>/`` (e.g. ``average/`` and ``variance/``).
-        When both strategies select the same image, the files are moved
-        once and copied for the second strategy.
+        Uses the anisotropic strategy exclusively.  Files are placed in
+        ``data/encoded/<study_id>/anisotropic/``.
 
         Returns:
             ``(worst_images_meta, worst_fragments_meta)`` — two dicts
-            keyed by strategy.
+            keyed by ``"anisotropic"``.
 
-            ``worst_images_meta`` contains ``original_image`` and
-            ``score`` for each worst image.
+            ``worst_images_meta["anisotropic"]`` contains
+            ``original_image`` and ``score``.
 
-            ``worst_fragments_meta`` contains per-resolution fragment
-            positions (``{strategy: {resolution: {x, y, width, height,
-            avg_distortion}}}``).
+            ``worst_fragments_meta["anisotropic"]`` contains
+            per-resolution fragment positions
+            ``{resolution: {x, y, width, height, avg_distortion}}``.
         """
         staging_base_prefix = _make_rel(staging_base, self.project_root)
         final_base = self.data_dir / "encoded" / study_id
         worst_images_meta: dict[str, dict] = {}
         worst_fragments_meta: dict[str, dict] = {}
 
-        # Group strategies by their staging dir so we handle shared images once
-        staging_to_strats: dict[Path, list[str]] = {}
-        for strat in ("average", "variance"):
-            info = self._worst[strat]
-            sd: Path | None = info["staging_dir"]
-            if sd is not None and sd.exists():
-                staging_to_strats.setdefault(sd, []).append(strat)
+        info = self._worst["anisotropic"]
+        staging_dir: Path | None = info["staging_dir"]
 
-        for staging_dir, strategies in staging_to_strats.items():
+        if staging_dir is not None and staging_dir.exists():
             staging_prefix = _make_rel(staging_dir, self.project_root)
-            first_strat = strategies[0]
-            first_final = final_base / first_strat
-            first_final_prefix = _make_rel(first_final, self.project_root)
+            final_dir = final_base / "anisotropic"
+            final_prefix = _make_rel(final_dir, self.project_root)
 
-            # Move files to first strategy's final dir
+            # Move files to final dir
             for src_file in staging_dir.rglob("*"):
                 if src_file.is_file():
                     rel = src_file.relative_to(staging_dir)
-                    dest = first_final / rel
+                    dest = final_dir / rel
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(src_file), str(dest))
-
-            # Copy to additional strategy dirs if both selected the same image
-            for extra_strat in strategies[1:]:
-                extra_final = final_base / extra_strat
-                shutil.copytree(first_final, extra_final, dirs_exist_ok=True)
 
             # Update encoded_path in records that came from this staging dir
             for rec in all_records:
                 if rec.encoded_path and rec.encoded_path.startswith(staging_prefix):
                     rec.encoded_path = rec.encoded_path.replace(
                         staging_prefix,
-                        first_final_prefix,
+                        final_prefix,
                         1,
                     )
 
-            # Build metadata for each strategy
-            for strat in strategies:
-                info = self._worst[strat]
-                worst_images_meta[strat] = {
+            worst_images_meta["anisotropic"] = {
+                "original_image": info["original_key"],
+                "score": info["score"],
+            }
+
+            frag = info.get("fragment_info")
+            if frag is not None:
+                worst_fragments_meta["anisotropic"] = {
                     "original_image": info["original_key"],
                     "score": info["score"],
+                    "regions": {(str(k) if k is not None else "null"): v for k, v in frag.items()},
                 }
 
-                # Fragment metadata
-                frag = info.get("fragment_info")
-                if frag is not None:
-                    # Convert None keys to "null" for JSON serialisation
-                    worst_fragments_meta[strat] = {
-                        "original_image": info["original_key"],
-                        "score": info["score"],
-                        "regions": {
-                            (str(k) if k is not None else "null"): v for k, v in frag.items()
-                        },
-                    }
-
-                score_label = (
-                    f"avg distortion score: {info['score']:.4f}"
-                    if strat == "average"
-                    else f"distortion variance score: {info['score']:.4f}"
+            print(f"\n  [anisotropic] Worst image artifacts saved to: {final_dir}")
+            if info["original_key"]:
+                print(
+                    f"  [anisotropic] Image: {info['original_key']}"
+                    f" (anisotropic distortion score: {info['score']:.4f})"
                 )
-                print(f"\n  [{strat}] Worst image artifacts saved to: {final_base / strat}")
-                if info["original_key"]:
-                    print(f"  [{strat}] Image: {info['original_key']} ({score_label})")
 
         # Clear remaining staging paths from records (non-worst images)
         for rec in all_records:
@@ -1116,9 +1080,20 @@ class PipelineRunner:
 
         # --- Prepare config dict for serialization ----------------------------
         # Convert StudyConfig to a dict for pickling (EncoderConfig → dict)
+        _enc_param_keys = ["format", "quality", "chroma_subsampling", "speed", "effort", "method"]
+        _varying_enc_params = [
+            k for k in _enc_param_keys if len({str(getattr(enc, k)) for enc in config.encoders}) > 1
+        ]
+        _tile_param: str | None = config.comparison_tile_parameter or (
+            _varying_enc_params[0] if _varying_enc_params else None
+        )
+        _split_params: list[str] = [p for p in _varying_enc_params if p != _tile_param]
+
         config_dict = {
             "id": config.id,
             "name": config.name,
+            "tile_param": _tile_param,
+            "split_params": _split_params,
             "encoders": [
                 {
                     "format": enc.format,
@@ -1153,13 +1128,7 @@ class PipelineRunner:
 
         # Reset worst-image tracking state
         self._worst = {
-            "average": {
-                "staging_dir": None,
-                "score": float("-inf"),
-                "original_key": None,
-                "fragment_info": None,
-            },
-            "variance": {
+            "anisotropic": {
                 "staging_dir": None,
                 "score": float("-inf"),
                 "original_key": None,
@@ -1295,30 +1264,39 @@ class PipelineRunner:
         # --- Compute worst-image metadata for JSON output ---------------------
         if worst_images_meta is None:
             worst_images_meta = {}
-            for strat in ("average", "variance"):
-                worst_key = _find_worst_original(all_records, strategy=strat)
-                if worst_key is not None:
-                    # Compute the score
-                    strat_scores: dict[str, list[float]] = {}
-                    for rec in all_records:
-                        if rec.measurement_error is None and rec.ssimulacra2 is not None:
-                            key = rec.original_image
-                            if key not in strat_scores:
-                                strat_scores[key] = []
-                            strat_scores[key].append(rec.ssimulacra2)
-                    scores = strat_scores.get(worst_key, [])
-                    if scores:
-                        mean = sum(scores) / len(scores)
-                        if strat == "average":
-                            score = mean
-                        elif len(scores) >= 2:
-                            score = sum((s - mean) ** 2 for s in scores) / len(scores)
-                        else:
-                            score = 0.0
-                        worst_images_meta[strat] = {
-                            "original_image": worst_key,
-                            "score": score,
-                        }
+            worst_key = _find_worst_original(all_records, split_params=_split_params)
+            if worst_key is not None:
+                # Compute the anisotropic score post-hoc (best-effort)
+                from src.comparison import get_worst_image_score
+
+                aniso_ms: list[dict] = [
+                    {
+                        "source_image": rec.original_image,
+                        "original_image": rec.original_image,
+                        "ssimulacra2": rec.ssimulacra2,
+                        "format": rec.format,
+                        "quality": rec.quality,
+                        "chroma_subsampling": rec.chroma_subsampling,
+                        "speed": rec.speed,
+                        "effort": rec.effort,
+                        "method": rec.method,
+                        "resolution": rec.resolution,
+                        "measurement_error": None,
+                    }
+                    for rec in all_records
+                    if rec.measurement_error is None and rec.ssimulacra2 is not None
+                ]
+                score = get_worst_image_score(
+                    aniso_ms,
+                    source_image=worst_key,
+                    metric="ssimulacra2",
+                    tile_param=_tile_param,
+                    split_params=_split_params,
+                )
+                worst_images_meta["anisotropic"] = {
+                    "original_image": worst_key,
+                    "score": score,
+                }
 
         # --- Assemble results -------------------------------------------------
         tool_versions = self._collect_tool_versions()

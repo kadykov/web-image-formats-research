@@ -86,30 +86,21 @@
     <details class="comparison-strategy"{% if loop.first %} open{% endif %}>
         <summary>
             <h3 style="display: inline;">
-                {% if strategy == "average" %}
-                    Average Distortion Analysis
-                {% elif strategy == "variance" %}
-                    Parameter Sensitivity Analysis
+                {% if strategy == "anisotropic" %}
+                    Anisotropic Variance Analysis
                 {% else %}
                     {{ strategy | title }} Analysis
                 {% endif %}
             </h3>
         </summary>
 
-        {% if strategy == "average" %}
-        <p class="strategy-description">
-            Identifies the image and fragment that are <strong>consistently most
-            challenging</strong> across all parameter combinations. The
-            distortion map below shows the average Butteraugli distortion
-            across every encoding variant.
-        </p>
-        {% elif strategy == "variance" %}
+        {% if strategy == "anisotropic" %}
         <p class="strategy-description">
             Identifies the image and fragment where the <strong>choice of
-            parameters has the greatest impact</strong> on quality. The map
-            shows the variance of distortion values — bright regions indicate
-            areas where some parameter settings produce much worse results
-            than others.
+            encoding parameters has the greatest anisotropic impact</strong>
+            on quality. Measurements are grouped by the parameters that
+            produce separate comparison figures; the variance within each
+            group is averaged to find the most sensitive image and region.
         </p>
         {% endif %}
 
@@ -132,25 +123,12 @@
         {# 2. Aggregated distortion map #}
         {% if img_set.distortion_map %}
         <div class="comparison-figure">
-            <h4>
-                {% if strategy == "average" %}
-                    Aggregated Distortion Map (Mean)
-                {% else %}
-                    Distortion Variance Map
-                {% endif %}
-            </h4>
+            <h4>Anisotropic Distortion Map</h4>
             <p>
-                {% if strategy == "average" %}
-                    Average per-pixel Butteraugli distortion across all
-                    encoding variants. Darker regions suffered more
-                    distortion on average; the selected fragment targets
-                    the worst area.
-                {% else %}
-                    Per-pixel variance of Butteraugli distortion.
-                    Bright regions show where quality varies most with
-                    parameter changes; the selected fragment targets the
-                    area of highest sensitivity.
-                {% endif %}
+                Per-pixel anisotropic variance of Butteraugli distortion —
+                bright regions show where quality varies most across
+                tile-parameter values within each split-parameter group.
+                The selected fragment targets the area of highest sensitivity.
             </p>
             {{ picture_html(img_set.distortion_map, css_class="comparison-img") }}
         </div>

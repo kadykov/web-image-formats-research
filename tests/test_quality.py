@@ -286,8 +286,8 @@ class TestQualityResultsSave:
             timestamp=sample_quality_data["timestamp"],
             encoding_timestamp=sample_quality_data.get("encoding_timestamp"),
             tool_versions={"cjpeg": "2.1.5", "cwebp": "1.5.0"},
-            worst_images={"average": {"value": "img1.png"}},
-            worst_fragments={"average": {"128": {"x": 0, "y": 0}}},
+            worst_images={"anisotropic": {"value": "img1.png"}},
+            worst_fragments={"anisotropic": {"128": {"x": 0, "y": 0}}},
             comparison_tile_parameter="quality",
             analysis_x_axis="quality",
             analysis_group_by="format",
@@ -318,7 +318,7 @@ class TestQualityResultsSave:
             assert data["encoding_timestamp"] == "2026-02-11T12:00:00+00:00"
             assert data["timestamp"] == "2026-02-11T12:30:00+00:00"
             assert data["tool_versions"]["cjpeg"] == "2.1.5"
-            assert data["worst_images"] == {"average": {"value": "img1.png"}}
+            assert data["worst_images"] == {"anisotropic": {"value": "img1.png"}}
             assert len(data["measurements"]) == 4
             assert data["measurements"][0]["ssimulacra2"] == 75.5
             assert data["measurements"][0]["chroma_subsampling"] == "420"

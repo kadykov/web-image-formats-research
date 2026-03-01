@@ -78,7 +78,7 @@ class ComparisonImageSet:
     """All optimised images for one strategy (or resolution within a strategy).
 
     Attributes:
-        strategy: ``"average"`` or ``"variance"``.
+        strategy: Always ``"anisotropic"`` for the current pipeline.
         resolution: Resolution label (e.g. ``"r720"``) or ``None``.
         original_annotated: The annotated original image.
         distortion_map: The aggregated distortion map.
@@ -413,9 +413,8 @@ def optimise_lossy(
 def _strategy_label(strategy: str) -> str:
     """Human-readable strategy label."""
     return {
-        "average": "Average Distortion",
-        "variance": "Parameter Sensitivity",
-    }.get(strategy, strategy.title())
+        "anisotropic": "Anisotropic Variance Analysis",
+    }.get(strategy, strategy.replace("_", " ").title())
 
 
 def _classify_image(filename: str) -> str:
@@ -449,6 +448,11 @@ def discover_and_optimise(
     them for web delivery, and returns structured metadata for template
     rendering.
 
+    The comparison directory layout is now flat (no strategy subdirs):
+    files are placed directly in ``comparison/`` for single-resolution
+    studies, or in ``comparison/r<N>/`` subdirectories for resolution
+    studies.
+
     Args:
         analysis_dir: Root analysis directory (e.g. ``data/analysis``).
         study_id: Study identifier.
@@ -465,36 +469,30 @@ def discover_and_optimise(
 
     result = StudyComparisonImages(study_id=study_id)
     img_output_base = output_dir / "comparison" / study_id
+    strategy = "anisotropic"
 
-    for strategy_dir in sorted(comparison_dir.iterdir()):
-        if not strategy_dir.is_dir():
-            continue
-        strategy = strategy_dir.name
-        if strategy not in ("average", "variance"):
-            continue
-
-        # Check for per-resolution subdirectories
-        subdirs = sorted(d for d in strategy_dir.iterdir() if d.is_dir() and d.name.startswith("r"))
-        if subdirs:
-            # Resolution study: process each sub-directory
-            for res_dir in subdirs:
-                image_set = _process_directory(
-                    res_dir,
-                    strategy,
-                    img_output_base / strategy / res_dir.name,
-                    report_root,
-                    resolution=res_dir.name,
-                )
-                result.sets.append(image_set)
-        else:
-            # Non-resolution study: process the strategy directory directly
+    # Check for per-resolution subdirectories (e.g. r720, r1080)
+    subdirs = sorted(d for d in comparison_dir.iterdir() if d.is_dir() and d.name.startswith("r"))
+    if subdirs:
+        # Resolution study: process each sub-directory
+        for res_dir in subdirs:
             image_set = _process_directory(
-                strategy_dir,
+                res_dir,
                 strategy,
-                img_output_base / strategy,
+                img_output_base / res_dir.name,
                 report_root,
+                resolution=res_dir.name,
             )
             result.sets.append(image_set)
+    else:
+        # Non-resolution study: process the comparison directory directly
+        image_set = _process_directory(
+            comparison_dir,
+            strategy,
+            img_output_base,
+            report_root,
+        )
+        result.sets.append(image_set)
 
     return result
 
@@ -511,7 +509,7 @@ def _process_directory(
 
     Args:
         src_dir: Directory containing comparison output files.
-        strategy: ``"average"`` or ``"variance"``.
+        strategy: Strategy label (e.g. ``"anisotropic"``).
         out_dir: Output directory for optimised files.
         report_root: Root for relative path computation.
         resolution: Optional resolution label (e.g. ``"r720"``).

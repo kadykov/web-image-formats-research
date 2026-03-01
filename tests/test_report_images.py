@@ -62,30 +62,23 @@ def comparison_tree(tmp_path: Path) -> Path:
     Structure::
 
         <tmp>/analysis/<study>/comparison/
-            average/
-                comparison.webp
-                distortion_map_average.webp
-                distortion_map_comparison.webp
-                original_annotated.webp
-            variance/
-                comparison.webp
-                distortion_map_variance.webp
-                distortion_map_comparison.webp
-                original_annotated.webp
+            comparison.webp
+            distortion_map_anisotropic.webp
+            distortion_map_comparison.webp
+            original_annotated.webp
     """
     analysis = tmp_path / "analysis"
     study_id = "test-study"
-    for strategy in ("average", "variance"):
-        d = analysis / study_id / "comparison" / strategy
-        d.mkdir(parents=True)
-        for name in (
-            "comparison.webp",
-            f"distortion_map_{strategy}.webp",
-            "distortion_map_comparison.webp",
-            "original_annotated.webp",
-        ):
-            img = Image.new("RGB", (384, 450), color=(80, 80, 80))
-            img.save(d / name, format="WEBP", lossless=True)
+    d = analysis / study_id / "comparison"
+    d.mkdir(parents=True)
+    for name in (
+        "comparison.webp",
+        "distortion_map_anisotropic.webp",
+        "distortion_map_comparison.webp",
+        "original_annotated.webp",
+    ):
+        img = Image.new("RGB", (384, 450), color=(80, 80, 80))
+        img.save(d / name, format="WEBP", lossless=True)
     return analysis
 
 
@@ -94,18 +87,17 @@ def comparison_tree_with_resolution(tmp_path: Path) -> Path:
     """Build a comparison tree with per-resolution subdirectories."""
     analysis = tmp_path / "analysis"
     study_id = "res-study"
-    for strategy in ("average",):
-        for res in ("r120", "r240"):
-            d = analysis / study_id / "comparison" / strategy / res
-            d.mkdir(parents=True)
-            for name in (
-                "comparison.webp",
-                f"distortion_map_{strategy}.webp",
-                "distortion_map_comparison.webp",
-                "original_annotated.webp",
-            ):
-                img = Image.new("RGB", (384, 450), color=(80, 80, 80))
-                img.save(d / name, format="WEBP", lossless=True)
+    for res in ("r120", "r240"):
+        d = analysis / study_id / "comparison" / res
+        d.mkdir(parents=True)
+        for name in (
+            "comparison.webp",
+            "distortion_map_anisotropic.webp",
+            "distortion_map_comparison.webp",
+            "original_annotated.webp",
+        ):
+            img = Image.new("RGB", (384, 450), color=(80, 80, 80))
+            img.save(d / name, format="WEBP", lossless=True)
     return analysis
 
 
@@ -197,8 +189,7 @@ class TestClassifyImage:
         assert _classify_image("distortion_map_comparison_format_jpeg.webp") == "distmap_grid"
 
     def test_distortion_map(self) -> None:
-        assert _classify_image("distortion_map_average.webp") == "distortion_map"
-        assert _classify_image("distortion_map_variance.webp") == "distortion_map"
+        assert _classify_image("distortion_map_anisotropic.webp") == "distortion_map"
 
     def test_original_annotated(self) -> None:
         assert _classify_image("original_annotated.webp") == "original_annotated"
@@ -294,9 +285,9 @@ class TestDiscoverAndOptimise:
         )
         assert isinstance(result, StudyComparisonImages)
         assert result.study_id == "test-study"
-        assert len(result.sets) == 2  # average + variance
+        assert len(result.sets) == 1  # single anisotropic set
         strategies = {s.strategy for s in result.sets}
-        assert strategies == {"average", "variance"}
+        assert strategies == {"anisotropic"}
 
     def test_each_set_has_all_figure_types(
         self, comparison_tree: Path, tmp_report_root: Path
@@ -325,11 +316,11 @@ class TestDiscoverAndOptimise:
             tmp_report_root,
             tmp_report_root,
         )
-        assert len(result.sets) == 2  # r120 + r240 under average
+        assert len(result.sets) == 2  # r120 + r240
         resolutions = {s.resolution for s in result.sets}
         assert resolutions == {"r120", "r240"}
         for s in result.sets:
-            assert s.strategy == "average"
+            assert s.strategy == "anisotropic"
 
 
 # ---------------------------------------------------------------------------

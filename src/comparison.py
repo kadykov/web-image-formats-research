@@ -1,22 +1,38 @@
 """Visual comparison module for identifying and visualizing encoding artifacts.
 
-This module automates the process of finding the worst-performing encoded
-image in a study, locating the most degraded region within that image,
-and generating side-by-side comparison images at 2x zoom for visual
-inspection.
+This module automates the process of finding the most representative image
+fragment in a study and generating side-by-side comparison figures that show
+how different encoding variants render the same region.
 
 The workflow is:
 1. Load quality measurement results
-2. Find the worst measurement (lowest SSIMULACRA2 score)
-3. Obtain the encoded image (from saved artifacts or by re-encoding on the fly)
-4. Generate a Butteraugli distortion map to locate the most degraded region
-5. Obtain all parameter variants for the worst source image
-6. Crop the problematic fragment and assemble labeled comparison grids
+2. Compute Butteraugli distortion maps for all parameter variants of the
+   selected image
+3. Locate the most representative fragment using the *anisotropic variance*
+   strategy (see below)
+4. Crop the fragment from every variant and assemble labeled comparison grids
 
-When the pipeline was run with ``save_worst_image=True``, encoded files
-for the worst image are already on disk and can be used directly.
-Otherwise, images are re-encoded on the fly using the same encoder tools
-as the original study.
+Fragment selection — anisotropic variance
+------------------------------------------
+Each comparison figure places the same fragment side-by-side encoded with
+different values of the *tile parameter* (e.g. ``format`` for a multi-codec
+study).  Other varying parameters (e.g. ``quality``) produce separate figures.
+
+The most representative fragment is the one with the **highest mean
+anisotropic distortion variance**: for each "split group" (a fixed
+combination of the non-tile parameters), the pixel-wise variance of
+distortion across all tile-parameter values is computed.  These per-group
+variance maps are then averaged across all split groups to produce the
+aggregate *anisotropic map*.  The sliding-window position that maximises
+this map is selected as the crop region.
+
+Fall-back: when no split group contains more than one variant (e.g. the
+study sweeps only one parameter), the algorithm falls back to overall
+pixel-wise variance across all variants.
+
+When the pipeline has pre-computed fragment positions (stored in
+``quality.json`` under ``"worst_fragments"``) those positions are used
+directly, skipping costly on-the-fly computation.
 
 This module requires:
 - butteraugli_main (for spatial distortion maps)
@@ -63,6 +79,9 @@ class ComparisonConfig:
               distortion maps.  Identifies the image and fragment most
               sensitive to parameter changes.
 
+        strategy: Fragment-selection strategy to use.  Currently only
+            ``"anisotropic"`` is supported.  This field is kept for
+            future extensibility.
         distmap_vmax: Upper bound of the fixed Butteraugli distortion
             scale used in the distortion-map comparison grid.  All
             per-pixel values are clamped to ``[0, distmap_vmax]`` before
@@ -73,9 +92,7 @@ class ComparisonConfig:
             scores above 10 represent severe quality loss.
             Defaults to ``5.0``.
         source_image: Optional explicit source image path (relative to
-            project root) to use instead of automatic selection.  When
-            set, overrides the automatic worst-image detection for all
-            strategies.
+            project root) to use instead of automatic selection.
         tile_parameter: The encoding parameter that should vary within
             each comparison figure — i.e. each tile shows a different
             value of this parameter while the other varying parameters
@@ -98,7 +115,7 @@ class ComparisonConfig:
     metric: str = "ssimulacra2"
     max_columns: int = 4
     label_font_size: int = 22
-    strategy: str = "both"
+    strategy: str = "anisotropic"
     distmap_vmax: float = 5.0
     source_image: str | None = None
     tile_parameter: str | None = None
@@ -106,18 +123,19 @@ class ComparisonConfig:
 
 @dataclass
 class StrategyResult:
-    """Result for a single image + fragment selection strategy.
+    """Result for an image + fragment selection run.
 
     Attributes:
-        strategy: The strategy used (``"average"`` or ``"variance"``).
+        strategy: The strategy used.  Currently always ``"anisotropic"``;
+            kept for future extensibility.
         source_image: Path (relative to project root) of the selected source image.
-        image_score: The score that determined image selection — average
-            metric for ``"average"`` strategy, metric variance for ``"variance"``.
+        image_score: The anisotropic variance score that determined image
+            selection — mean within-group metric variance across all split groups.
         worst_format: Format of the single worst measurement for this image.
         worst_quality: Quality parameter of the single worst measurement.
         worst_metric_value: The single worst metric score for this image.
         region: The detected worst fragment coordinates.
-        output_dir: Directory where this strategy's outputs were written.
+        output_dir: Directory where the comparison outputs were written.
         output_images: List of generated comparison image paths.
     """
 
@@ -136,15 +154,12 @@ class StrategyResult:
 class ComparisonResult:
     """Result of the visual comparison generation.
 
-    Contains one :class:`StrategyResult` per strategy that was executed.
-    When ``strategy="both"`` (default), there will be two entries — one
-    for ``"average"`` and one for ``"variance"``.
-
     Attributes:
         study_id: Study identifier.
-        strategies: Per-strategy results.
-        varying_parameters: Parameters that vary across measurements
-            (shared across strategies since they come from the same study).
+        strategies: List with one :class:`StrategyResult` entry (the
+            anisotropic selection result).  Kept as a list for future
+            extensibility.
+        varying_parameters: Parameters that vary across measurements.
     """
 
     study_id: str
@@ -222,148 +237,185 @@ def _group_scores_by_image(
     return image_scores
 
 
+def _anisotropic_image_score(
+    measurements: list[dict],
+    metric: str,
+    split_params: list[str],
+) -> float:
+    """Compute the anisotropic variance score for a single image's measurements.
+
+    Groups measurements by *split_params* (one group per comparison figure),
+    computes the metric variance within each group across tile-parameter
+    values, then returns the mean of those per-group variances.
+
+    Falls back to overall metric variance when no split group contains
+    more than one measurement (i.e. the study has only a single tile-param
+    value per group).
+
+    Args:
+        measurements: Measurements for one source image (already filtered to
+            valid, non-error rows with the metric present).
+        metric: Metric name to score on.
+        split_params: Parameters that produce separate figures (all remaining
+            varying params that are *not* the tile parameter).
+
+    Returns:
+        Anisotropic variance score \u226510.  Higher means the image is more
+        sensitive to tile-parameter changes.
+    """
+    # Group by combination of split_params values
+    groups: dict[tuple, list[float]] = {}
+    for m in measurements:
+        key = tuple(str(m.get(p)) for p in split_params)
+        groups.setdefault(key, []).append(float(m[metric]))
+
+    group_vars: list[float] = []
+    for scores in groups.values():
+        if len(scores) >= 2:
+            mean = sum(scores) / len(scores)
+            group_vars.append(sum((s - mean) ** 2 for s in scores) / len(scores))
+
+    if group_vars:
+        return sum(group_vars) / len(group_vars)
+
+    # Fallback: overall variance when no group has ≥2 variants
+    all_scores = [m[metric] for m in measurements]
+    if len(all_scores) >= 2:
+        fallback_mean: float = sum(float(s) for s in all_scores) / len(all_scores)
+        return sum((float(s) - fallback_mean) ** 2 for s in all_scores) / len(all_scores)
+    return 0.0
+
+
 def find_worst_source_image(
     measurements: list[dict],
     metric: str = "ssimulacra2",
-    strategy: str = "average",
+    tile_param: str | None = None,  # noqa: ARG001
+    split_params: list[str] | None = None,
 ) -> str:
-    """Find the source image with the worst quality across all encodings.
+    """Find the source image most sensitive to tile-parameter variation.
 
-    Supports two selection strategies:
+    For each source image, groups its measurements by *split_params* (one
+    group per comparison figure), computes the intra-group metric variance
+    across tile-parameter values, then averages those per-group variances.
+    The image with the highest mean anisotropic variance is returned.
 
-    * ``"average"`` — computes the mean metric value per source image and
-      returns the image with the worst average.  This identifies images
-      that are consistently hard for all parameter combinations.
-    * ``"variance"`` — computes the variance of metric values per source
-      image and returns the image with the highest variance.  This
-      identifies images whose quality is most sensitive to parameter
-      changes.
+    Falls back to overall metric variance when no split group contains
+    more than one measurement (e.g. a single-format study).
 
     Args:
         measurements: List of measurement dictionaries.
         metric: Metric to use for comparison.
-        strategy: ``"average"`` or ``"variance"``.
+        tile_param: Parameter that varies across tiles within one figure.
+            Unused for this function (the grouping key is *split_params*)
+            but accepted for API symmetry.
+        split_params: Parameters whose distinct values produce separate
+            comparison figures.  Defaults to ``[]`` (single figure).
 
     Returns:
         Path string of the selected source image.
 
     Raises:
-        ValueError: If no valid measurements exist or strategy is unknown.
+        ValueError: If no valid measurements exist.
     """
-    if strategy not in ("average", "variance"):
-        msg = f"Unknown image selection strategy: {strategy!r}. Must be 'average' or 'variance'."
+    if split_params is None:
+        split_params = []
+
+    valid = [
+        m for m in measurements if m.get("measurement_error") is None and m.get(metric) is not None
+    ]
+    if not valid:
+        msg = f"No valid measurements found for metric '{metric}'"
         raise ValueError(msg)
 
-    higher_is_better = {"ssimulacra2", "psnr", "ssim"}
-    image_scores = _group_scores_by_image(measurements, metric)
+    # Collect unique source images
+    source_images = sorted({m["source_image"] for m in valid})
 
-    if strategy == "average":
-        image_agg = {img: sum(s) / len(s) for img, s in image_scores.items()}
-        if metric in higher_is_better:
-            return min(image_agg, key=lambda k: image_agg[k])
-        else:
-            return max(image_agg, key=lambda k: image_agg[k])
+    image_scores: dict[str, float] = {}
+    for src in source_images:
+        src_ms = [m for m in valid if m["source_image"] == src]
+        image_scores[src] = _anisotropic_image_score(src_ms, metric, split_params)
 
-    # strategy == "variance"
-    image_var: dict[str, float] = {}
-    for img, scores in image_scores.items():
-        if len(scores) < 2:
-            image_var[img] = 0.0
-        else:
-            mean = sum(scores) / len(scores)
-            image_var[img] = sum((s - mean) ** 2 for s in scores) / len(scores)
-    return max(image_var, key=lambda k: image_var[k])
+    return max(image_scores, key=lambda k: image_scores[k])
 
 
 def _find_worst_original_image(
     measurements: list[dict],
     metric: str = "ssimulacra2",
-    strategy: str = "average",
+    tile_param: str | None = None,  # noqa: ARG001
+    split_params: list[str] | None = None,
 ) -> str:
-    """Find the worst original image across all resolutions and encodings.
+    """Find the original image most sensitive to tile-parameter variation.
 
     Like :func:`find_worst_source_image` but groups by ``original_image``
-    instead of ``source_image``.  This is used for resolution studies
-    where each ``(image, resolution)`` pair has a distinct ``source_image``
-    but shares the same ``original_image``.
+    instead of ``source_image``.  Used for resolution studies where each
+    ``(image, resolution)`` pair has its own ``source_image`` but all share
+    the same ``original_image``.
 
     Args:
         measurements: List of measurement dictionaries.
         metric: Metric to use for comparison.
-        strategy: ``"average"`` or ``"variance"``.
+        tile_param: Passed through for API symmetry; not used in grouping.
+        split_params: Parameters that produce separate comparison figures.
+            Defaults to ``[]``.
 
     Returns:
         The ``original_image`` path string of the selected image.
 
     Raises:
-        ValueError: If no valid measurements exist or strategy is unknown.
+        ValueError: If no valid measurements exist.
     """
-    if strategy not in ("average", "variance"):
-        msg = f"Unknown strategy: {strategy!r}. Must be 'average' or 'variance'."
-        raise ValueError(msg)
+    if split_params is None:
+        split_params = []
 
-    higher_is_better = {"ssimulacra2", "psnr", "ssim"}
-
-    # Group scores by original_image
-    image_scores: dict[str, list[float]] = {}
-    for m in measurements:
-        if m.get("measurement_error") is not None or m.get(metric) is None:
-            continue
-        key = m.get("original_image", m["source_image"])
-        image_scores.setdefault(key, []).append(m[metric])
-
-    if not image_scores:
+    valid = [
+        m for m in measurements if m.get("measurement_error") is None and m.get(metric) is not None
+    ]
+    if not valid:
         msg = f"No valid measurements with metric '{metric}' found"
         raise ValueError(msg)
 
-    if strategy == "average":
-        image_agg = {img: sum(s) / len(s) for img, s in image_scores.items()}
-        if metric in higher_is_better:
-            return min(image_agg, key=lambda k: image_agg[k])
-        else:
-            return max(image_agg, key=lambda k: image_agg[k])
+    original_images = sorted({m.get("original_image", m["source_image"]) for m in valid})
 
-    # strategy == "variance"
-    image_var: dict[str, float] = {}
-    for img, scores in image_scores.items():
-        if len(scores) < 2:
-            image_var[img] = 0.0
-        else:
-            mean = sum(scores) / len(scores)
-            image_var[img] = sum((s - mean) ** 2 for s in scores) / len(scores)
-    return max(image_var, key=lambda k: image_var[k])
+    image_scores: dict[str, float] = {}
+    for orig in original_images:
+        orig_ms = [m for m in valid if m.get("original_image", m["source_image"]) == orig]
+        image_scores[orig] = _anisotropic_image_score(orig_ms, metric, split_params)
+
+    return max(image_scores, key=lambda k: image_scores[k])
 
 
 def get_worst_image_score(
     measurements: list[dict],
     source_image: str,
     metric: str = "ssimulacra2",
-    strategy: str = "average",
+    tile_param: str | None = None,  # noqa: ARG001
+    split_params: list[str] | None = None,
 ) -> float:
-    """Compute the image-level score for a given source image and strategy.
+    """Compute the anisotropic variance score for a given source image.
 
     Args:
         measurements: List of measurement dictionaries.
         source_image: The source image path to compute the score for.
         metric: Metric name.
-        strategy: ``"average"`` or ``"variance"``.
+        tile_param: Accepted for API symmetry; not used in grouping.
+        split_params: Parameters that produce separate comparison figures.
+            Defaults to ``[]``.
 
     Returns:
-        The computed score (mean or variance of the metric values for
-        this image).
+        The anisotropic variance score for this image.
     """
-    image_scores = _group_scores_by_image(measurements, metric)
-    scores = image_scores.get(source_image, [])
-    if not scores:
+    if split_params is None:
+        split_params = []
+    valid = [
+        m
+        for m in measurements
+        if m["source_image"] == source_image
+        and m.get("measurement_error") is None
+        and m.get(metric) is not None
+    ]
+    if not valid:
         return 0.0
-
-    mean = sum(scores) / len(scores)
-    if strategy == "average":
-        return mean
-
-    if len(scores) < 2:
-        return 0.0
-    return sum((s - mean) ** 2 for s in scores) / len(scores)
+    return _anisotropic_image_score(valid, metric, split_params)
 
 
 def generate_distortion_map(
@@ -844,46 +896,107 @@ def _resolve_source_for_resolution(
     return resized
 
 
+def _anisotropic_variance_map(
+    variant_pairs: list[tuple[np.ndarray, dict]],
+    split_params: list[str],
+) -> np.ndarray:
+    """Compute the anisotropic variance distortion map.
+
+    Groups variant distortion arrays by *split_params* (one group per
+    comparison figure), computes pixel-wise variance within each group
+    across the tile-parameter values, then averages these per-group
+    variance maps.
+
+    Falls back to overall pixel-wise variance when no split group
+    contains ≥2 variants (i.e. the study sweeps only a single parameter
+    and all variants go on one figure).
+
+    Args:
+        variant_pairs: List of ``(distortion_array, measurement_dict)``
+            for every encoding variant that was successfully measured.
+        split_params: Parameters whose distinct value combinations
+            define the groups.
+
+    Returns:
+        2-D ``float64`` array of shape ``(H, W)`` with anisotropic
+        variance distortion values.  Higher values indicate regions
+        where the tile-parameter choice matters most.
+    """
+    # Group arrays by split_params key
+    groups: dict[tuple, list[np.ndarray]] = {}
+    for arr, m in variant_pairs:
+        key = tuple(str(m.get(p)) for p in split_params)
+        groups.setdefault(key, []).append(arr)
+
+    # Compute within-group pixel-wise variance for groups with ≥2 variants
+    group_var_maps: list[np.ndarray] = []
+    for arrs in groups.values():
+        if len(arrs) >= 2:
+            stacked = np.stack(arrs, axis=0)  # (K, H, W)
+            group_var_maps.append(stacked.var(axis=0))
+
+    if group_var_maps:
+        return np.stack(group_var_maps, axis=0).mean(axis=0)  # type: ignore[no-any-return]
+
+    # Fallback: overall variance (when single-tile_param study)
+    all_arrs = [arr for arr, _ in variant_pairs]
+    if len(all_arrs) >= 2:
+        stacked = np.stack(all_arrs, axis=0)
+        return stacked.var(axis=0)  # type: ignore[no-any-return]
+
+    # Single variant: return the distortion map itself
+    return variant_pairs[0][0].astype(np.float64)
+
+
 def compute_aggregate_distortion_maps(
     source_path: Path,
     measurements: list[dict],
     output_dir: Path,
     project_root: Path,
     encoded_dir: Path,
-) -> tuple[np.ndarray, np.ndarray, list[tuple[np.ndarray, dict]]]:
-    """Compute per-pixel average and variance distortion across all variants.
+    tile_param: str | None = None,  # noqa: ARG001
+    split_params: list[str] | None = None,
+) -> tuple[np.ndarray, list[tuple[np.ndarray, dict]]]:
+    """Compute the anisotropic variance distortion map across all variants.
 
-    For each measurement in ``measurements`` this function:
+    For each measurement, obtains the encoded image (from saved artifacts
+    or re-encodes on the fly), runs ``butteraugli_main --rawdistmap`` to
+    get per-pixel float distortion values, then computes the *anisotropic
+    variance map* using :func:`_anisotropic_variance_map`.
 
-    1. Obtains the encoded image (saved artifact or re-encodes on the fly).
-    2. Runs ``butteraugli_main --rawdistmap`` to get per-pixel float
-       distortion values.
-    3. Stacks all resulting maps and returns the mean and variance arrays.
-
-    The **average map** captures regions that are consistently difficult
-    for every parameter combination.  The **variance map** captures
-    regions where quality varies most across parameter combinations — a
-    high-variance pixel is encoded well by some settings but badly by
-    others.
+    The anisotropic map concentrates on regions where the *tile parameter*
+    (e.g. ``format``) matters most.  Measurements are grouped by
+    *split_params* (the parameters that produce separate figures); within
+    each group, the pixel-wise variance is computed across all tile-param
+    values.  The per-group variance maps are then averaged.
 
     Args:
         source_path: Path to the source (original) image.
         measurements: List of measurement dicts for the source image.
         output_dir: Directory where per-variant distortion maps will be
-            written (under a ``distmaps/`` subdirectory).
+            written (under a ``pfms/`` subdirectory).
         project_root: Project root for resolving saved artifact paths.
         encoded_dir: Directory for re-encoded files produced on the fly.
+        tile_param: Parameter varying within each comparison figure.
+            Used only as context; the anisotropic grouping key is
+            *split_params*.
+        split_params: Parameters that produce separate comparison figures.
+            Defaults to ``[]``.
 
     Returns:
-        ``(avg_map, var_map)`` — two float64 arrays of shape ``(H, W)``.
+        ``(aniso_map, variant_pairs)`` — a ``float64`` array of shape
+        ``(H, W)`` and the list of ``(array, measurement)`` pairs used
+        to compute it.
 
     Raises:
         RuntimeError: If no distortion maps could be produced for any variant.
     """
+    if split_params is None:
+        split_params = []
+
     pfms_dir = output_dir / "pfms"
     pfms_dir.mkdir(parents=True, exist_ok=True)
 
-    arrays: list[np.ndarray] = []
     variant_pairs: list[tuple[np.ndarray, dict]] = []
 
     for m in measurements:
@@ -904,7 +1017,6 @@ def compute_aggregate_distortion_maps(
         if colocated_pfm.exists():
             try:
                 arr = read_pfm(colocated_pfm)
-                arrays.append(arr)
                 variant_pairs.append((arr, m))
                 continue
             except ValueError:
@@ -923,15 +1035,14 @@ def compute_aggregate_distortion_maps(
             print(f"    Warning: could not read PFM for {fmt} q{quality}: {exc}")
             continue
 
-        arrays.append(arr)
         variant_pairs.append((arr, m))
 
-    if not arrays:
+    if not variant_pairs:
         msg = "No distortion maps could be computed for any variant"
         raise RuntimeError(msg)
 
-    stacked = np.stack(arrays, axis=0)  # (N, H, W)
-    return stacked.mean(axis=0), stacked.var(axis=0), variant_pairs
+    aniso_map = _anisotropic_variance_map(variant_pairs, split_params)
+    return aniso_map, variant_pairs
 
 
 def _default_tile_parameter(varying: list[str]) -> str | None:
@@ -1033,30 +1144,27 @@ def generate_comparison(
     project_root: Path,
     config: ComparisonConfig | None = None,
 ) -> ComparisonResult:
-    """Generate visual comparison images for a study's worst-case encoding.
+    """Generate visual comparison images for a study.
 
-    This is the main entry point for the comparison feature.  For each
-    requested strategy (``"average"``, ``"variance"``, or ``"both"``):
+    Uses the *anisotropic variance* strategy to select the most
+    representative image and fragment:
 
-    1. Select the worst source image using the strategy's image-selection
-       logic (or use the explicitly provided ``source_image``).
-    2. Compute Butteraugli distortion maps across all parameter variants.
-    3. Locate the worst image fragment using the same strategy.
-    4. Crop the fragment from every variant and assemble comparison grids.
+    1. Select the source image whose metric scores vary most across
+       tile-parameter values (averaged over split-parameter groups).
+    2. Compute Butteraugli distortion maps for every encoding variant of
+       that image.
+    3. Locate the fragment with the highest mean anisotropic distortion
+       variance using :func:`_anisotropic_variance_map`.
+    4. Crop the fragment from every variant and assemble labeled comparison
+       grids.
 
-    Each strategy's outputs are placed in a dedicated subdirectory
-    (``<output_dir>/average/`` or ``<output_dir>/variance/``).
-
-    When the study includes a ``resolution`` sweep, measurements are
-    grouped by resolution.  Each resolution gets its own distortion maps,
-    fragment selection, comparison grids, and annotated originals — all
-    placed in per-resolution subdirectories (e.g.
-    ``<output_dir>/average/r720/``).
+    When the study includes a ``resolution`` sweep, steps 2–4 are
+    repeated for each resolution level; outputs are placed in per-resolution
+    subdirectories (e.g. ``<output_dir>/r720/``).
 
     When the pipeline was run with ``save_worst_image=True``, encoded
-    files for the worst image are used directly from disk.  Otherwise,
-    images are re-encoded on the fly — only the original source images
-    must be available.
+    files and pre-computed fragment positions are used directly from
+    quality.json, skipping costly on-the-fly computation.
 
     Args:
         quality_json_path: Path to the quality.json results file.
@@ -1065,25 +1173,21 @@ def generate_comparison(
         config: Comparison configuration (uses defaults if ``None``).
 
     Returns:
-        :class:`ComparisonResult` with per-strategy details.
+        :class:`ComparisonResult` with one :class:`StrategyResult`.
 
     Raises:
         FileNotFoundError: If quality results or images are not found.
         RuntimeError: If image processing tools fail.
+        ValueError: If an unsupported strategy is requested.
     """
     if config is None:
         config = ComparisonConfig()
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Determine which strategies to run
-    if config.strategy == "both":
-        strategies = ["average", "variance"]
-    elif config.strategy in ("average", "variance"):
-        strategies = [config.strategy]
-    else:
-        msg = f"Unknown strategy {config.strategy!r}. Must be 'average', 'variance', or 'both'."
+    if config.strategy != "anisotropic":
+        msg = f"Unknown strategy {config.strategy!r}. Only 'anisotropic' is supported."
         raise ValueError(msg)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Load quality results
     data = load_quality_results(quality_json_path)
@@ -1094,7 +1198,7 @@ def generate_comparison(
 
     print(f"Generating visual comparison for study: {study_id}")
     print(f"  Total measurements: {len(measurements)}")
-    print(f"  Strategies: {', '.join(strategies)}")
+    print("  Strategy: anisotropic")
 
     # Determine varying parameters
     varying = determine_varying_parameters(measurements)
@@ -1102,7 +1206,6 @@ def generate_comparison(
     # Detect whether resolution varies — if so, we must process per-resolution
     resolution_varies = "resolution" in varying
     if resolution_varies:
-        # Collect unique resolution values
         unique_resolutions: list[int | None] = sorted(
             {m.get("resolution") for m in measurements if m.get("resolution") is not None}
         )
@@ -1110,20 +1213,18 @@ def generate_comparison(
             f"  Resolution varies: {len(unique_resolutions)} levels "
             f"({', '.join(f'r{r}' for r in unique_resolutions if r is not None)})"
         )
-        # Varying params for labels within a resolution group (exclude resolution)
         intra_res_varying = [p for p in varying if p != "resolution"]
     else:
         unique_resolutions = [None]
         intra_res_varying = varying
 
-    # Determine tile_parameter — which parameter varies within each figure.
+    # Determine tile_parameter and split_params.
     # Priority: explicit CLI/config → quality.json metadata → built-in heuristic.
     tile_param: str | None = config.tile_parameter
     if tile_param is None:
         tile_param = data.get("comparison_tile_parameter")
     if tile_param is None:
         tile_param = _default_tile_parameter(intra_res_varying)
-    # split_params are the remaining varying parameters (one figure per combination)
     split_params = [p for p in intra_res_varying if p != tile_param]
 
     print(f"  Tile parameter: {tile_param!r}")
@@ -1132,399 +1233,347 @@ def generate_comparison(
     else:
         print("  Single comparison figure (no split parameters)")
 
-    # Determine which original images to process per strategy
-    # When resolution varies, we select the worst *original* image by grouping
-    # across all resolutions.  For non-resolution studies the existing logic
-    # selecting by source_image works fine.
-    image_per_strategy: dict[str, str] = {}
-    for strat in strategies:
-        if config.source_image is not None:
-            image_per_strategy[strat] = config.source_image
-        elif worst_images and strat in worst_images:
-            # Use the worst image identified by the pipeline via fragment-level
-            # comparison across all dataset images.
-            image_per_strategy[strat] = worst_images[strat]["original_image"]
-            print(f"  [{strat}] Using pipeline-selected worst image")
+    # Select the source image.
+    # Priority: explicit override → pipeline pre-computed → on-the-fly selection.
+    if config.source_image is not None:
+        img_key = config.source_image
+        print(f"  Using explicitly specified source image: {img_key}")
+    elif worst_images and "anisotropic" in worst_images:
+        img_key = worst_images["anisotropic"]["original_image"]
+        print("  Using pipeline-selected worst image (anisotropic)")
+    else:
+        if resolution_varies:
+            img_key = _find_worst_original_image(
+                measurements,
+                metric=config.metric,
+                split_params=split_params,
+            )
         else:
-            if resolution_varies:
-                # Group by original_image across all resolutions
-                selected = _find_worst_original_image(
-                    measurements,
-                    metric=config.metric,
-                    strategy=strat,
-                )
-            else:
-                selected = find_worst_source_image(
-                    measurements,
-                    metric=config.metric,
-                    strategy=strat,
-                )
-            image_per_strategy[strat] = selected
-        print(f"  [{strat}] Selected image: {image_per_strategy[strat]}")
+            img_key = find_worst_source_image(
+                measurements,
+                metric=config.metric,
+                split_params=split_params,
+            )
+    print(f"  Selected image: {img_key}")
 
     strategy_results: list[StrategyResult] = []
 
     with tempfile.TemporaryDirectory() as _work:
         work = Path(_work)
+        preprocess_cache: dict[int, Path] = {}
 
-        for strat in strategies:
-            # Cache for preprocessed images: resolution → path.
-            # Kept per-strategy so that different strategies selecting
-            # different source images never share a cached resize.
-            preprocess_cache: dict[int, Path] = {}
-            img_key = image_per_strategy[strat]
+        original_path = project_root / img_key
+        if not original_path.exists():
+            msg = f"Source image not found: {original_path}"
+            raise FileNotFoundError(msg)
 
-            # Resolve the original image path
-            original_path = project_root / img_key
+        all_output_images: list[Path] = []
+        first_region: WorstRegion | None = None
+        first_worst_m: dict | None = None
+        first_image_score: float | None = None
 
-            if not original_path.exists():
-                msg = f"Source image not found: {original_path}"
-                raise FileNotFoundError(msg)
+        for resolution in unique_resolutions:
+            source_path = _resolve_source_for_resolution(
+                original_path,
+                resolution,
+                preprocess_cache,
+                work / "prep",
+            )
 
-            strat_dir = output_dir / strat
-            strat_dir.mkdir(parents=True, exist_ok=True)
+            # Filter measurements for this image and resolution
+            if resolution_varies:
+                source_measurements = [
+                    m
+                    for m in measurements
+                    if m["original_image"] == img_key
+                    and m.get("resolution") == resolution
+                    and m.get("measurement_error") is None
+                    and m.get(config.metric) is not None
+                ]
+            else:
+                source_measurements = [
+                    m
+                    for m in measurements
+                    if m["source_image"] == img_key
+                    and m.get("measurement_error") is None
+                    and m.get(config.metric) is not None
+                ]
 
-            all_output_images: list[Path] = []
-            first_region = None
-            first_worst_m = None
-            first_image_score = None
+            if not source_measurements:
+                continue
 
-            for resolution in unique_resolutions:
-                # Get the right source for this resolution
-                source_path = _resolve_source_for_resolution(
-                    original_path,
-                    resolution,
-                    preprocess_cache,
-                    work / "prep",
+            res_label = f"r{resolution}" if resolution is not None else None
+            res_dir = output_dir / res_label if res_label else output_dir
+
+            encoded_dir = work / "encoded" / (res_label or "original") / Path(img_key).stem
+            encoded_dir.mkdir(parents=True, exist_ok=True)
+
+            print(
+                f"  {f'[{res_label}] ' if res_label else ''}"
+                f"Computing distortion maps for {Path(img_key).name} "
+                f"({len(source_measurements)} variants)..."
+            )
+
+            aniso_map, variant_pairs = compute_aggregate_distortion_maps(
+                source_path,
+                source_measurements,
+                work / "distmaps" / (res_label or "original") / Path(img_key).stem,
+                project_root,
+                encoded_dir,
+                tile_param=tile_param,
+                split_params=split_params,
+            )
+
+            # Select fragment.
+            # Prefer pre-computed positions from the pipeline (scanned all images).
+            _frag_key = str(resolution) if resolution is not None else "null"
+            if (
+                worst_fragments
+                and "anisotropic" in worst_fragments
+                and _frag_key in worst_fragments["anisotropic"].get("regions", {})
+            ):
+                frag = worst_fragments["anisotropic"]["regions"][_frag_key]
+                region = WorstRegion(
+                    x=frag["x"],
+                    y=frag["y"],
+                    width=frag["width"],
+                    height=frag["height"],
+                    avg_distortion=frag["avg_distortion"],
                 )
+                print(
+                    f"  {f'[{res_label}] ' if res_label else ''}"
+                    f"Using pre-computed fragment from pipeline"
+                )
+            else:
+                region = find_worst_region_in_array(aniso_map, crop_size=config.crop_size)
 
-                # Filter measurements for this image and resolution
+            print(
+                f"  {f'[{res_label}] ' if res_label else ''}"
+                f"Region: ({region.x}, {region.y}) "
+                f"{region.width}x{region.height} score={region.avg_distortion:.4f}"
+            )
+
+            # Track first resolution's data for the summary result
+            if first_region is None:
+                first_region = region
+                first_worst_m = find_worst_measurement(source_measurements, metric=config.metric)
                 if resolution_varies:
-                    source_measurements = [
+                    all_img_ms = [
                         m
                         for m in measurements
                         if m["original_image"] == img_key
-                        and m.get("resolution") == resolution
                         and m.get("measurement_error") is None
                         and m.get(config.metric) is not None
                     ]
+                    first_image_score = _anisotropic_image_score(
+                        all_img_ms, config.metric, split_params
+                    )
                 else:
-                    source_measurements = [
-                        m
-                        for m in measurements
-                        if m["source_image"] == img_key
-                        and m.get("measurement_error") is None
-                        and m.get(config.metric) is not None
-                    ]
+                    first_image_score = get_worst_image_score(
+                        measurements,
+                        img_key,
+                        metric=config.metric,
+                        split_params=split_params,
+                    )
 
-                if not source_measurements:
+            # Build precomputed distmap lookup (keyed by id of measurement dict)
+            precomputed_distmaps: dict[int, np.ndarray] = {
+                id(m_dict): arr for arr, m_dict in variant_pairs
+            }
+
+            crops_dir = work / "crops" / (res_label or "original")
+            crops_dir.mkdir(parents=True)
+
+            # Crop original reference
+            original_crop_path = crops_dir / "original.png"
+            crop_and_zoom(
+                source_path,
+                region,
+                zoom_factor=config.zoom_factor,
+                output_path=original_crop_path,
+            )
+
+            crop_entries: list[tuple[Path, str, str]] = [
+                (original_crop_path, "Original", "Reference"),
+            ]
+
+            # Sort: tile_param varies within figures; split_params across figures.
+            _tile_key = tile_param or "format"
+            sorted_measurements = sorted(
+                source_measurements,
+                key=lambda m: (m.get(_tile_key) or 0,) + tuple(m.get(p) or 0 for p in split_params),
+            )
+
+            comp_groups = _group_measurements_for_comparison(
+                sorted_measurements, _tile_key, split_params
+            )
+
+            variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
+
+            print(
+                f"  {f'[{res_label}] ' if res_label else ''}"
+                f"Obtaining {len(sorted_measurements)} variants "
+                f"→ {len(comp_groups)} comparison figure(s)..."
+            )
+            for m in sorted_measurements:
+                enc_path = _get_or_encode(original_path, m, encoded_dir, project_root)
+                if enc_path is None:
                     continue
 
-                res_label = f"r{resolution}" if resolution is not None else None
-                res_dir = strat_dir / res_label if res_label else strat_dir
+                label = _build_label(m, intra_res_varying)
+                metric_label = _build_metric_label(m)
+                safe_name = label.replace(" ", "_").replace("=", "-")
+                crop_path = crops_dir / f"{safe_name}.png"
 
-                encoded_dir = work / "encoded" / (res_label or "original") / Path(img_key).stem
-                encoded_dir.mkdir(parents=True, exist_ok=True)
-
-                print(
-                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                    f"Computing distortion maps for {Path(img_key).name} "
-                    f"({len(source_measurements)} variants)..."
-                )
-
-                avg_map, var_map, variant_pairs = compute_aggregate_distortion_maps(
-                    source_path,
-                    source_measurements,
-                    work / "distmaps" / (res_label or "original") / Path(img_key).stem,
-                    project_root,
-                    encoded_dir,
-                )
-
-                # Select region using the strategy
-                # Prefer pre-computed fragment positions from the pipeline when
-                # available — these were found by scanning ALL dataset images
-                # at the fragment level, not just the worst image by aggregate.
-                _frag_key = str(resolution) if resolution is not None else "null"
-                if (
-                    worst_fragments
-                    and strat in worst_fragments
-                    and _frag_key in worst_fragments[strat].get("regions", {})
-                ):
-                    frag = worst_fragments[strat]["regions"][_frag_key]
-                    region = WorstRegion(
-                        x=frag["x"],
-                        y=frag["y"],
-                        width=frag["width"],
-                        height=frag["height"],
-                        avg_distortion=frag["avg_distortion"],
-                    )
-                    print(
-                        f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                        f"Using pre-computed fragment from pipeline"
-                    )
-                else:
-                    avg_region = find_worst_region_in_array(avg_map, crop_size=config.crop_size)
-                    var_region = find_worst_region_in_array(var_map, crop_size=config.crop_size)
-                    region = avg_region if strat == "average" else var_region
-
-                print(
-                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                    f"Region: ({region.x}, {region.y}) "
-                    f"{region.width}x{region.height} score={region.avg_distortion:.4f}"
-                )
-
-                # Track first resolution's data for per-strategy summary
-                if first_region is None:
-                    first_region = region
-                    first_worst_m = find_worst_measurement(
-                        source_measurements, metric=config.metric
-                    )
-                    if resolution_varies:
-                        # Compute image-level score across all resolutions
-                        all_img_measurements = [
-                            m
-                            for m in measurements
-                            if m["original_image"] == img_key
-                            and m.get("measurement_error") is None
-                            and m.get(config.metric) is not None
-                        ]
-                        scores = [m[config.metric] for m in all_img_measurements]
-                        mean = sum(scores) / len(scores) if scores else 0.0
-                        if strat == "average":
-                            first_image_score = mean
-                        elif len(scores) >= 2:
-                            first_image_score = sum((s - mean) ** 2 for s in scores) / len(scores)
-                        else:
-                            first_image_score = 0.0
-                    else:
-                        first_image_score = get_worst_image_score(
-                            measurements,
-                            img_key,
-                            metric=config.metric,
-                            strategy=strat,
-                        )
-
-                # Build precomputed distmap lookup
-                precomputed_distmaps: dict[int, np.ndarray] = {
-                    id(m_dict): arr for arr, m_dict in variant_pairs
-                }
-
-                # Set up per-resolution working directories
-                crops_dir = work / "crops" / strat / (res_label or "original")
-                crops_dir.mkdir(parents=True)
-
-                # Crop original
-                original_crop_path = crops_dir / "original.png"
                 crop_and_zoom(
-                    source_path,
+                    enc_path,
                     region,
                     zoom_factor=config.zoom_factor,
-                    output_path=original_crop_path,
+                    output_path=crop_path,
                 )
+                crop_entries.append((crop_path, label, metric_label))
 
-                # Build crop entries
-                crop_entries: list[tuple[Path, str, str]] = [
-                    (original_crop_path, "Original", "Reference"),
-                ]
-
-                # Sort measurements: tile_param varies within figures;
-                # split_params across figures.  Fall back to numeric 0 for
-                # None values so the sort key is always comparable.
-                _tile_key = tile_param or "format"
-                sorted_measurements = sorted(
-                    source_measurements,
-                    key=lambda m: (
-                        (m.get(_tile_key) or 0,) + tuple(m.get(p) or 0 for p in split_params)
-                    ),
-                )
-
-                # Pre-compute comparison groups so we know how many figures
-                # will be produced (needed for filename generation).
-                comp_groups = _group_measurements_for_comparison(
-                    sorted_measurements, _tile_key, split_params
-                )
-
-                variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
-
-                print(
-                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                    f"Obtaining {len(sorted_measurements)} variants "
-                    f"→ {len(comp_groups)} comparison figure(s)..."
-                )
-                for m in sorted_measurements:
-                    enc_path = _get_or_encode(original_path, m, encoded_dir, project_root)
-                    if enc_path is None:
-                        continue
-
-                    label = _build_label(m, intra_res_varying)
-                    metric_label = _build_metric_label(m)
-                    safe_name = label.replace(" ", "_").replace("=", "-")
-                    crop_path = crops_dir / f"{safe_name}.png"
-
-                    crop_and_zoom(
-                        enc_path,
-                        region,
-                        zoom_factor=config.zoom_factor,
-                        output_path=crop_path,
+                if id(m) in precomputed_distmaps:
+                    variant_distmap_entries.append(
+                        (precomputed_distmaps[id(m)], label, metric_label)
                     )
-                    crop_entries.append((crop_path, label, metric_label))
-
-                    if id(m) in precomputed_distmaps:
-                        dm_arr = precomputed_distmaps[id(m)]
+                else:
+                    variant_pfm = work / f"dm_{res_label or 'orig'}_{safe_name}.pfm"
+                    try:
+                        generate_distortion_map(source_path, enc_path, variant_pfm)
+                        dm_arr = read_pfm(variant_pfm)
                         variant_distmap_entries.append((dm_arr, label, metric_label))
-                    else:
-                        variant_pfm = work / f"dm_{strat}_{res_label or 'orig'}_{safe_name}.pfm"
-                        try:
-                            generate_distortion_map(source_path, enc_path, variant_pfm)
-                            dm_arr = read_pfm(variant_pfm)
-                            variant_distmap_entries.append((dm_arr, label, metric_label))
-                        except (RuntimeError, ValueError) as exc:
-                            print(f"    Warning: distortion map for {label} failed: {exc}")
+                    except (RuntimeError, ValueError) as exc:
+                        print(f"    Warning: distortion map for {label} failed: {exc}")
 
+            print(
+                f"  {f'[{res_label}] ' if res_label else ''}"
+                f"Cropped {len(crop_entries)} images (including original)"
+            )
+
+            # Assemble comparison grids — one figure per split-param group.
+            output_images: list[Path] = []
+            res_dir.mkdir(parents=True, exist_ok=True)
+
+            for group_label, group_indices in comp_groups:
+                group_entries = [crop_entries[0]] + [
+                    crop_entries[1 + i] for i in group_indices if 1 + i < len(crop_entries)
+                ]
+                if len(group_entries) < 2:
+                    continue
+                grid_filename = (
+                    "comparison.webp" if len(comp_groups) == 1 else f"comparison_{group_label}.webp"
+                )
+                grid_path = res_dir / grid_filename
+                assemble_comparison_grid(
+                    group_entries,
+                    grid_path,
+                    max_columns=config.max_columns,
+                    label_font_size=config.label_font_size,
+                )
+                output_images.append(grid_path)
                 print(
-                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                    f"Cropped {len(crop_entries)} images (including original)"
+                    f"  {f'[{res_label}] ' if res_label else ''}"
+                    f"Generated comparison grid: {grid_path}"
                 )
 
-                # Assemble comparison grids — one figure per split-param group.
-                # crop_entries[0] = reference original; crop_entries[1+i] aligns
-                # with sorted_measurements[i].
-                output_images: list[Path] = []
-                res_dir.mkdir(parents=True, exist_ok=True)
+            # Distortion map comparison grid
+            if variant_distmap_entries:
+                distmap_thumbs_dir = work / "distmap_thumbs" / (res_label or "original")
+                distmap_thumbs_dir.mkdir(parents=True)
+                target_side = config.crop_size * config.zoom_factor
+
+                orig_thumb = distmap_thumbs_dir / "original.png"
+                with Image.open(source_path) as _src:
+                    _src.convert("RGB").resize(
+                        (target_side, target_side),
+                        Image.Resampling.LANCZOS,
+                    ).save(orig_thumb)
+
+                distmap_crop_entries: list[tuple[Path, str, str]] = [
+                    (orig_thumb, "Original", "Reference image"),
+                ]
+                for idx, (dm_arr, dm_label, dm_metric) in enumerate(variant_distmap_entries):
+                    safe_dm = dm_label.replace(" ", "_").replace("=", "-")
+                    thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
+                    _render_distmap_thumbnail(
+                        dm_arr,
+                        target_side,
+                        thumb_path,
+                        vmax=config.distmap_vmax,
+                    )
+                    distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
 
                 for group_label, group_indices in comp_groups:
-                    group_entries = [crop_entries[0]] + [
-                        crop_entries[1 + i] for i in group_indices if 1 + i < len(crop_entries)
+                    group_dm_entries = [distmap_crop_entries[0]] + [
+                        distmap_crop_entries[1 + i]
+                        for i in group_indices
+                        if 1 + i < len(distmap_crop_entries)
                     ]
-                    if len(group_entries) < 2:  # only original reference, no variants
+                    if len(group_dm_entries) < 2:
                         continue
-                    grid_filename = (
-                        "comparison.webp"
+                    dm_filename = (
+                        "distortion_map_comparison.webp"
                         if len(comp_groups) == 1
-                        else f"comparison_{group_label}.webp"
+                        else f"distortion_map_comparison_{group_label}.webp"
                     )
-                    grid_path = res_dir / grid_filename
+                    dm_grid_path = res_dir / dm_filename
                     assemble_comparison_grid(
-                        group_entries,
-                        grid_path,
+                        group_dm_entries,
+                        dm_grid_path,
                         max_columns=config.max_columns,
                         label_font_size=config.label_font_size,
                     )
-                    output_images.append(grid_path)
+                    output_images.append(dm_grid_path)
                     print(
-                        f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                        f"Generated comparison grid: {grid_path}"
+                        f"  {f'[{res_label}] ' if res_label else ''}"
+                        f"Generated distortion map grid: {dm_grid_path}"
                     )
 
-                # Distortion map comparison grid
-                if variant_distmap_entries:
-                    distmap_thumbs_dir = work / "distmap_thumbs" / strat / (res_label or "original")
-                    distmap_thumbs_dir.mkdir(parents=True)
-                    target_side = config.crop_size * config.zoom_factor
-
-                    orig_thumb = distmap_thumbs_dir / "original.png"
-                    with Image.open(source_path) as _src:
-                        _src.convert("RGB").resize(
-                            (target_side, target_side),
-                            Image.Resampling.LANCZOS,
-                        ).save(orig_thumb)
-
-                    distmap_crop_entries: list[tuple[Path, str, str]] = [
-                        (orig_thumb, "Original", "Reference image"),
-                    ]
-                    for idx, (dm_arr, dm_label, dm_metric) in enumerate(variant_distmap_entries):
-                        safe_dm = dm_label.replace(" ", "_").replace("=", "-")
-                        thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
-                        _render_distmap_thumbnail(
-                            dm_arr,
-                            target_side,
-                            thumb_path,
-                            vmax=config.distmap_vmax,
-                        )
-                        distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
-
-                    # Use the same grouping as the crop comparison grids.
-                    # distmap_crop_entries[1+i] aligns with sorted_measurements[i]
-                    # (same iteration order as the crop loop above).
-                    for group_label, group_indices in comp_groups:
-                        group_dm_entries = [distmap_crop_entries[0]] + [
-                            distmap_crop_entries[1 + i]
-                            for i in group_indices
-                            if 1 + i < len(distmap_crop_entries)
-                        ]
-                        if len(group_dm_entries) < 2:
-                            continue
-                        dm_filename = (
-                            "distortion_map_comparison.webp"
-                            if len(comp_groups) == 1
-                            else f"distortion_map_comparison_{group_label}.webp"
-                        )
-                        dm_grid_path = res_dir / dm_filename
-                        assemble_comparison_grid(
-                            group_dm_entries,
-                            dm_grid_path,
-                            max_columns=config.max_columns,
-                            label_font_size=config.label_font_size,
-                        )
-                        output_images.append(dm_grid_path)
-                        print(
-                            f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                            f"Generated distortion map grid: {dm_grid_path}"
-                        )
-
-                # Distortion map visualizations
-                _visualize_distortion_map(
-                    avg_map if strat == "average" else var_map,
-                    region,
-                    res_dir / f"distortion_map_{strat}.webp",
-                    dash_color="cyan" if strat == "average" else "orange",
-                )
-                _save_annotated_original(
-                    source_path,
-                    region,
-                    res_dir / "original_annotated.webp",
-                )
-
-                all_output_images.extend(output_images)
-
-            # Build strategy result from first resolution (or only resolution)
-            worst_m = first_worst_m or find_worst_measurement(
-                [
-                    m
-                    for m in measurements
-                    if (m["original_image"] if resolution_varies else m["source_image"]) == img_key
-                    and m.get("measurement_error") is None
-                    and m.get(config.metric) is not None
-                ],
-                metric=config.metric,
+            # Visualize the anisotropic distortion map with region annotation
+            _visualize_distortion_map(
+                aniso_map,
+                region,
+                res_dir / "distortion_map_anisotropic.webp",
+                dash_color="cyan",
             )
-            worst_metric_value = worst_m[config.metric]
-
-            image_score = first_image_score if first_image_score is not None else 0.0
-            region_for_result = first_region or WorstRegion(
-                0, 0, config.crop_size, config.crop_size, 0.0
+            _save_annotated_original(
+                source_path,
+                region,
+                res_dir / "original_annotated.webp",
             )
 
-            strategy_results.append(
-                StrategyResult(
-                    strategy=strat,
-                    source_image=img_key,
-                    image_score=image_score,
-                    worst_format=worst_m["format"],
-                    worst_quality=worst_m["quality"],
-                    worst_metric_value=worst_metric_value,
-                    region=region_for_result,
-                    output_dir=strat_dir,
-                    output_images=all_output_images,
-                )
+            all_output_images.extend(output_images)
+
+        # Build result
+        worst_m = first_worst_m or find_worst_measurement(
+            [
+                m
+                for m in measurements
+                if (m["original_image"] if resolution_varies else m["source_image"]) == img_key
+                and m.get("measurement_error") is None
+                and m.get(config.metric) is not None
+            ],
+            metric=config.metric,
+        )
+
+        strategy_results.append(
+            StrategyResult(
+                strategy="anisotropic",
+                source_image=img_key,
+                image_score=first_image_score if first_image_score is not None else 0.0,
+                worst_format=worst_m["format"],
+                worst_quality=worst_m["quality"],
+                worst_metric_value=worst_m[config.metric],
+                region=first_region or WorstRegion(0, 0, config.crop_size, config.crop_size, 0.0),
+                output_dir=output_dir,
+                output_images=all_output_images,
             )
+        )
 
     print("\nComparison complete!")
     print(f"  Output directory: {output_dir}")
-    for sr in strategy_results:
-        print(
-            f"  [{sr.strategy}] {len(sr.output_images)} comparison images in {sr.output_dir.name}/"
-        )
+    print(f"  {len(all_output_images)} comparison images generated")
 
     return ComparisonResult(
         study_id=study_id,
