@@ -261,3 +261,130 @@ class TestEncoderConfigResolution:
         }
         config = StudyConfig.from_dict(data)
         assert config.encoders[0].method == [0, 4, 6]
+
+
+class TestStudyConfigComparisonAnalysis:
+    """Tests for the optional comparison and analysis config sections."""
+
+    def test_comparison_tile_parameter_parsed(self) -> None:
+        """comparison.tile_parameter is stored on StudyConfig."""
+        data = {
+            "id": "cmp-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75}],
+            "comparison": {"tile_parameter": "format"},
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.comparison_tile_parameter == "format"
+
+    def test_comparison_tile_parameter_all_values(self) -> None:
+        """All valid tile_parameter values are accepted."""
+        for param in [
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ]:
+            data = {
+                "id": "cmp-test",
+                "dataset": {"id": "div2k-valid"},
+                "encoders": [{"format": "webp", "quality": 75}],
+                "comparison": {"tile_parameter": param},
+            }
+            config = StudyConfig.from_dict(data)
+            assert config.comparison_tile_parameter == param
+
+    def test_comparison_section_absent_defaults_none(self) -> None:
+        """StudyConfig.comparison_tile_parameter is None when section absent."""
+        data = {
+            "id": "no-cmp-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.comparison_tile_parameter is None
+
+    def test_comparison_section_empty_defaults_none(self) -> None:
+        """Empty comparison section leaves comparison_tile_parameter as None."""
+        data = {
+            "id": "empty-cmp-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75}],
+            "comparison": {},
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.comparison_tile_parameter is None
+
+    def test_analysis_x_axis_and_group_by_parsed(self) -> None:
+        """analysis.x_axis and analysis.group_by are stored on StudyConfig."""
+        data = {
+            "id": "ana-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75}],
+            "analysis": {"x_axis": "quality", "group_by": "format"},
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.analysis_x_axis == "quality"
+        assert config.analysis_group_by == "format"
+
+    def test_analysis_section_absent_defaults_none(self) -> None:
+        """analysis_x_axis and analysis_group_by default to None when absent."""
+        data = {
+            "id": "no-ana-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.analysis_x_axis is None
+        assert config.analysis_group_by is None
+
+    def test_analysis_partial_section(self) -> None:
+        """Only x_axis present: group_by remains None."""
+        data = {
+            "id": "partial-ana-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "webp", "quality": 75}],
+            "analysis": {"x_axis": "speed"},
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.analysis_x_axis == "speed"
+        assert config.analysis_group_by is None
+
+    def test_both_comparison_and_analysis_sections(self) -> None:
+        """Both sections can be present simultaneously."""
+        data = {
+            "id": "both-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": [60, 80], "speed": [4, 6]}],
+            "comparison": {"tile_parameter": "speed"},
+            "analysis": {"x_axis": "speed", "group_by": "quality"},
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.comparison_tile_parameter == "speed"
+        assert config.analysis_x_axis == "speed"
+        assert config.analysis_group_by == "quality"
+
+    def test_format_comparison_study_config(self) -> None:
+        """format-comparison study config parses correctly."""
+        from pathlib import Path
+
+        config_path = Path("config/studies/format-comparison.json")
+        if config_path.exists():
+            config = StudyConfig.from_file(config_path)
+            assert config.comparison_tile_parameter == "format"
+            assert config.analysis_x_axis == "quality"
+            assert config.analysis_group_by == "format"
+
+    def test_avif_speed_sweep_study_config(self) -> None:
+        """avif-speed-sweep study config has correct analysis axes."""
+        from pathlib import Path
+
+        config_path = Path("config/studies/avif-speed-sweep.json")
+        if config_path.exists():
+            config = StudyConfig.from_file(config_path)
+            assert config.comparison_tile_parameter == "speed"
+            assert config.analysis_x_axis == "speed"
+            assert config.analysis_group_by == "quality"

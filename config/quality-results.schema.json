@@ -161,6 +161,21 @@
       },
       "additionalProperties": false
     },
+    "comparison_tile_parameter": {
+      "type": ["string", "null"],
+      "description": "The encoding parameter that should vary within each comparison figure (tiles). Propagated from the study config. When null the comparison module uses its built-in heuristic.",
+      "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", null]
+    },
+    "analysis_x_axis": {
+      "type": ["string", "null"],
+      "description": "The parameter to use as the primary x-axis in analysis plots. Propagated from the study config. When null the heuristic picks the parameter with the most unique values.",
+      "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", null]
+    },
+    "analysis_group_by": {
+      "type": ["string", "null"],
+      "description": "The parameter to use for line grouping in analysis plots. Propagated from the study config. When null the heuristic picks the parameter with the second-most unique values.",
+      "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", null]
+    },
     "measurements": {
       "type": "array",
       "description": "List of all quality measurement records",

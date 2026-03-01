@@ -44,6 +44,46 @@ Examples:
     )
 
     parser.add_argument(
+        "--x-axis",
+        type=str,
+        choices=[
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ],
+        help=(
+            "Primary x-axis parameter for quality / efficiency plots. "
+            "Overrides the study-config setting and the built-in heuristic "
+            "(parameter with the most unique values). "
+            "Example: --x-axis speed"
+        ),
+    )
+
+    parser.add_argument(
+        "--group-by",
+        type=str,
+        choices=[
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ],
+        help=(
+            "Parameter to use for line grouping in plots (each unique value "
+            "becomes a separate line). Overrides the study-config setting and "
+            "the built-in heuristic (second-most unique parameter). "
+            "Example: --group-by format"
+        ),
+    )
+
+    parser.add_argument(
         "--list",
         action="store_true",
         help="List available studies with quality measurements",
@@ -106,7 +146,7 @@ Examples:
     print()
 
     try:
-        analyze_study(quality_json_path, output_dir)
+        analyze_study(quality_json_path, output_dir, x_axis=args.x_axis, group_by=args.group_by)
         print()
         print("Analysis complete!")
         return 0

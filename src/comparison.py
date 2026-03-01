@@ -76,6 +76,21 @@ class ComparisonConfig:
             project root) to use instead of automatic selection.  When
             set, overrides the automatic worst-image detection for all
             strategies.
+        tile_parameter: The encoding parameter that should vary within
+            each comparison figure — i.e. each tile shows a different
+            value of this parameter while the other varying parameters
+            are held fixed per figure.  When multiple values of the
+            other parameters exist they produce separate figures.
+
+            For multi-format studies (``"format"``) quality-level
+            matching is index-based: ``format_a[i]`` is compared with
+            ``format_b[i]`` regardless of their absolute quality values.
+
+            When ``None`` the value is taken from the quality.json
+            metadata (propagated from the study config).  If that is
+            also absent the built-in heuristic is used:
+            ``"format"`` when multiple formats vary, otherwise the
+            first non-quality sweep parameter.
     """
 
     crop_size: int = 128
@@ -86,6 +101,7 @@ class ComparisonConfig:
     strategy: str = "both"
     distmap_vmax: float = 5.0
     source_image: str | None = None
+    tile_parameter: str | None = None
 
 
 @dataclass
@@ -918,6 +934,99 @@ def compute_aggregate_distortion_maps(
     return stacked.mean(axis=0), stacked.var(axis=0), variant_pairs
 
 
+def _default_tile_parameter(varying: list[str]) -> str | None:
+    """Determine the default tile parameter from the set of varying parameters.
+
+    Heuristic (in priority order):
+
+    1. If ``"format"`` varies → ``"format"`` (cross-encoder studies).
+    2. If any non-quality parameter varies → the first such parameter.
+    3. Otherwise → ``"quality"``.
+
+    Returns ``None`` when ``varying`` is empty.
+    """
+    if not varying:
+        return None
+    if "format" in varying:
+        return "format"
+    non_quality = [p for p in varying if p != "quality"]
+    if non_quality:
+        return non_quality[0]
+    return "quality"
+
+
+def _compute_quality_indices(measurements: list[dict]) -> dict[tuple[str, int], int]:
+    """Build a ``(format, quality_value) → quality_index`` mapping.
+
+    For each format, the unique quality values found in *measurements* are
+    sorted ascending and assigned 0-based indices.  This lets the comparison
+    logic match ``format_a[i]`` with ``format_b[i]`` even when their quality
+    scales differ (e.g. AVIF [40…90] vs JPEG [50…100]).
+    """
+    fmt_qualities: dict[str, set[int]] = {}
+    for m in measurements:
+        fmt = m.get("format") or ""
+        q = m.get("quality") or 0
+        fmt_qualities.setdefault(fmt, set()).add(q)
+
+    result: dict[tuple[str, int], int] = {}
+    for fmt, qs in fmt_qualities.items():
+        for idx, q in enumerate(sorted(qs)):
+            result[(fmt, q)] = idx
+    return result
+
+
+def _group_measurements_for_comparison(
+    measurements: list[dict],
+    tile_param: str,
+    split_params: list[str],
+) -> list[tuple[str, list[int]]]:
+    """Group measurements into per-figure sets for comparison grid assembly.
+
+    Returns a sorted list of ``(group_label, [indices_into_measurements])``
+    where each index refers to a position in *measurements*.
+
+    When *tile_param* is ``"format"`` and ``"quality"`` is a split parameter,
+    quality matching is index-based (see :func:`_compute_quality_indices`) so
+    that ``format_a[i]`` is grouped with ``format_b[i]`` regardless of their
+    absolute quality values.  Formats with fewer quality levels simply produce
+    fewer tiles in their respective figures.
+
+    For all other cases grouping is done by the exact values of *split_params*.
+    """
+    use_quality_index = tile_param == "format" and "quality" in split_params
+
+    if use_quality_index:
+        q_indices = _compute_quality_indices(measurements)
+        groups: dict[tuple, list[int]] = {}
+        for i, m in enumerate(measurements):
+            fmt = m.get("format") or ""
+            q = m.get("quality") or 0
+            q_idx = q_indices.get((fmt, q), 0)
+            other = tuple(str(m.get(p)) for p in split_params if p != "quality")
+            key = (q_idx,) + other
+            groups.setdefault(key, []).append(i)
+
+        return [(f"qi{key[0]}", idxs) for key, idxs in sorted(groups.items())]
+
+    # Standard: group by the exact values of split_params
+    groups_std: dict[tuple, list[int]] = {}
+    for i, m in enumerate(measurements):
+        key = tuple(str(m.get(p)) for p in split_params)
+        groups_std.setdefault(key, []).append(i)
+
+    result: list[tuple[str, list[int]]] = []
+    for key, idxs in sorted(groups_std.items()):
+        if len(split_params) == 1:
+            label = f"{split_params[0]}_{key[0]}"
+        elif split_params:
+            label = "_".join(f"{p}-{v}" for p, v in zip(split_params, key, strict=True))
+        else:
+            label = "all"
+        result.append((label, idxs))
+    return result
+
+
 def generate_comparison(
     quality_json_path: Path,
     output_dir: Path,
@@ -1006,6 +1115,22 @@ def generate_comparison(
     else:
         unique_resolutions = [None]
         intra_res_varying = varying
+
+    # Determine tile_parameter — which parameter varies within each figure.
+    # Priority: explicit CLI/config → quality.json metadata → built-in heuristic.
+    tile_param: str | None = config.tile_parameter
+    if tile_param is None:
+        tile_param = data.get("comparison_tile_parameter")
+    if tile_param is None:
+        tile_param = _default_tile_parameter(intra_res_varying)
+    # split_params are the remaining varying parameters (one figure per combination)
+    split_params = [p for p in intra_res_varying if p != tile_param]
+
+    print(f"  Tile parameter: {tile_param!r}")
+    if split_params:
+        print(f"  Split parameters (one figure per value): {split_params}")
+    else:
+        print("  Single comparison figure (no split parameters)")
 
     # Determine which original images to process per strategy
     # When resolution varies, we select the worst *original* image by grouping
@@ -1202,22 +1327,29 @@ def generate_comparison(
                     (original_crop_path, "Original", "Reference"),
                 ]
 
-                # Sort measurements — use intra-resolution varying params
-                sort_keys = ["format", "quality"]
-                for param in ["chroma_subsampling", "speed", "effort", "method"]:
-                    if param in intra_res_varying:
-                        sort_keys.append(param)
-
+                # Sort measurements: tile_param varies within figures;
+                # split_params across figures.  Fall back to numeric 0 for
+                # None values so the sort key is always comparable.
+                _tile_key = tile_param or "format"
                 sorted_measurements = sorted(
                     source_measurements,
-                    key=lambda m: tuple(m.get(k, 0) or 0 for k in sort_keys),
+                    key=lambda m: (
+                        (m.get(_tile_key) or 0,) + tuple(m.get(p) or 0 for p in split_params)
+                    ),
+                )
+
+                # Pre-compute comparison groups so we know how many figures
+                # will be produced (needed for filename generation).
+                comp_groups = _group_measurements_for_comparison(
+                    sorted_measurements, _tile_key, split_params
                 )
 
                 variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
 
                 print(
                     f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                    f"Obtaining {len(sorted_measurements)} variants..."
+                    f"Obtaining {len(sorted_measurements)} variants "
+                    f"→ {len(comp_groups)} comparison figure(s)..."
                 )
                 for m in sorted_measurements:
                     enc_path = _get_or_encode(original_path, m, encoded_dir, project_root)
@@ -1254,14 +1386,26 @@ def generate_comparison(
                     f"Cropped {len(crop_entries)} images (including original)"
                 )
 
-                # Assemble comparison grids
+                # Assemble comparison grids — one figure per split-param group.
+                # crop_entries[0] = reference original; crop_entries[1+i] aligns
+                # with sorted_measurements[i].
                 output_images: list[Path] = []
                 res_dir.mkdir(parents=True, exist_ok=True)
 
-                if len(crop_entries) <= config.max_columns * 3:
-                    grid_path = res_dir / "comparison.webp"
+                for group_label, group_indices in comp_groups:
+                    group_entries = [crop_entries[0]] + [
+                        crop_entries[1 + i] for i in group_indices if 1 + i < len(crop_entries)
+                    ]
+                    if len(group_entries) < 2:  # only original reference, no variants
+                        continue
+                    grid_filename = (
+                        "comparison.webp"
+                        if len(comp_groups) == 1
+                        else f"comparison_{group_label}.webp"
+                    )
+                    grid_path = res_dir / grid_filename
                     assemble_comparison_grid(
-                        crop_entries,
+                        group_entries,
                         grid_path,
                         max_columns=config.max_columns,
                         label_font_size=config.label_font_size,
@@ -1271,40 +1415,6 @@ def generate_comparison(
                         f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
                         f"Generated comparison grid: {grid_path}"
                     )
-                else:
-                    if intra_res_varying:
-                        split_param = intra_res_varying[0]
-                        groups: dict[str, list[tuple[Path, str, str]]] = {}
-                        original_entry = crop_entries[0]
-
-                        for entry, m in zip(crop_entries[1:], sorted_measurements, strict=False):
-                            group_key = str(m.get(split_param, "unknown"))
-                            if group_key not in groups:
-                                groups[group_key] = [original_entry]
-                            groups[group_key].append(entry)
-
-                        for group_name, group_entries in sorted(groups.items()):
-                            grid_path = res_dir / f"comparison_{split_param}_{group_name}.webp"
-                            assemble_comparison_grid(
-                                group_entries,
-                                grid_path,
-                                max_columns=config.max_columns,
-                                label_font_size=config.label_font_size,
-                            )
-                            output_images.append(grid_path)
-                            print(
-                                f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                                f"Generated comparison grid: {grid_path}"
-                            )
-                    else:
-                        grid_path = res_dir / "comparison.webp"
-                        assemble_comparison_grid(
-                            crop_entries,
-                            grid_path,
-                            max_columns=config.max_columns,
-                            label_font_size=config.label_font_size,
-                        )
-                        output_images.append(grid_path)
 
                 # Distortion map comparison grid
                 if variant_distmap_entries:
@@ -1333,10 +1443,25 @@ def generate_comparison(
                         )
                         distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
 
-                    if len(distmap_crop_entries) <= config.max_columns * 3:
-                        dm_grid_path = res_dir / "distortion_map_comparison.webp"
+                    # Use the same grouping as the crop comparison grids.
+                    # distmap_crop_entries[1+i] aligns with sorted_measurements[i]
+                    # (same iteration order as the crop loop above).
+                    for group_label, group_indices in comp_groups:
+                        group_dm_entries = [distmap_crop_entries[0]] + [
+                            distmap_crop_entries[1 + i]
+                            for i in group_indices
+                            if 1 + i < len(distmap_crop_entries)
+                        ]
+                        if len(group_dm_entries) < 2:
+                            continue
+                        dm_filename = (
+                            "distortion_map_comparison.webp"
+                            if len(comp_groups) == 1
+                            else f"distortion_map_comparison_{group_label}.webp"
+                        )
+                        dm_grid_path = res_dir / dm_filename
                         assemble_comparison_grid(
-                            distmap_crop_entries,
+                            group_dm_entries,
                             dm_grid_path,
                             max_columns=config.max_columns,
                             label_font_size=config.label_font_size,
@@ -1344,46 +1469,8 @@ def generate_comparison(
                         output_images.append(dm_grid_path)
                         print(
                             f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                            f"Generated distortion map comparison grid: {dm_grid_path}"
+                            f"Generated distortion map grid: {dm_grid_path}"
                         )
-                    else:
-                        if intra_res_varying:
-                            split_param = intra_res_varying[0]
-                            dm_groups: dict[str, list[tuple[Path, str, str]]] = {}
-                            dm_orig_entry = distmap_crop_entries[0]
-                            for dm_entry, dm_m in zip(
-                                distmap_crop_entries[1:],
-                                sorted_measurements,
-                                strict=False,
-                            ):
-                                group_key = str(dm_m.get(split_param, "unknown"))
-                                if group_key not in dm_groups:
-                                    dm_groups[group_key] = [dm_orig_entry]
-                                dm_groups[group_key].append(dm_entry)
-                            for group_name, group_entries in sorted(dm_groups.items()):
-                                dm_grid_path = res_dir / (
-                                    f"distortion_map_comparison_{split_param}_{group_name}.webp"
-                                )
-                                assemble_comparison_grid(
-                                    group_entries,
-                                    dm_grid_path,
-                                    max_columns=config.max_columns,
-                                    label_font_size=config.label_font_size,
-                                )
-                                output_images.append(dm_grid_path)
-                                print(
-                                    f"  [{strat}]{f' [{res_label}]' if res_label else ''} "
-                                    f"Generated distortion map grid: {dm_grid_path}"
-                                )
-                        else:
-                            dm_grid_path = res_dir / "distortion_map_comparison.webp"
-                            assemble_comparison_grid(
-                                distmap_crop_entries,
-                                dm_grid_path,
-                                max_columns=config.max_columns,
-                                label_font_size=config.label_font_size,
-                            )
-                            output_images.append(dm_grid_path)
 
                 # Distortion map visualizations
                 _visualize_distortion_map(

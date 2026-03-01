@@ -3,6 +3,13 @@
   "id": "webp-method-sweep",
   "name": "WebP Method Settings Study",
   "description": "Study how WebP encoding method affects quality and file size. Tests method settings from 0 (fastest) to 6 (slowest/best) at representative quality levels to find the optimal method/quality tradeoff.",
+  "comparison": {
+    "tile_parameter": "method"
+  },
+  "analysis": {
+    "x_axis": "method",
+    "group_by": "quality"
+  },
   "dataset": {
     "id": "div2k-valid",
     "max_images": 100

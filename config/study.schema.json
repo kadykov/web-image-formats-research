@@ -27,6 +27,35 @@
       "description": "Maximum wall-clock time in seconds for the pipeline. When set, the pipeline processes as many images as possible within this budget. Can be overridden via CLI.",
       "minimum": 1
     },
+    "comparison": {
+      "type": "object",
+      "description": "Configuration for visual comparison figure generation. Controls which parameter varies within each comparison figure (tiles) and which splits across figures.",
+      "properties": {
+        "tile_parameter": {
+          "type": "string",
+          "description": "The encoding parameter that should vary within each comparison figure (i.e. each tile shows a different value of this parameter). All other varying parameters become split axes that produce separate figures. For multi-format studies use 'format'; for speed/effort/method sweeps use the sweep parameter so tiles show all its values at a fixed quality level.",
+          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysis": {
+      "type": "object",
+      "description": "Configuration for analysis plot generation. Overrides the automatic parameter detection heuristics.",
+      "properties": {
+        "x_axis": {
+          "type": "string",
+          "description": "The parameter to use as the primary x-axis in quality metric and efficiency plots. When omitted, the parameter with the most unique values is used.",
+          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+        },
+        "group_by": {
+          "type": "string",
+          "description": "The parameter to use for line grouping in plots (each unique value becomes a separate line). When omitted, the parameter with the second-most unique values is used.",
+          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+        }
+      },
+      "additionalProperties": false
+    },
     "dataset": {
       "type": "object",
       "description": "Source dataset configuration",

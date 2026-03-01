@@ -3,6 +3,13 @@
   "id": "avif-chroma-subsampling",
   "name": "AVIF Chroma Subsampling",
   "description": "Compare AVIF with 4:4:4 and 4:2:0 chroma subsampling at the same quality levels using the DIV2K validation set.",
+  "comparison": {
+    "tile_parameter": "chroma_subsampling"
+  },
+  "analysis": {
+    "x_axis": "quality",
+    "group_by": "chroma_subsampling"
+  },
   "dataset": {
     "id": "div2k-valid",
     "max_images": 100

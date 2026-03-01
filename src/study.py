@@ -35,6 +35,28 @@ class StudyConfig:
     encoders: list[EncoderConfig]
     description: str | None = None
     time_budget: float | None = None
+    comparison_tile_parameter: str | None = None
+    """Which parameter varies within each comparison figure (tiles).
+
+    When set, each comparison figure shows all values of this parameter
+    at a fixed level of all other varying parameters.  Multi-format
+    quality matching uses index-based alignment so that format_a[i] is
+    compared with format_b[i] regardless of their absolute quality values.
+
+    When ``None`` the comparison module applies its built-in heuristic.
+    """
+    analysis_x_axis: str | None = None
+    """Primary x-axis parameter for analysis plots.
+
+    Overrides the automatic ``determine_sweep_parameter`` heuristic.
+    When ``None`` the heuristic is used.
+    """
+    analysis_group_by: str | None = None
+    """Line-grouping parameter for analysis plots.
+
+    Overrides the automatic ``determine_secondary_sweep_parameter``
+    heuristic.  When ``None`` the heuristic is used.
+    """
 
     @classmethod
     def from_file(cls, config_path: Path) -> "StudyConfig":
@@ -78,6 +100,9 @@ class StudyConfig:
 
         encoders = [_parse_encoder_config(enc) for enc in data["encoders"]]
 
+        comparison = data.get("comparison") or {}
+        analysis = data.get("analysis") or {}
+
         return cls(
             id=data["id"],
             name=data.get("name", data["id"]),
@@ -86,6 +111,9 @@ class StudyConfig:
             encoders=encoders,
             description=data.get("description"),
             time_budget=data.get("time_budget"),
+            comparison_tile_parameter=comparison.get("tile_parameter"),
+            analysis_x_axis=analysis.get("x_axis"),
+            analysis_group_by=analysis.get("group_by"),
         )
 
 

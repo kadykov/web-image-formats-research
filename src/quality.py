@@ -630,6 +630,9 @@ class QualityResults:
     tool_versions: dict[str, str] | None = None
     worst_images: dict[str, dict] | None = None
     worst_fragments: dict[str, dict] | None = None
+    comparison_tile_parameter: str | None = None
+    analysis_x_axis: str | None = None
+    analysis_group_by: str | None = None
 
     def save(self, path: Path) -> None:
         """Save quality results to a JSON file.
@@ -648,6 +651,9 @@ class QualityResults:
             "tool_versions": self.tool_versions,
             "worst_images": self.worst_images,
             "worst_fragments": self.worst_fragments,
+            "comparison_tile_parameter": self.comparison_tile_parameter,
+            "analysis_x_axis": self.analysis_x_axis,
+            "analysis_group_by": self.analysis_group_by,
             "measurements": [
                 {
                     "source_image": rec.source_image,

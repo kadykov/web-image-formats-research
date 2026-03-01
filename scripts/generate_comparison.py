@@ -106,6 +106,26 @@ Examples:
     )
 
     parser.add_argument(
+        "--tile-parameter",
+        type=str,
+        choices=[
+            "format",
+            "quality",
+            "chroma_subsampling",
+            "speed",
+            "effort",
+            "method",
+            "resolution",
+        ],
+        help=(
+            "Which encoding parameter should vary within each comparison figure "
+            "(one tile per value of this parameter). All other varying parameters "
+            "produce separate figures. Overrides the study-config setting and the "
+            "built-in heuristic. Example: --tile-parameter format"
+        ),
+    )
+
+    parser.add_argument(
         "--source-image",
         type=str,
         help=(
@@ -179,6 +199,7 @@ Examples:
         max_columns=args.max_columns,
         strategy=args.strategy,
         source_image=args.source_image,
+        tile_parameter=args.tile_parameter,
     )
 
     # Generate comparison

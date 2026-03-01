@@ -1336,6 +1336,9 @@ class PipelineRunner:
             tool_versions=tool_versions,
             worst_images=worst_images_meta if worst_images_meta else None,
             worst_fragments=worst_fragments_meta if worst_fragments_meta else None,
+            comparison_tile_parameter=config.comparison_tile_parameter,
+            analysis_x_axis=config.analysis_x_axis,
+            analysis_group_by=config.analysis_group_by,
         )
 
         # --- Summary ----------------------------------------------------------

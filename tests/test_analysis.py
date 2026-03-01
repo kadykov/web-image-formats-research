@@ -211,3 +211,125 @@ def test_handles_null_metrics(sample_quality_data: dict) -> None:
     # Should not crash and should have NaN for efficiency metrics
     assert len(df) == 5
     assert pd.isna(df.iloc[-1]["bytes_per_ssimulacra2_per_pixel"])
+
+
+# ---------------------------------------------------------------------------
+# analyze_study with explicit x_axis / group_by
+# ---------------------------------------------------------------------------
+
+
+def _make_multi_param_quality_data() -> dict:
+    """Build a quality dataset with two varying params: quality and speed."""
+    measurements = []
+    for quality in [50, 70]:
+        for speed in [0, 4, 8]:
+            measurements.append(
+                {
+                    "source_image": "data/datasets/test/image1.png",
+                    "original_image": "data/datasets/test/image1.png",
+                    "encoded_path": f"data/encoded/test/avif/img_q{quality}_s{speed}.avif",
+                    "format": "avif",
+                    "quality": quality,
+                    "speed": speed,
+                    "file_size": 100_000 + quality * 200 + speed * 50,
+                    "width": 640,
+                    "height": 480,
+                    "source_file_size": 1_000_000,
+                    "ssimulacra2": 70.0 + quality * 0.2 - speed * 0.5,
+                    "psnr": 38.0,
+                    "ssim": 0.95,
+                    "butteraugli": 2.5,
+                    "chroma_subsampling": None,
+                    "effort": None,
+                    "method": None,
+                    "resolution": None,
+                    "extra_args": None,
+                    "measurement_error": None,
+                }
+            )
+    return {
+        "study_id": "speed-study",
+        "study_name": "Speed Study",
+        "dataset": {"id": "test", "path": "data/datasets/test", "image_count": 1},
+        "encoding_timestamp": None,
+        "timestamp": "2026-01-01T00:00:00+00:00",
+        "measurements": measurements,
+    }
+
+
+def test_analyze_study_explicit_x_axis(tmp_path: Path) -> None:
+    """analyze_study uses the explicit x_axis parameter when supplied."""
+    data = _make_multi_param_quality_data()
+    quality_file = tmp_path / "quality.json"
+    with open(quality_file, "w") as f:
+        json.dump(data, f)
+
+    output_dir = tmp_path / "analysis"
+    analyze_study(quality_file, output_dir, x_axis="speed")
+
+    # A plot file named *_vs_speed.svg should be generated
+    svg_files = list(output_dir.glob("*_vs_speed.svg"))
+    assert len(svg_files) > 0, "Expected at least one plot with 'speed' x-axis"
+
+
+def test_analyze_study_explicit_group_by(tmp_path: Path) -> None:
+    """analyze_study uses the explicit group_by when supplied."""
+    data = _make_multi_param_quality_data()
+    quality_file = tmp_path / "quality.json"
+    with open(quality_file, "w") as f:
+        json.dump(data, f)
+
+    output_dir = tmp_path / "analysis"
+    # x_axis=speed, group_by=quality: should not raise
+    analyze_study(quality_file, output_dir, x_axis="speed", group_by="quality")
+
+    csv_files = list(output_dir.glob("*.csv"))
+    assert len(csv_files) == 1
+
+
+def test_analyze_study_reads_metadata_x_axis(tmp_path: Path) -> None:
+    """analyze_study picks up analysis_x_axis from quality.json metadata."""
+    data = _make_multi_param_quality_data()
+    data["analysis_x_axis"] = "speed"
+    data["analysis_group_by"] = "quality"
+    quality_file = tmp_path / "quality.json"
+    with open(quality_file, "w") as f:
+        json.dump(data, f)
+
+    output_dir = tmp_path / "analysis"
+    analyze_study(quality_file, output_dir)
+
+    svg_files = list(output_dir.glob("*_vs_speed.svg"))
+    assert len(svg_files) > 0, "Expected plot named *_vs_speed.svg from metadata"
+
+
+def test_analyze_study_cli_overrides_metadata(tmp_path: Path) -> None:
+    """Explicit CLI x_axis overrides analysis_x_axis stored in quality.json."""
+    data = _make_multi_param_quality_data()
+    data["analysis_x_axis"] = "quality"  # metadata says quality
+    quality_file = tmp_path / "quality.json"
+    with open(quality_file, "w") as f:
+        json.dump(data, f)
+
+    output_dir = tmp_path / "analysis"
+    # Explicit x_axis=speed should win over metadata
+    analyze_study(quality_file, output_dir, x_axis="speed")
+
+    svg_files = list(output_dir.glob("*_vs_speed.svg"))
+    assert len(svg_files) > 0, "Expected plot with 'speed' axis despite metadata saying 'quality'"
+
+
+def test_analyze_study_falls_back_to_heuristic(tmp_path: Path) -> None:
+    """analyze_study falls back to heuristic when neither CLI nor metadata is set."""
+    data = _make_multi_param_quality_data()
+    # No analysis_x_axis in data → heuristic picks param with most unique values
+    quality_file = tmp_path / "quality.json"
+    with open(quality_file, "w") as f:
+        json.dump(data, f)
+
+    output_dir = tmp_path / "analysis"
+    analyze_study(quality_file, output_dir)
+
+    # Speed has 3 unique values, quality has 2 → heuristic selects speed
+    svg_files = list(output_dir.glob("*_vs_speed.svg"))
+    assert len(svg_files) > 0

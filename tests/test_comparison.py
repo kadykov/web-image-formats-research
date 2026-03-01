@@ -17,7 +17,10 @@ from src.comparison import (
     WorstRegion,
     _build_label,
     _build_metric_label,
+    _compute_quality_indices,
+    _default_tile_parameter,
     _get_or_encode,
+    _group_measurements_for_comparison,
     _render_distmap_thumbnail,
     _resolve_encoded_path,
     assemble_comparison_grid,
@@ -1202,3 +1205,186 @@ def test_get_or_encode_falls_back_to_encoding(sample_rgb_image: Path, tmp_output
     assert result is not None
     assert result.exists()
     assert result.suffix == ".jpg"
+
+
+# ---------------------------------------------------------------------------
+# _default_tile_parameter
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultTileParameter:
+    """Tests for the _default_tile_parameter heuristic."""
+
+    def test_format_takes_priority(self) -> None:
+        """When 'format' is in varying, it is always chosen as tile param."""
+        assert _default_tile_parameter(["quality", "format"]) == "format"
+        assert _default_tile_parameter(["format", "speed"]) == "format"
+
+    def test_non_quality_preferred_over_quality(self) -> None:
+        """When format absent, first non-quality varying param is returned."""
+        assert _default_tile_parameter(["quality", "speed"]) == "speed"
+        assert _default_tile_parameter(["effort", "quality"]) == "effort"
+        assert _default_tile_parameter(["quality", "chroma_subsampling"]) == "chroma_subsampling"
+
+    def test_quality_only(self) -> None:
+        """When only quality varies, quality is returned."""
+        assert _default_tile_parameter(["quality"]) == "quality"
+
+    def test_empty_list_returns_none(self) -> None:
+        """Empty varying list returns None."""
+        assert _default_tile_parameter([]) is None
+
+    def test_method_as_non_quality(self) -> None:
+        """Method is preferred over quality."""
+        assert _default_tile_parameter(["method", "quality"]) == "method"
+
+    def test_resolution_as_non_quality(self) -> None:
+        """Resolution is preferred over quality."""
+        assert _default_tile_parameter(["resolution", "quality"]) == "resolution"
+
+
+# ---------------------------------------------------------------------------
+# _compute_quality_indices
+# ---------------------------------------------------------------------------
+
+
+class TestComputeQualityIndices:
+    """Tests for per-format quality index computation."""
+
+    def test_single_format(self) -> None:
+        """Single format: quality values are sorted and indexed."""
+        measurements = [
+            {"format": "avif", "quality": 60},
+            {"format": "avif", "quality": 40},
+            {"format": "avif", "quality": 80},
+        ]
+        indices = _compute_quality_indices(measurements)
+        assert indices[("avif", 40)] == 0
+        assert indices[("avif", 60)] == 1
+        assert indices[("avif", 80)] == 2
+
+    def test_multiple_formats_different_scales(self) -> None:
+        """Different formats with different quality ranges each get independent indices."""
+        measurements = [
+            {"format": "avif", "quality": 40},
+            {"format": "avif", "quality": 70},
+            {"format": "jpeg", "quality": 50},
+            {"format": "jpeg", "quality": 80},
+        ]
+        indices = _compute_quality_indices(measurements)
+        # avif: [40, 70] → indices 0, 1
+        assert indices[("avif", 40)] == 0
+        assert indices[("avif", 70)] == 1
+        # jpeg: [50, 80] → indices 0, 1
+        assert indices[("jpeg", 50)] == 0
+        assert indices[("jpeg", 80)] == 1
+
+    def test_duplicate_quality_values_collapsed(self) -> None:
+        """Duplicate quality values for the same format produce a single index."""
+        measurements = [
+            {"format": "webp", "quality": 75},
+            {"format": "webp", "quality": 75},
+            {"format": "webp", "quality": 90},
+        ]
+        indices = _compute_quality_indices(measurements)
+        assert indices[("webp", 75)] == 0
+        assert indices[("webp", 90)] == 1
+
+
+# ---------------------------------------------------------------------------
+# _group_measurements_for_comparison
+# ---------------------------------------------------------------------------
+
+
+class TestGroupMeasurementsForComparison:
+    """Tests for the comparison grouping helper."""
+
+    def _make_measurements(
+        self,
+        formats: list[str],
+        qualities: dict[str, list[int]],
+    ) -> list[dict]:
+        """Build a flat measurement list for format × quality combinations."""
+        result = []
+        for fmt in formats:
+            for q in qualities.get(fmt, []):
+                result.append({"format": fmt, "quality": q})
+        return result
+
+    def test_tile_format_same_quality_arrays(self) -> None:
+        """With tile_parameter='format', same quality array → one group per index."""
+        measurements = [
+            {"format": "avif", "quality": 40},
+            {"format": "jpeg", "quality": 50},
+            {"format": "avif", "quality": 60},
+            {"format": "jpeg", "quality": 70},
+        ]
+        groups = _group_measurements_for_comparison(measurements, "format", ["quality"])
+        # Two quality indices → two groups
+        assert len(groups) == 2
+        labels = [g[0] for g in groups]
+        assert labels == ["qi0", "qi1"]
+        # Each group has both formats (2 measurements each)
+        assert len(groups[0][1]) == 2
+        assert len(groups[1][1]) == 2
+
+    def test_tile_format_different_quality_length_groups_by_max(self) -> None:
+        """Format with fewer quality levels drops out of later groups."""
+        measurements = [
+            {"format": "avif", "quality": 40},
+            {"format": "avif", "quality": 60},
+            {"format": "avif", "quality": 80},
+            {"format": "jpeg", "quality": 50},
+            {"format": "jpeg", "quality": 75},
+        ]
+        groups = _group_measurements_for_comparison(measurements, "format", ["quality"])
+        # 3 avif levels → 3 groups; jpeg only has 2 → third group has 1 tile
+        assert len(groups) == 3
+        assert len(groups[2][1]) == 1  # only avif at index 2
+
+    def test_tile_speed_groups_by_quality_value(self) -> None:
+        """With tile_parameter='speed', split_params=['quality'] groups by value."""
+        measurements = [
+            {"format": "avif", "quality": 50, "speed": 0},
+            {"format": "avif", "quality": 50, "speed": 4},
+            {"format": "avif", "quality": 80, "speed": 0},
+            {"format": "avif", "quality": 80, "speed": 4},
+        ]
+        groups = _group_measurements_for_comparison(measurements, "speed", ["quality"])
+        assert len(groups) == 2
+        labels = [g[0] for g in groups]
+        assert "quality_50" in labels
+        assert "quality_80" in labels
+
+    def test_no_split_params_produces_single_group(self) -> None:
+        """When split_params is empty, all measurements land in one group."""
+        measurements = [
+            {"format": "avif", "quality": 50, "chroma_subsampling": "444"},
+            {"format": "avif", "quality": 50, "chroma_subsampling": "420"},
+        ]
+        groups = _group_measurements_for_comparison(measurements, "chroma_subsampling", [])
+        assert len(groups) == 1
+        assert groups[0][0] == "all"
+        assert len(groups[0][1]) == 2
+
+    def test_groups_sorted_by_key(self) -> None:
+        """Groups are returned in sorted key order."""
+        measurements = [
+            {"format": "avif", "quality": 80, "speed": 2},
+            {"format": "avif", "quality": 50, "speed": 2},
+            {"format": "avif", "quality": 60, "speed": 2},
+        ]
+        groups = _group_measurements_for_comparison(measurements, "speed", ["quality"])
+        labels = [g[0] for g in groups]
+        # quality values sorted: 50, 60, 80
+        assert labels == ["quality_50", "quality_60", "quality_80"]
+
+    def test_comparison_config_tile_parameter_field_exists(self) -> None:
+        """ComparisonConfig has a tile_parameter field defaulting to None."""
+        cfg = ComparisonConfig()
+        assert cfg.tile_parameter is None
+
+    def test_comparison_config_tile_parameter_set(self) -> None:
+        """ComparisonConfig accepts a tile_parameter value."""
+        cfg = ComparisonConfig(tile_parameter="speed")
+        assert cfg.tile_parameter == "speed"

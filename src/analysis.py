@@ -889,7 +889,12 @@ def plot_encoding_time_per_pixel(
     plt.close()
 
 
-def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
+def analyze_study(
+    quality_json_path: Path,
+    output_dir: Path,
+    x_axis: str | None = None,
+    group_by: str | None = None,
+) -> None:
     """Run complete analysis for a study.
 
     Generates:
@@ -900,9 +905,21 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     - Encoding time per pixel plots (mean + 5% fastest + 95% slowest)
     - Efficiency metric plots vs sweep parameter (mean + 5% worst)
 
+    Parameter resolution order for *x_axis* and *group_by*:
+
+    1. Explicit CLI argument (``x_axis`` / ``group_by`` parameters).
+    2. Study-config metadata stored in quality.json
+       (``analysis_x_axis`` / ``analysis_group_by``).
+    3. Built-in heuristic: parameter with most / second-most unique values.
+
     Args:
         quality_json_path: Path to quality.json file
         output_dir: Directory to save analysis outputs
+        x_axis: Override for primary x-axis parameter.  When ``None`` the
+            value from quality.json metadata or the heuristic is used.
+        group_by: Override for secondary (line-grouping) parameter.
+            When ``None`` the value from quality.json metadata or the
+            heuristic is used.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -928,14 +945,41 @@ def analyze_study(quality_json_path: Path, output_dir: Path) -> None:
     stats.to_csv(stats_path, index=False, float_format="%.4g")
     print(f"Statistics saved to: {stats_path}")
 
-    # Determine sweep parameter for plots
-    x_param = determine_sweep_parameter(df)
-    print(f"Using '{x_param}' as primary x-axis for plots")
+    # Resolve x_axis: CLI arg → quality.json metadata → heuristic
+    if x_axis is None:
+        x_axis = quality_results.get("analysis_x_axis")
+    if x_axis is None:
+        x_param = determine_sweep_parameter(df)
+        print(f"Using '{x_param}' as primary x-axis for plots (auto-detected)")
+    else:
+        x_param = x_axis
+        if x_param not in stats.columns:
+            print(
+                f"Warning: configured x_axis '{x_param}' not found in data; "
+                "falling back to auto-detection"
+            )
+            x_param = determine_sweep_parameter(df)
+        print(f"Using '{x_param}' as primary x-axis for plots")
 
-    # Determine secondary sweep parameter for rate-distortion plots
-    secondary_param = determine_secondary_sweep_parameter(df, x_param)
-    if secondary_param:
-        print(f"Using '{secondary_param}' as secondary axis for rate-distortion plots")
+    # Resolve group_by: CLI arg → quality.json metadata → heuristic
+    if group_by is None:
+        group_by = quality_results.get("analysis_group_by")
+    if group_by is None:
+        secondary_param = determine_secondary_sweep_parameter(df, x_param)
+        if secondary_param:
+            print(
+                f"Using '{secondary_param}' as secondary axis for rate-distortion plots (auto-detected)"
+            )
+    else:
+        secondary_param = group_by
+        if secondary_param not in stats.columns:
+            print(
+                f"Warning: configured group_by '{secondary_param}' not found in data; "
+                "falling back to auto-detection"
+            )
+            secondary_param = determine_secondary_sweep_parameter(df, x_param)
+        elif secondary_param:
+            print(f"Using '{secondary_param}' as secondary axis for rate-distortion plots")
 
     # Generate quality metric plots vs sweep parameter
     quality_metrics = ["ssimulacra2", "psnr", "ssim", "butteraugli"]
