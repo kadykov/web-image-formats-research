@@ -161,12 +161,13 @@ clean:
     find . -type d -name "*.egg-info" -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
 
-# Clean all study data (encoded images, preprocessed, metrics) - preserves datasets
+# Clean all study data (encoded images, preprocessed, metrics, analysis) - preserves datasets
 clean-studies:
-    @echo "Removing all study data (encoded, preprocessed, metrics)..."
+    @echo "Removing all study data (encoded, preprocessed, metrics, analysis)..."
     rm -rf data/encoded/*
     rm -rf data/preprocessed/*
     rm -rf data/metrics/*
+    rm -rf data/analysis/*
     @echo "Study data cleaned. Datasets preserved in data/datasets/"
 
 # Clean data for a specific study
@@ -175,4 +176,5 @@ clean-study STUDY_ID:
     rm -rf data/encoded/{{STUDY_ID}}
     rm -rf data/preprocessed/{{STUDY_ID}}
     rm -rf data/metrics/{{STUDY_ID}}
+    rm -rf data/analysis/{{STUDY_ID}}
     @echo "Study {{STUDY_ID}} data cleaned."
