@@ -23,8 +23,9 @@ using `just pipeline`). This saves the source images needed for comparison.
 
 For each study, the comparison generator:
 
-1. Identifies the worst-performing source image (by average or variance of the chosen metric)
-2. Finds the most distorted region using a sliding-window search
+1. Identifies the most representative source image using the coefficient of variation
+   (CV = std / mean) of the output metric across formats, maximising relative spread
+2. Finds the most distorted region using a sliding-window standard-deviation search
 3. Generates per-format Butteraugli distortion maps
 4. Assembles a side-by-side montage: original crop, encoded crops, distortion maps
 
@@ -41,13 +42,7 @@ python3 scripts/generate_comparison.py format-comparison --crop-size 256
 # Custom zoom factor (default: 2)
 python3 scripts/generate_comparison.py format-comparison --zoom 3
 
-# Use a different metric for worst-image selection
-python3 scripts/generate_comparison.py format-comparison --metric ssimulacra2
-
-# Selection strategy: average (default), variance, or both
-python3 scripts/generate_comparison.py format-comparison --strategy both
-
-# Compare a specific source image instead of auto-selecting worst
+# Compare a specific source image instead of auto-selecting
 python3 scripts/generate_comparison.py format-comparison --source-image 0801.png
 ```
 

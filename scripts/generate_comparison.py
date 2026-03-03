@@ -2,8 +2,8 @@
 """Generate visual comparison images using interpolation-based quality matching.
 
 This script reads quality measurement results and comparison targets from
-the study configuration, selects the most representative source image via
-interpolation-based variance analysis, and generates side-by-side comparison
+the study configuration, selects the most representative source image via coefficient-of-variation
+analysis (CV = std / mean), and generates side-by-side comparison
 figures at matched quality or file-size levels.
 
 Usage:

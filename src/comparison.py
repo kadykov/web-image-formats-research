@@ -9,12 +9,12 @@ The workflow is:
 1. Load pipeline quality measurements from ``quality.json`` and
    comparison configuration from the study configuration file.
 2. For each target group (e.g., ``ssimulacra2=[60,70,80]``), select the
-   source image with highest cross-format metric variance via
-   interpolation.
+   source image with highest cross-format coefficient of variation (CV =
+   std / mean) of the output metric via interpolation.
 3. Encode images at interpolated quality settings for **every** target
    value in the group, compute Butteraugli distortion maps, then
-   compute a single aggregate anisotropic variance map across all
-   target values.  This yields **one** fragment region per group.
+   compute a single aggregate anisotropic standard-deviation map across
+   all target values.  This yields **one** fragment region per group.
 4. Using the shared fragment, crop every variant at every target value
    and assemble labeled comparison grids with supplementary figures
    (distortion-map grids, annotated originals).
@@ -564,20 +564,26 @@ def _resolve_source_for_resolution(
     return resized
 
 
-def _anisotropic_variance_map(
+def _anisotropic_std_map(
     variant_pairs: list[tuple[np.ndarray, dict]],
     split_params: list[str],
 ) -> np.ndarray:
-    """Compute the anisotropic variance distortion map.
+    """Compute the anisotropic standard-deviation distortion map for fragment selection.
 
     Groups variant distortion arrays by *split_params* (one group per
-    comparison figure), computes pixel-wise variance within each group
-    across the tile-parameter values, then averages these per-group
-    variance maps.
+    comparison figure), computes pixel-wise standard deviation within
+    each group across the tile-parameter values, then averages these
+    per-group std maps.
 
-    Falls back to overall pixel-wise variance when no split group
-    contains >=2 variants (i.e. the study sweeps only a single parameter
-    and all variants go on one figure).
+    Standard deviation (rather than CV) is used here because we
+    *want* to favour visually prominent, high-distortion regions:
+    these are the most noticeable to human observers and therefore
+    the most informative fragments to show.  CV would normalise away
+    the absolute magnitude and risk selecting dark, featureless areas.
+
+    Falls back to overall pixel-wise std when no split group contains
+    >=2 variants (i.e. the study sweeps only a single parameter and
+    all variants go on one figure).
 
     Args:
         variant_pairs: List of ``(distortion_array, measurement_dict)``
@@ -587,30 +593,36 @@ def _anisotropic_variance_map(
 
     Returns:
         2-D ``float64`` array of shape ``(H, W)`` with anisotropic
-        variance distortion values.  Higher values indicate regions
-        where the tile-parameter choice matters most.
+        standard-deviation values.  Higher values indicate regions
+        where the tile-parameter choice produces the most spread in
+        absolute distortion.
     """
+
+    def _std(stacked: np.ndarray) -> np.ndarray:
+        """Pixel-wise standard deviation."""
+        return stacked.std(axis=0)  # type: ignore[no-any-return]
+
     # Group arrays by split_params key
     groups: dict[tuple, list[np.ndarray]] = {}
     for arr, m in variant_pairs:
         key = tuple(str(m.get(p)) for p in split_params)
         groups.setdefault(key, []).append(arr)
 
-    # Compute within-group pixel-wise variance for groups with >=2 variants
-    group_var_maps: list[np.ndarray] = []
+    # Compute within-group pixel-wise std for groups with >=2 variants
+    group_std_maps: list[np.ndarray] = []
     for arrs in groups.values():
         if len(arrs) >= 2:
             stacked = np.stack(arrs, axis=0)  # (K, H, W)
-            group_var_maps.append(stacked.var(axis=0))
+            group_std_maps.append(_std(stacked))
 
-    if group_var_maps:
-        return np.stack(group_var_maps, axis=0).mean(axis=0)  # type: ignore[no-any-return]
+    if group_std_maps:
+        return np.stack(group_std_maps, axis=0).mean(axis=0)  # type: ignore[no-any-return]
 
-    # Fallback: overall variance (when single-tile_param study)
+    # Fallback: overall std (when single-tile_param study)
     all_arrs = [arr for arr, _ in variant_pairs]
     if len(all_arrs) >= 2:
         stacked = np.stack(all_arrs, axis=0)
-        return stacked.var(axis=0)  # type: ignore[no-any-return]
+        return _std(stacked)
 
     # Single variant: return the distortion map itself
     return variant_pairs[0][0].astype(np.float64)
@@ -654,13 +666,14 @@ def generate_comparison(
     ``ssimulacra2=[60,70,80]`` or ``bytes_per_pixel=[0.1,0.3,0.5]``),
     this function:
 
-    1. Selects the source image with highest cross-format metric variance
+    1. Selects the source image with highest cross-format coefficient of
+       variation (CV = std / mean) of the output metric
        (via :func:`src.interpolation.select_best_image`), respecting any
        image exclusions from the study config.
     2. For **all** target values in the group, interpolates encoder
        quality per format, encodes, and computes distortion maps.
-    3. Computes a **single** aggregate anisotropic variance map across
-       all target values, yielding one fragment region per group.
+    3. Computes a **single** aggregate anisotropic standard-deviation map
+       across all target values, yielding one fragment region per group.
     4. Using the shared fragment, crops every variant at every target
        value and assembles labeled comparison grids and supplementary
        figures (one distortion-map + annotated original per group).
@@ -930,12 +943,12 @@ def generate_comparison(
                 # ----------------------------------------------------------
                 # Phase 2: Compute single shared fragment for the group
                 # ----------------------------------------------------------
-                # Collect per-value anisotropic variance maps, then average
+                # Collect per-value anisotropic std maps, then average
                 per_value_aniso_maps: list[np.ndarray] = []
                 for _target_value, variants in per_value_data.items():
                     variant_pairs = [(arr, m) for _, m, arr in variants if arr is not None]
                     if len(variant_pairs) >= 2:  # noqa: PLR2004
-                        aniso = _anisotropic_variance_map(variant_pairs, [])
+                        aniso = _anisotropic_std_map(variant_pairs, [])
                         per_value_aniso_maps.append(aniso)
 
                 if not per_value_aniso_maps:
@@ -947,7 +960,7 @@ def generate_comparison(
                         if arr is not None
                     ]
                     if len(all_pairs) >= 2:  # noqa: PLR2004
-                        per_value_aniso_maps = [_anisotropic_variance_map(all_pairs, [])]
+                        per_value_aniso_maps = [_anisotropic_std_map(all_pairs, [])]
 
                 if not per_value_aniso_maps:
                     print(f"  [{group_label}] No distortion maps available, skipping")
@@ -1218,8 +1231,8 @@ def _visualize_distortion_map(
     """Render a distortion array as a viridis-coloured image with region annotation.
 
     The *viridis_r* colormap is perceptually uniform, colorblind-safe, and
-    grayscale-compatible: bright-yellow pixels have low distortion/variance
-    and dark-purple pixels have high distortion/variance.  The selected
+    grayscale-compatible: bright-yellow pixels have low distortion
+    and dark-purple pixels have high distortion.  The selected
     fragment is annotated via :func:`_draw_annotation_on_image`.
 
     Args:
