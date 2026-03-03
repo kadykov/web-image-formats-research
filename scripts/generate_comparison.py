@@ -167,6 +167,12 @@ Examples:
     # Determine output directory
     output_dir = args.output or (project_root / "data" / "analysis" / study_id / "comparison")
 
+    # Resolve study config path
+    study_config_path = project_root / "config" / "studies" / f"{study_id}.json"
+    if not study_config_path.exists():
+        print(f"Warning: Study config not found at {study_config_path}")
+        study_config_path = None
+
     # Create comparison config
     config = ComparisonConfig(
         crop_size=args.crop_size,
@@ -174,6 +180,7 @@ Examples:
         max_columns=args.max_columns,
         source_image=args.source_image,
         tile_parameter=args.tile_parameter,
+        study_config_path=study_config_path,
     )
 
     # Generate comparison

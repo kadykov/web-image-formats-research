@@ -65,6 +65,13 @@ class StudyConfig:
     Overrides the automatic ``determine_secondary_sweep_parameter``
     heuristic.  When ``None`` the heuristic is used.
     """
+    comparison_exclude_images: list[str] | None = None
+    """Filenames to exclude from automatic source-image selection.
+
+    Each entry is matched against the basename of source/original
+    image paths (e.g. ``"0801.png"``).  Excluded images are never
+    chosen as the most representative image for comparison figures.
+    """
 
     @classmethod
     def from_file(cls, config_path: Path) -> "StudyConfig":
@@ -123,6 +130,7 @@ class StudyConfig:
             comparison_targets=comparison.get("targets"),
             analysis_x_axis=analysis.get("x_axis"),
             analysis_group_by=analysis.get("group_by"),
+            comparison_exclude_images=comparison.get("exclude_images"),
         )
 
 

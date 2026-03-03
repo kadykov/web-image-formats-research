@@ -690,6 +690,7 @@ def test_comparison_config_defaults() -> None:
     assert config.distmap_vmax == 5.0
     assert config.source_image is None
     assert config.tile_parameter is None
+    assert config.study_config_path is None
 
 
 def test_comparison_config_custom() -> None:
@@ -788,13 +789,10 @@ def test_generate_comparison_integration(
     img2_path = img_dir / "image2.png"
     img2.save(img2_path)
 
-    # Use only JPEG measurements and add comparison targets
+    # Use only JPEG measurements
     jpeg_only_data = {
         **sample_quality_data,
         "measurements": [m for m in sample_quality_data["measurements"] if m["format"] == "jpeg"],
-        "comparison_targets": [
-            {"metric": "ssimulacra2", "values": [60]},
-        ],
     }
 
     # Write quality.json
@@ -802,9 +800,25 @@ def test_generate_comparison_integration(
     with open(quality_path, "w") as f:
         json.dump(jpeg_only_data, f)
 
+    # Write study config with comparison targets
+    study_config_path = tmp_path / "study_config.json"
+    with open(study_config_path, "w") as f:
+        json.dump(
+            {
+                "id": "test-comparison",
+                "name": "Test Comparison Study",
+                "dataset": {"id": "test"},
+                "encoders": [{"format": "jpeg", "quality": [50, 80]}],
+                "comparison": {
+                    "targets": [{"metric": "ssimulacra2", "values": [60]}],
+                },
+            },
+            f,
+        )
+
     output_dir = tmp_path / "comparison_output"
 
-    config = ComparisonConfig(crop_size=64, zoom_factor=2)
+    config = ComparisonConfig(crop_size=64, zoom_factor=2, study_config_path=study_config_path)
     result = generate_comparison(
         quality_json_path=quality_path,
         output_dir=output_dir,

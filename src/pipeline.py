@@ -895,10 +895,6 @@ class PipelineRunner:
             measurements=all_records,
             timestamp=datetime.now(UTC).isoformat(),
             tool_versions=tool_versions,
-            comparison_tile_parameter=config.comparison_tile_parameter,
-            comparison_targets=config.comparison_targets,
-            analysis_x_axis=config.analysis_x_axis,
-            analysis_group_by=config.analysis_group_by,
         )
 
         # --- Summary ----------------------------------------------------------
