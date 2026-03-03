@@ -12,7 +12,6 @@ from src.pipeline import (
     _encode_and_measure,
     _error_record,
     _expand_encoder_tasks,
-    _find_worst_original,
     _format_duration,
     _make_rel,
     parse_time_budget,
@@ -350,15 +349,13 @@ class TestEncodeAndMeasure:
         if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
-        result = _encode_and_measure(
+        record = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="jpeg",
             quality=85,
             project_root_str=str(project_root),
         )
-        assert isinstance(result, tuple)
-        record, distmap = result
         assert isinstance(record, QualityRecord)
         assert record.format == "jpeg"
         assert record.quality == 85
@@ -375,7 +372,7 @@ class TestEncodeAndMeasure:
         if not tool_available("cwebp"):
             pytest.skip("cwebp not available")
 
-        record, distmap = _encode_and_measure(
+        record = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="webp",
@@ -388,7 +385,7 @@ class TestEncodeAndMeasure:
         assert record.measurement_error is None
 
     def test_unknown_format(self, test_image: Path, project_root: Path) -> None:
-        record, distmap = _encode_and_measure(
+        record = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="bmp",
@@ -397,14 +394,13 @@ class TestEncodeAndMeasure:
         )
         assert record.measurement_error is not None
         assert "Unknown format" in record.measurement_error
-        assert distmap is None
 
     def test_save_artifact(self, test_image: Path, project_root: Path, tmp_path: Path) -> None:
         if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
         save_dir = tmp_path / "saved"
-        record, distmap = _encode_and_measure(
+        record = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="jpeg",
@@ -423,7 +419,7 @@ class TestEncodeAndMeasure:
         if not tool_available("cjpeg"):
             pytest.skip("cjpeg not available")
 
-        record, distmap = _encode_and_measure(
+        record = _encode_and_measure(
             source_image=str(test_image),
             original_image=str(test_image),
             fmt="jpeg",
@@ -789,139 +785,3 @@ class TestPipelineRunnerIntegration:
         runner = PipelineRunner(project)
         with pytest.raises(FileNotFoundError, match="Fetch it first"):
             runner.run(config)
-
-    def test_save_worst_image_saves_artifacts(self, project_with_dataset: Path) -> None:
-        """save_worst_image should encode the worst image and save its files."""
-        if not tool_available("cjpeg"):
-            pytest.skip("cjpeg not available")
-
-        config = StudyConfig(
-            id="worst-img-test",
-            name="Worst Image Test",
-            dataset_id="test-ds",
-            max_images=2,
-            encoders=[EncoderConfig(format="jpeg", quality=[50, 90])],
-        )
-
-        runner = PipelineRunner(project_with_dataset)
-        results = runner.run(config, save_worst_image=True)
-
-        # At least some records should have encoded_path set
-        # (specifically, the worst image's records)
-        records_with_path = [r for r in results.measurements if r.encoded_path != ""]
-        assert len(records_with_path) > 0
-
-        # Those files should exist on disk
-        for rec in records_with_path:
-            saved_path = project_with_dataset / rec.encoded_path
-            assert saved_path.exists(), f"Expected saved file at {saved_path}"
-
-        # With fragment-level distortion comparison, the average and
-        # variance strategies may select different images.  When they
-        # pick different images all records end up with saved paths;
-        # when they agree only the worst image's records have paths.
-        if len(results.measurements) == 4:
-            assert len(records_with_path) in (2, 4)
-
-    def test_save_worst_image_noop_with_save_artifacts(self, project_with_dataset: Path) -> None:
-        """save_worst_image is skipped when save_artifacts is already True."""
-        if not tool_available("cjpeg"):
-            pytest.skip("cjpeg not available")
-
-        config = StudyConfig(
-            id="both-flags-test",
-            name="Both Flags Test",
-            dataset_id="test-ds",
-            max_images=1,
-            encoders=[EncoderConfig(format="jpeg", quality=[85])],
-        )
-
-        runner = PipelineRunner(project_with_dataset)
-        results = runner.run(config, save_artifacts=True, save_worst_image=True)
-
-        # All records should have encoded_path from save_artifacts
-        for rec in results.measurements:
-            assert rec.encoded_path != ""
-
-
-# ---------------------------------------------------------------------------
-# _find_worst_original
-# ---------------------------------------------------------------------------
-
-
-class TestFindWorstOriginal:
-    """Tests for the worst-original-image detection helper."""
-
-    @staticmethod
-    def _make_record(
-        original: str,
-        ssimulacra2: float | None,
-        error: str | None = None,
-    ) -> QualityRecord:
-        return QualityRecord(
-            source_image=f"data/preprocessed/{original}",
-            original_image=original,
-            encoded_path="",
-            format="jpeg",
-            quality=75,
-            file_size=1000,
-            width=64,
-            height=64,
-            source_file_size=2000,
-            ssimulacra2=ssimulacra2,
-            psnr=None,
-            ssim=None,
-            butteraugli=None,
-            measurement_error=error,
-        )
-
-    def test_single_image(self) -> None:
-        records = [self._make_record("a.png", 60.0)]
-        assert _find_worst_original(records) == "a.png"
-
-    def test_picks_lowest_average(self) -> None:
-        records = [
-            self._make_record("good.png", 80.0),
-            self._make_record("good.png", 90.0),
-            self._make_record("bad.png", 30.0),
-            self._make_record("bad.png", 40.0),
-        ]
-        assert _find_worst_original(records) == "bad.png"
-
-    def test_skips_errors(self) -> None:
-        records = [
-            self._make_record("ok.png", 70.0),
-            self._make_record("err.png", None, error="Encoding failed"),
-        ]
-        assert _find_worst_original(records) == "ok.png"
-
-    def test_all_errors_returns_none(self) -> None:
-        records = [
-            self._make_record("a.png", None, error="fail"),
-            self._make_record("b.png", None, error="fail"),
-        ]
-        assert _find_worst_original(records) is None
-
-    def test_empty_returns_none(self) -> None:
-        assert _find_worst_original([]) is None
-
-    def test_variance_strategy(self) -> None:
-        """Anisotropic strategy naturally picks the image with highest score variance."""
-        records = [
-            self._make_record("stable.png", 70.0),
-            self._make_record("stable.png", 72.0),
-            self._make_record("volatile.png", 30.0),
-            self._make_record("volatile.png", 90.0),
-        ]
-        # stable var ≈ 1.0, volatile var ≈ 900.0
-        assert _find_worst_original(records) == "volatile.png"
-
-    def test_variance_single_score(self) -> None:
-        """Single-score image has variance 0; two-score image wins."""
-        records = [
-            self._make_record("a.png", 60.0),
-            self._make_record("b.png", 50.0),
-            self._make_record("b.png", 70.0),
-        ]
-        # a: var=0, b: var=100
-        assert _find_worst_original(records) == "b.png"

@@ -39,11 +39,19 @@ class StudyConfig:
     """Which parameter varies within each comparison figure (tiles).
 
     When set, each comparison figure shows all values of this parameter
-    at a fixed level of all other varying parameters.  Multi-format
-    quality matching uses index-based alignment so that format_a[i] is
-    compared with format_b[i] regardless of their absolute quality values.
+    at a fixed level of all other varying parameters.
 
     When ``None`` the comparison module applies its built-in heuristic.
+    """
+    comparison_targets: list[dict[str, Any]] | None = None
+    """Target metric values for comparison figure generation.
+
+    Each entry is a dict with ``"metric"`` (str) and ``"values"`` (list[float]).
+    Supported metrics: ``ssimulacra2``, ``psnr``, ``ssim``, ``butteraugli``,
+    ``bytes_per_pixel``.
+
+    The comparison script interpolates encoder quality settings to produce
+    figures at each target value.
     """
     analysis_x_axis: str | None = None
     """Primary x-axis parameter for analysis plots.
@@ -112,6 +120,7 @@ class StudyConfig:
             description=data.get("description"),
             time_budget=data.get("time_budget"),
             comparison_tile_parameter=comparison.get("tile_parameter"),
+            comparison_targets=comparison.get("targets"),
             analysis_x_axis=analysis.get("x_axis"),
             analysis_group_by=analysis.get("group_by"),
         )

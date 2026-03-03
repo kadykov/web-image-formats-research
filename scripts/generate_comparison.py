@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Generate visual comparison images for study worst-case encodings.
+"""Generate visual comparison images using interpolation-based quality matching.
 
-This script reads quality measurement results, identifies the worst-performing
-image and encoding parameters, locates the most degraded image region using
-Butteraugli spatial distortion maps, and generates side-by-side comparison
-images at 2x zoom for visual inspection.
+This script reads quality measurement results and comparison targets from
+the study configuration, selects the most representative source image via
+interpolation-based variance analysis, and generates side-by-side comparison
+figures at matched quality or file-size levels.
 
 Usage:
     python3 scripts/generate_comparison.py format-comparison
     python3 scripts/generate_comparison.py data/metrics/avif-quality-sweep/quality.json
     python3 scripts/generate_comparison.py format-comparison --crop-size 96 --zoom 3
-    python3 scripts/generate_comparison.py format-comparison --metric butteraugli
+    python3 scripts/generate_comparison.py format-comparison --source-image data/preprocessed/img.png
 """
 
 import argparse
@@ -41,9 +41,6 @@ Examples:
 
   # Use larger crop and 3x zoom
   python scripts/generate_comparison.py format-comparison --crop-size 160 --zoom 3
-
-  # Use Butteraugli metric to find worst case
-  python scripts/generate_comparison.py format-comparison --metric butteraugli
 
   # Custom output directory
   python scripts/generate_comparison.py format-comparison --output data/analysis/my-comparison
@@ -78,26 +75,10 @@ Examples:
     )
 
     parser.add_argument(
-        "--metric",
-        type=str,
-        default="ssimulacra2",
-        choices=["ssimulacra2", "psnr", "ssim", "butteraugli"],
-        help="Metric used to find the worst case (default: ssimulacra2)",
-    )
-
-    parser.add_argument(
         "--max-columns",
         type=int,
         default=4,
         help="Maximum images per row in the comparison grid (default: 4)",
-    )
-
-    parser.add_argument(
-        "--strategy",
-        type=str,
-        default="anisotropic",
-        choices=["anisotropic"],
-        help="Fragment selection strategy (default: anisotropic).",
     )
 
     parser.add_argument(
@@ -190,9 +171,7 @@ Examples:
     config = ComparisonConfig(
         crop_size=args.crop_size,
         zoom_factor=args.zoom,
-        metric=args.metric,
         max_columns=args.max_columns,
-        strategy=args.strategy,
         source_image=args.source_image,
         tile_parameter=args.tile_parameter,
     )
@@ -206,16 +185,15 @@ Examples:
             config=config,
         )
         print("\nSummary:")
-        for sr in result.strategies:
-            print(f"\n  Source image: {sr.source_image}")
-            print(f"    Image score: {sr.image_score:.2f}")
-            print(f"    Worst format: {sr.worst_format} q{sr.worst_quality}")
-            print(f"    {config.metric}: {sr.worst_metric_value:.2f}")
+        for tr in result.target_results:
+            print(f"\n  Target: {tr.target_metric}={tr.target_value}")
+            print(f"    Source image: {tr.source_image}")
             print(
-                f"    Region: ({sr.region.x}, {sr.region.y}) {sr.region.width}x{sr.region.height}"
+                f"    Region: ({tr.region.x}, {tr.region.y}) {tr.region.width}x{tr.region.height}"
             )
-            print(f"    Output images: {len(sr.output_images)}")
-            for img in sr.output_images:
+            print(f"    Interpolated qualities: {tr.interpolated_qualities}")
+            print(f"    Output images: {len(tr.output_images)}")
+            for img in tr.output_images:
                 print(f"      - {img}")
         return 0
     except FileNotFoundError as e:
