@@ -4,7 +4,11 @@
   "name": "JPEG XL Effort Settings Study",
   "description": "Study how JPEG XL encoding effort affects quality and file size. Tests effort settings from 1 (fastest) to 10 (slowest/best) at representative quality levels to find the optimal effort/quality tradeoff.",
   "comparison": {
-    "tile_parameter": "effort"
+    "tile_parameter": "effort",
+    "targets": [
+      { "metric": "ssimulacra2", "values": [60, 70, 80] },
+      { "metric": "bytes_per_pixel", "values": [0.2, 0.5] }
+    ]
   },
   "analysis": {
     "x_axis": "effort",

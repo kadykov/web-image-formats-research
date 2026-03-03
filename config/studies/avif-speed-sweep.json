@@ -4,7 +4,11 @@
   "name": "AVIF Speed Settings Study",
   "description": "Study how AVIF encoding speed affects quality and file size. Tests speed settings from 0 (slowest/best) to 10 (fastest) at representative quality levels to find the optimal speed/quality tradeoff.",
   "comparison": {
-    "tile_parameter": "speed"
+    "tile_parameter": "speed",
+    "targets": [
+      { "metric": "ssimulacra2", "values": [60, 70, 80] },
+      { "metric": "bytes_per_pixel", "values": [0.1, 0.3] }
+    ]
   },
   "analysis": {
     "x_axis": "speed",

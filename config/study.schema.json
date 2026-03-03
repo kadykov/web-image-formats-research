@@ -35,6 +35,31 @@
           "type": "string",
           "description": "The encoding parameter that should vary within each comparison figure (i.e. each tile shows a different value of this parameter). All other varying parameters become split axes that produce separate figures. For multi-format studies use 'format'; for speed/effort/method sweeps use the sweep parameter so tiles show all its values at a fixed quality level.",
           "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+        },
+        "targets": {
+          "type": "array",
+          "description": "Target metric values for comparison figure generation. Each entry specifies a metric and a list of target values at which comparison figures should be produced. For quality metrics (ssimulacra2, psnr, ssim, butteraugli), the comparison script interpolates encoder quality settings to match each target. For bytes_per_pixel, it interpolates to match target file size ratios.",
+          "items": {
+            "type": "object",
+            "required": ["metric", "values"],
+            "properties": {
+              "metric": {
+                "type": "string",
+                "description": "The metric to target.",
+                "enum": ["ssimulacra2", "psnr", "ssim", "butteraugli", "bytes_per_pixel"]
+              },
+              "values": {
+                "type": "array",
+                "description": "Target values for this metric. Each value produces a separate set of comparison figures.",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1
         }
       },
       "additionalProperties": false

@@ -55,72 +55,34 @@
         "type": "string"
       }
     },
-    "worst_images": {
-      "type": ["object", "null"],
-      "description": "Worst image metadata computed during pipeline execution. The key is the strategy name ('anisotropic'); the value describes the selected image based on anisotropic Butteraugli distortion variance.",
-      "properties": {
-        "anisotropic": {
-          "type": "object",
-          "description": "Worst image selected by the anisotropic variance strategy (highest mean within-group Butteraugli distortion variance).",
-          "properties": {
-            "original_image": {
-              "type": "string",
-              "description": "Path to the original dataset image (relative to project root)"
-            },
-            "score": {
-              "type": "number",
-              "description": "Anisotropic distortion variance score for the worst fragment of this image"
-            }
-          },
-          "required": ["original_image", "score"],
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    "worst_fragments": {
-      "type": ["object", "null"],
-      "description": "Worst fragment metadata computed during pipeline execution. The anisotropic entry includes the original image, the overall fragment score, and per-resolution region coordinates.",
-      "properties": {
-        "anisotropic": {
-          "type": "object",
-          "description": "Worst fragment selected by anisotropic variance strategy.",
-          "properties": {
-            "original_image": {
-              "type": "string",
-              "description": "Path to the original dataset image (relative to project root)"
-            },
-            "score": {
-              "type": "number",
-              "description": "Anisotropic distortion variance score for this fragment"
-            },
-            "regions": {
-              "type": "object",
-              "description": "Per-resolution fragment positions. Keys are resolution values as strings (e.g. '720') or 'null' for original resolution.",
-              "additionalProperties": {
-                "type": "object",
-                "properties": {
-                  "x": { "type": "integer", "description": "Fragment left edge (pixels)" },
-                  "y": { "type": "integer", "description": "Fragment top edge (pixels)" },
-                  "width": { "type": "integer", "description": "Fragment width (pixels)" },
-                  "height": { "type": "integer", "description": "Fragment height (pixels)" },
-                  "avg_distortion": { "type": "number", "description": "Average distortion within the fragment" }
-                },
-                "required": ["x", "y", "width", "height", "avg_distortion"],
-                "additionalProperties": false
-              }
-            }
-          },
-          "required": ["original_image", "score", "regions"],
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
     "comparison_tile_parameter": {
       "type": ["string", "null"],
       "description": "The encoding parameter that should vary within each comparison figure (tiles). Propagated from the study config. When null the comparison module uses its built-in heuristic.",
       "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", null]
+    },
+    "comparison_targets": {
+      "type": ["array", "null"],
+      "description": "Target metric values for comparison figure generation. Each entry specifies a metric and a list of target values at which comparison figures should be produced. Propagated from the study config.",
+      "items": {
+        "type": "object",
+        "required": ["metric", "values"],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "description": "The metric to target for comparison figures.",
+            "enum": ["ssimulacra2", "psnr", "ssim", "butteraugli", "bytes_per_pixel"]
+          },
+          "values": {
+            "type": "array",
+            "description": "Target values for this metric. Each value produces a separate set of comparison figures.",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "analysis_x_axis": {
       "type": ["string", "null"],

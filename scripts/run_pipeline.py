@@ -6,22 +6,15 @@ quality for each image in the dataset within an optional time budget.
 It produces a quality-results JSON file that can be fed directly into
 analysis and report generation.
 
-By default the encoded files for the worst-quality image are saved to
-``data/encoded/<study_id>/`` so that the comparison script can reuse
-them without re-encoding.  Pass ``--no-save-worst-image`` to skip this.
-
 Usage:
-    # Run with a time budget (worst image saved by default)
+    # Run with a time budget
     python3 scripts/run_pipeline.py format-comparison --time-budget 1h
 
-    # Run all images (no budget); worst image saved by default
+    # Run all images (no budget)
     python3 scripts/run_pipeline.py avif-quality-sweep
 
-    # Run all images and save ALL encoded files (superset of worst-image)
+    # Run all images and save ALL encoded files
     python3 scripts/run_pipeline.py avif-quality-sweep --save-artifacts
-
-    # Skip saving worst-image files
-    python3 scripts/run_pipeline.py format-comparison --no-save-worst-image
 
     # Dry-run: preview what the pipeline would do
     python3 scripts/run_pipeline.py format-comparison --dry-run
@@ -183,14 +176,6 @@ examples:
         help="Save encoded image files to data/encoded/<study>/",
     )
     parser.add_argument(
-        "--save-worst-image",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Save encoded files for the worst-quality image only, for use "
-        "with the visual comparison tool (default: enabled; use "
-        "--no-save-worst-image to skip)",
-    )
-    parser.add_argument(
         "--output",
         type=Path,
         help="Override output path for quality results JSON "
@@ -249,7 +234,6 @@ examples:
             config,
             time_budget=time_budget,
             save_artifacts=args.save_artifacts,
-            save_worst_image=args.save_worst_image,
             num_workers=args.workers,
         )
     except (FileNotFoundError, ValueError) as e:

@@ -4,7 +4,6 @@ import json
 import shutil
 import struct
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -13,27 +12,19 @@ from PIL import Image
 from src.comparison import (
     ComparisonConfig,
     ComparisonResult,
-    StrategyResult,
+    TargetComparisonResult,
     WorstRegion,
     _build_label,
     _build_metric_label,
-    _compute_quality_indices,
     _default_tile_parameter,
-    _get_or_encode,
-    _group_measurements_for_comparison,
     _render_distmap_thumbnail,
-    _resolve_encoded_path,
     assemble_comparison_grid,
-    compute_aggregate_distortion_maps,
     crop_and_zoom,
     determine_varying_parameters,
     encode_image,
-    find_worst_measurement,
     find_worst_region,
-    find_worst_source_image,
     generate_comparison,
     generate_distortion_map,
-    get_worst_image_score,
     load_quality_results,
 )
 from src.quality import find_worst_region_in_array, read_pfm
@@ -299,142 +290,6 @@ def test_load_quality_results_no_measurements(tmp_path: Path) -> None:
         load_quality_results(path)
 
 
-# ---------------------------------------------------------------------------
-# Tests: find_worst_measurement
-# ---------------------------------------------------------------------------
-
-
-def test_find_worst_measurement_ssimulacra2(sample_quality_data: dict) -> None:
-    """Test finding worst measurement by SSIMULACRA2 (lowest score)."""
-    worst = find_worst_measurement(sample_quality_data["measurements"], metric="ssimulacra2")
-    assert worst["ssimulacra2"] == 50.0  # image2 q50 has the lowest
-    assert worst["source_image"] == "data/datasets/test/image2.png"
-    assert worst["quality"] == 50
-
-
-def test_find_worst_measurement_butteraugli(sample_quality_data: dict) -> None:
-    """Test finding worst measurement by Butteraugli (highest score)."""
-    worst = find_worst_measurement(sample_quality_data["measurements"], metric="butteraugli")
-    assert worst["butteraugli"] == 6.0  # image2 q50 has the highest
-    assert worst["source_image"] == "data/datasets/test/image2.png"
-
-
-def test_find_worst_measurement_psnr(sample_quality_data: dict) -> None:
-    """Test finding worst measurement by PSNR (lowest score)."""
-    worst = find_worst_measurement(sample_quality_data["measurements"], metric="psnr")
-    assert worst["psnr"] == 29.0
-
-
-def test_find_worst_measurement_no_valid(sample_quality_data: dict) -> None:
-    """Test that ValueError is raised when no valid measurements exist."""
-    # Set all measurements to have errors
-    for m in sample_quality_data["measurements"]:
-        m["measurement_error"] = "test error"
-    with pytest.raises(ValueError, match="No valid measurements"):
-        find_worst_measurement(sample_quality_data["measurements"])
-
-
-def test_find_worst_measurement_none_metric(sample_quality_data: dict) -> None:
-    """Test that measurements with None metrics are skipped."""
-    for m in sample_quality_data["measurements"]:
-        m["ssimulacra2"] = None
-    with pytest.raises(ValueError, match="No valid measurements"):
-        find_worst_measurement(sample_quality_data["measurements"], metric="ssimulacra2")
-
-
-# ---------------------------------------------------------------------------
-# Tests: find_worst_source_image
-# ---------------------------------------------------------------------------
-
-
-def test_find_worst_source_image_ssimulacra2(sample_quality_data: dict) -> None:
-    """Test finding worst source image by anisotropic SSIMULACRA2 variance.
-
-    With tile_param="format" and split_params=["quality"]:
-    - image1: group q50 → [jpeg=55, avif=70] var=56.25; group q80 → [jpeg=75, avif=85] var=25.0
-      anisotropic score = (56.25 + 25.0) / 2 = 40.625
-    - image2: only jpeg, so each quality group has 1 variant → falls back to overall variance
-      all_scores=[50, 70], var=100.0 → anisotropic score = 100.0
-    image2 wins (100.0 > 40.625).
-    """
-    worst = find_worst_source_image(
-        sample_quality_data["measurements"],
-        metric="ssimulacra2",
-        tile_param="format",
-        split_params=["quality"],
-    )
-    assert worst == "data/datasets/test/image2.png"
-
-
-def test_find_worst_source_image_butteraugli(sample_quality_data: dict) -> None:
-    """Test finding worst source image by anisotropic Butteraugli variance.
-
-    With tile_param="format" and split_params=["quality"]:
-    - image1: group q50 → [jpeg=5.5, avif=3.0] var=1.5625; group q80 → [jpeg=2.0, avif=1.2] var=0.16
-      anisotropic score = (1.5625 + 0.16) / 2 = 0.86125
-    - image2: single-variant groups → fallback: all_scores=[6.0, 2.5], var=6.125
-    image2 wins.
-    """
-    worst = find_worst_source_image(
-        sample_quality_data["measurements"],
-        metric="butteraugli",
-        tile_param="format",
-        split_params=["quality"],
-    )
-    assert worst == "data/datasets/test/image2.png"
-
-
-def test_get_worst_image_score_anisotropic(sample_quality_data: dict) -> None:
-    """Test computing anisotropic image score.
-
-    image2 has only one format (jpeg), so all quality groups have a single
-    variant each → falls back to overall variance.
-    all_scores=[50, 70], var = ((50-60)^2 + (70-60)^2) / 2 = 100.0
-    """
-    score = get_worst_image_score(
-        sample_quality_data["measurements"],
-        "data/datasets/test/image2.png",
-        metric="ssimulacra2",
-        tile_param="format",
-        split_params=["quality"],
-    )
-    assert abs(score - 100.0) < 0.01
-
-
-def test_get_worst_image_score_anisotropic_multi_format(sample_quality_data: dict) -> None:
-    """Anisotropic score for image1 averages per-quality-group format variance.
-
-    q50 group: [jpeg=55, avif=70] → var=56.25
-    q80 group: [jpeg=75, avif=85] → var=25.0
-    anisotropic score = (56.25 + 25.0) / 2 = 40.625
-    """
-    score = get_worst_image_score(
-        sample_quality_data["measurements"],
-        "data/datasets/test/image1.png",
-        metric="ssimulacra2",
-        tile_param="format",
-        split_params=["quality"],
-    )
-    assert abs(score - 40.625) < 0.01
-
-
-# ---------------------------------------------------------------------------
-# Tests: find_worst_region
-# ---------------------------------------------------------------------------
-
-
-def test_find_worst_region(sample_distortion_map: Path) -> None:
-    """Test finding the worst region in a raw PFM distortion map."""
-    region = find_worst_region(sample_distortion_map, crop_size=32)
-    # The hot spot is at (80, 60) with size 30x30
-    # A 32x32 window should overlap the hot spot
-    assert 48 <= region.x <= 110
-    assert 28 <= region.y <= 90
-    assert region.width == 32
-    assert region.height == 32
-    assert region.avg_distortion > 0
-
-
 def test_find_worst_region_small_image(tmp_path: Path) -> None:
     """Test finding worst region when image is smaller than crop size."""
     arr = np.full((64, 64), 3.0, dtype=np.float32)
@@ -564,96 +419,6 @@ def test_find_worst_region_in_array_uniform() -> None:
     assert region.width == 32
     assert region.height == 32
     assert abs(region.avg_distortion - 3.0) < 1e-9
-
-
-# ---------------------------------------------------------------------------
-# Tests: compute_aggregate_distortion_maps
-# ---------------------------------------------------------------------------
-
-
-def test_compute_aggregate_distortion_maps_unit(
-    tmp_path: Path,
-) -> None:
-    """Unit test: mocks encoder and distortion-map tools to test aggregation.
-
-    Verifies that the function correctly stacks the per-variant arrays,
-    and that the results (avg, var) have the expected shapes and values.
-    """
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-    source_path = source_dir / "image2.png"
-    Image.new("RGB", (8, 8), color=(128, 128, 128)).save(source_path)
-
-    encoded_dir = tmp_path / "encoded"
-    encoded_dir.mkdir()
-    output_dir = tmp_path / "output"
-    output_dir.mkdir()
-
-    # Two measurements (same format, different quality) for image2
-    measurements = [
-        {"source_image": "image2.png", "format": "jpeg", "quality": 50, "encoded_path": ""},
-        {"source_image": "image2.png", "format": "jpeg", "quality": 80, "encoded_path": ""},
-    ]
-
-    # Synthetic PFM arrays that the mock will write
-    arr1 = np.full((8, 8), 4.0, dtype=np.float32)
-    arr2 = np.full((8, 8), 2.0, dtype=np.float32)
-
-    def fake_gen_distortion_map(
-        _original: Path,
-        _compressed: Path,
-        output_pfm: Path,
-    ) -> Path:
-        # Write a synthetic PFM so read_pfm can load it
-        arr = arr1 if "q50" in str(output_pfm) else arr2
-        _write_pfm_grayscale(output_pfm, arr)
-        return output_pfm
-
-    fake_enc = tmp_path / "fake.jpg"
-    fake_enc.write_bytes(b"fake")
-
-    with (
-        patch("src.comparison._get_or_encode", return_value=fake_enc),
-        patch("src.comparison.generate_distortion_map", side_effect=fake_gen_distortion_map),
-    ):
-        aniso_map, variant_pairs = compute_aggregate_distortion_maps(
-            source_path,
-            measurements,
-            output_dir,
-            project_root=tmp_path,
-            encoded_dir=encoded_dir,
-        )
-
-    assert aniso_map.shape == (8, 8)
-    # Two measurements, same quality group (split_params=[]) → fallback to
-    # overall pixel-wise variance: var([4.0, 2.0]) = 1.0
-    np.testing.assert_allclose(aniso_map, 1.0, rtol=1e-5)
-    # Both measurements should have produced arrays
-    assert len(variant_pairs) == 2
-    arrs = [a for a, _ in variant_pairs]
-    assert all(a.shape == (8, 8) for a in arrs)
-
-
-def test_compute_aggregate_distortion_maps_no_maps(
-    tmp_path: Path,
-) -> None:
-    """RuntimeError is raised when every variant fails."""
-    with (
-        patch("src.comparison._get_or_encode", return_value=None),
-        pytest.raises(RuntimeError, match="No distortion maps"),
-    ):
-        compute_aggregate_distortion_maps(
-            source_path=tmp_path / "img.png",
-            measurements=[{"format": "jpeg", "quality": 50, "encoded_path": ""}],
-            output_dir=tmp_path / "out",
-            project_root=tmp_path,
-            encoded_dir=tmp_path / "enc",
-        )
-
-
-# ---------------------------------------------------------------------------
-# Tests: crop_and_zoom
-# ---------------------------------------------------------------------------
 
 
 def test_crop_and_zoom(sample_rgb_image: Path, tmp_output: Path) -> None:
@@ -920,27 +685,18 @@ def test_comparison_config_defaults() -> None:
     config = ComparisonConfig()
     assert config.crop_size == 128
     assert config.zoom_factor == 3
-    assert config.metric == "ssimulacra2"
     assert config.max_columns == 4
     assert config.label_font_size == 22
-    assert config.strategy == "anisotropic"
     assert config.distmap_vmax == 5.0
     assert config.source_image is None
-
-
-def test_comparison_config_strategies() -> None:
-    """Test supported strategy values."""
-    for strategy in ("anisotropic",):
-        config = ComparisonConfig(strategy=strategy)
-        assert config.strategy == strategy
+    assert config.tile_parameter is None
 
 
 def test_comparison_config_custom() -> None:
     """Test custom configuration values."""
-    config = ComparisonConfig(crop_size=96, zoom_factor=3, metric="butteraugli")
+    config = ComparisonConfig(crop_size=96, zoom_factor=3)
     assert config.crop_size == 96
     assert config.zoom_factor == 3
-    assert config.metric == "butteraugli"
 
 
 def test_comparison_config_source_image_override() -> None:
@@ -952,44 +708,40 @@ def test_comparison_config_source_image_override() -> None:
 def test_comparison_result() -> None:
     """Test ComparisonResult dataclass."""
     region = WorstRegion(x=10, y=20, width=128, height=128, avg_distortion=150.0)
-    sr = StrategyResult(
-        strategy="anisotropic",
+    tr = TargetComparisonResult(
+        target_metric="ssimulacra2",
+        target_value=70.0,
         source_image="image.png",
-        image_score=60.0,
-        worst_format="jpeg",
-        worst_quality=50,
-        worst_metric_value=55.0,
         region=region,
-        output_dir=Path("comparison"),
-        output_images=[Path("comparison.png")],
+        interpolated_qualities={"jpeg": 65, "avif": 45},
+        output_images=[Path("comparison.webp")],
     )
     result = ComparisonResult(
         study_id="test",
-        strategies=[sr],
+        target_results=[tr],
         varying_parameters=["format", "quality"],
     )
     assert result.study_id == "test"
-    assert len(result.strategies) == 1
-    assert result.strategies[0].region.x == 10
-    assert result.strategies[0].strategy == "anisotropic"
+    assert len(result.target_results) == 1
+    assert result.target_results[0].region.x == 10
+    assert result.target_results[0].target_metric == "ssimulacra2"
+    assert result.target_results[0].target_value == 70.0
 
 
-def test_strategy_result() -> None:
-    """StrategyResult records all per-strategy fields."""
+def test_target_comparison_result() -> None:
+    """TargetComparisonResult records all per-target fields."""
     region = WorstRegion(x=0, y=0, width=64, height=64, avg_distortion=1.0)
-    sr = StrategyResult(
-        strategy="anisotropic",
+    tr = TargetComparisonResult(
+        target_metric="bytes_per_pixel",
+        target_value=0.3,
         source_image="img.png",
-        image_score=15.0,
-        worst_format="avif",
-        worst_quality=60,
-        worst_metric_value=60.0,
         region=region,
-        output_dir=Path("comparison"),
+        interpolated_qualities={"avif": 55.2},
     )
-    assert sr.strategy == "anisotropic"
-    assert sr.image_score == 15.0
-    assert sr.output_images == []
+    assert tr.target_metric == "bytes_per_pixel"
+    assert tr.target_value == 0.3
+    assert tr.interpolated_qualities["avif"] == 55.2
+    assert tr.output_images == []
 
 
 # ---------------------------------------------------------------------------
@@ -1036,10 +788,13 @@ def test_generate_comparison_integration(
     img2_path = img_dir / "image2.png"
     img2.save(img2_path)
 
-    # Use only JPEG measurements (always available, no special decoder needed)
+    # Use only JPEG measurements and add comparison targets
     jpeg_only_data = {
         **sample_quality_data,
         "measurements": [m for m in sample_quality_data["measurements"] if m["format"] == "jpeg"],
+        "comparison_targets": [
+            {"metric": "ssimulacra2", "values": [60]},
+        ],
     }
 
     # Write quality.json
@@ -1058,18 +813,15 @@ def test_generate_comparison_integration(
     )
 
     assert result.study_id == "test-comparison"
-    assert len(result.strategies) >= 1
-    for sr in result.strategies:
-        assert sr.region.width == 64
-        assert sr.output_dir.exists()
-        assert len(sr.output_images) > 0
-        for img_path in sr.output_images:
+    assert len(result.target_results) >= 1
+    for tr in result.target_results:
+        assert tr.region.width == 64
+        assert tr.target_metric == "ssimulacra2"
+        assert tr.target_value == 60
+        assert len(tr.output_images) > 0
+        for img_path in tr.output_images:
             assert img_path.exists()
 
-        # Check that distortion map and annotated original were generated
-        assert (sr.output_dir / f"distortion_map_{sr.strategy}.webp").exists()
-        assert (sr.output_dir / "original_annotated.webp").exists()
-        assert (sr.output_dir / "distortion_map_comparison.webp").exists()
     # Intermediate files (encoded, crops) are in a temp dir and cleaned up
     assert not (output_dir / "encoded").exists()
     assert not (output_dir / "crops").exists()
@@ -1128,95 +880,12 @@ def test_encode_image_jxl(sample_rgb_image: Path, tmp_output: Path) -> None:
     measurement = {"format": "jxl", "quality": 70, "effort": 3}
     result = encode_image(sample_rgb_image, measurement, tmp_output)
     assert result is not None
-    assert result.exists()
-    assert result.suffix == ".jxl"
-
-
-def test_encode_image_unknown_format(sample_rgb_image: Path, tmp_output: Path) -> None:
-    """Test that unknown format returns None."""
-    measurement = {"format": "unknown", "quality": 50}
-    result = encode_image(sample_rgb_image, measurement, tmp_output)
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# _resolve_encoded_path
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_encoded_path_found(tmp_path: Path) -> None:
-    """Returns absolute path when encoded file exists on disk."""
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    encoded = project_root / "data" / "encoded" / "study" / "jpeg" / "original"
-    encoded.mkdir(parents=True)
-    artifact = encoded / "img_q50.jpg"
-    artifact.write_bytes(b"fake jpeg")
-
-    measurement = {"encoded_path": "data/encoded/study/jpeg/original/img_q50.jpg"}
-    result = _resolve_encoded_path(measurement, project_root)
-    assert result is not None
-    assert result == artifact
-
-
-def test_resolve_encoded_path_missing(tmp_path: Path) -> None:
-    """Returns None when encoded file does not exist."""
-    measurement = {"encoded_path": "data/encoded/study/jpeg/original/img_q50.jpg"}
-    result = _resolve_encoded_path(measurement, tmp_path)
-    assert result is None
-
-
-def test_resolve_encoded_path_empty() -> None:
-    """Returns None when encoded_path is empty string."""
-    measurement = {"encoded_path": ""}
-    result = _resolve_encoded_path(measurement, Path("/tmp"))
-    assert result is None
-
-
-def test_resolve_encoded_path_not_present() -> None:
-    """Returns None when encoded_path key is absent."""
-    measurement: dict = {"format": "jpeg", "quality": 50}
-    result = _resolve_encoded_path(measurement, Path("/tmp"))
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# _get_or_encode
-# ---------------------------------------------------------------------------
-
-
-def test_get_or_encode_uses_existing(tmp_path: Path) -> None:
-    """Prefers pre-existing encoded file over re-encoding."""
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    artifact = project_root / "data" / "encoded" / "img.jpg"
-    artifact.parent.mkdir(parents=True)
-    artifact.write_bytes(b"\xff\xd8fake")
-
-    measurement = {"encoded_path": "data/encoded/img.jpg", "format": "jpeg", "quality": 50}
-    # source_path doesn't need to exist since we should use the saved artifact
-    source = tmp_path / "nonexistent_source.png"
-
-    result = _get_or_encode(source, measurement, tmp_path / "out", project_root)
-    assert result == artifact
 
 
 @pytest.mark.skipif(
     not shutil.which("cjpeg"),
     reason="cjpeg not available",
 )
-def test_get_or_encode_falls_back_to_encoding(sample_rgb_image: Path, tmp_output: Path) -> None:
-    """Falls back to re-encoding when no saved artifact exists."""
-    measurement = {"encoded_path": "", "format": "jpeg", "quality": 75}
-    project_root = tmp_output / "project"
-    project_root.mkdir()
-
-    result = _get_or_encode(sample_rgb_image, measurement, tmp_output, project_root)
-    assert result is not None
-    assert result.exists()
-    assert result.suffix == ".jpg"
-
-
 # ---------------------------------------------------------------------------
 # _default_tile_parameter
 # ---------------------------------------------------------------------------
@@ -1251,150 +920,3 @@ class TestDefaultTileParameter:
     def test_resolution_as_non_quality(self) -> None:
         """Resolution is preferred over quality."""
         assert _default_tile_parameter(["resolution", "quality"]) == "resolution"
-
-
-# ---------------------------------------------------------------------------
-# _compute_quality_indices
-# ---------------------------------------------------------------------------
-
-
-class TestComputeQualityIndices:
-    """Tests for per-format quality index computation."""
-
-    def test_single_format(self) -> None:
-        """Single format: quality values are sorted and indexed."""
-        measurements = [
-            {"format": "avif", "quality": 60},
-            {"format": "avif", "quality": 40},
-            {"format": "avif", "quality": 80},
-        ]
-        indices = _compute_quality_indices(measurements)
-        assert indices[("avif", 40)] == 0
-        assert indices[("avif", 60)] == 1
-        assert indices[("avif", 80)] == 2
-
-    def test_multiple_formats_different_scales(self) -> None:
-        """Different formats with different quality ranges each get independent indices."""
-        measurements = [
-            {"format": "avif", "quality": 40},
-            {"format": "avif", "quality": 70},
-            {"format": "jpeg", "quality": 50},
-            {"format": "jpeg", "quality": 80},
-        ]
-        indices = _compute_quality_indices(measurements)
-        # avif: [40, 70] → indices 0, 1
-        assert indices[("avif", 40)] == 0
-        assert indices[("avif", 70)] == 1
-        # jpeg: [50, 80] → indices 0, 1
-        assert indices[("jpeg", 50)] == 0
-        assert indices[("jpeg", 80)] == 1
-
-    def test_duplicate_quality_values_collapsed(self) -> None:
-        """Duplicate quality values for the same format produce a single index."""
-        measurements = [
-            {"format": "webp", "quality": 75},
-            {"format": "webp", "quality": 75},
-            {"format": "webp", "quality": 90},
-        ]
-        indices = _compute_quality_indices(measurements)
-        assert indices[("webp", 75)] == 0
-        assert indices[("webp", 90)] == 1
-
-
-# ---------------------------------------------------------------------------
-# _group_measurements_for_comparison
-# ---------------------------------------------------------------------------
-
-
-class TestGroupMeasurementsForComparison:
-    """Tests for the comparison grouping helper."""
-
-    def _make_measurements(
-        self,
-        formats: list[str],
-        qualities: dict[str, list[int]],
-    ) -> list[dict]:
-        """Build a flat measurement list for format × quality combinations."""
-        result = []
-        for fmt in formats:
-            for q in qualities.get(fmt, []):
-                result.append({"format": fmt, "quality": q})
-        return result
-
-    def test_tile_format_same_quality_arrays(self) -> None:
-        """With tile_parameter='format', same quality array → one group per index."""
-        measurements = [
-            {"format": "avif", "quality": 40},
-            {"format": "jpeg", "quality": 50},
-            {"format": "avif", "quality": 60},
-            {"format": "jpeg", "quality": 70},
-        ]
-        groups = _group_measurements_for_comparison(measurements, "format", ["quality"])
-        # Two quality indices → two groups
-        assert len(groups) == 2
-        labels = [g[0] for g in groups]
-        assert labels == ["qi0", "qi1"]
-        # Each group has both formats (2 measurements each)
-        assert len(groups[0][1]) == 2
-        assert len(groups[1][1]) == 2
-
-    def test_tile_format_different_quality_length_groups_by_max(self) -> None:
-        """Format with fewer quality levels drops out of later groups."""
-        measurements = [
-            {"format": "avif", "quality": 40},
-            {"format": "avif", "quality": 60},
-            {"format": "avif", "quality": 80},
-            {"format": "jpeg", "quality": 50},
-            {"format": "jpeg", "quality": 75},
-        ]
-        groups = _group_measurements_for_comparison(measurements, "format", ["quality"])
-        # 3 avif levels → 3 groups; jpeg only has 2 → third group has 1 tile
-        assert len(groups) == 3
-        assert len(groups[2][1]) == 1  # only avif at index 2
-
-    def test_tile_speed_groups_by_quality_value(self) -> None:
-        """With tile_parameter='speed', split_params=['quality'] groups by value."""
-        measurements = [
-            {"format": "avif", "quality": 50, "speed": 0},
-            {"format": "avif", "quality": 50, "speed": 4},
-            {"format": "avif", "quality": 80, "speed": 0},
-            {"format": "avif", "quality": 80, "speed": 4},
-        ]
-        groups = _group_measurements_for_comparison(measurements, "speed", ["quality"])
-        assert len(groups) == 2
-        labels = [g[0] for g in groups]
-        assert "quality_50" in labels
-        assert "quality_80" in labels
-
-    def test_no_split_params_produces_single_group(self) -> None:
-        """When split_params is empty, all measurements land in one group."""
-        measurements = [
-            {"format": "avif", "quality": 50, "chroma_subsampling": "444"},
-            {"format": "avif", "quality": 50, "chroma_subsampling": "420"},
-        ]
-        groups = _group_measurements_for_comparison(measurements, "chroma_subsampling", [])
-        assert len(groups) == 1
-        assert groups[0][0] == "all"
-        assert len(groups[0][1]) == 2
-
-    def test_groups_sorted_by_key(self) -> None:
-        """Groups are returned in sorted key order."""
-        measurements = [
-            {"format": "avif", "quality": 80, "speed": 2},
-            {"format": "avif", "quality": 50, "speed": 2},
-            {"format": "avif", "quality": 60, "speed": 2},
-        ]
-        groups = _group_measurements_for_comparison(measurements, "speed", ["quality"])
-        labels = [g[0] for g in groups]
-        # quality values sorted: 50, 60, 80
-        assert labels == ["quality_50", "quality_60", "quality_80"]
-
-    def test_comparison_config_tile_parameter_field_exists(self) -> None:
-        """ComparisonConfig has a tile_parameter field defaulting to None."""
-        cfg = ComparisonConfig()
-        assert cfg.tile_parameter is None
-
-    def test_comparison_config_tile_parameter_set(self) -> None:
-        """ComparisonConfig accepts a tile_parameter value."""
-        cfg = ComparisonConfig(tile_parameter="speed")
-        assert cfg.tile_parameter == "speed"

@@ -73,7 +73,7 @@ fetch DATASET_ID:
 
 # Run the full encoding and measurement
 pipeline STUDY TIME_BUDGET:
-    python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}} --save-worst-image
+    python3 scripts/run_pipeline.py {{STUDY}} --time-budget {{TIME_BUDGET}}
 
 # Analyze study results and generate plots
 analyze STUDY:

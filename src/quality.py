@@ -629,9 +629,8 @@ class QualityResults:
     timestamp: str
     encoding_timestamp: str | None = None
     tool_versions: dict[str, str] | None = None
-    worst_images: dict[str, dict] | None = None
-    worst_fragments: dict[str, dict] | None = None
     comparison_tile_parameter: str | None = None
+    comparison_targets: list[dict[str, Any]] | None = None
     analysis_x_axis: str | None = None
     analysis_group_by: str | None = None
 
@@ -654,9 +653,8 @@ class QualityResults:
             "encoding_timestamp": self.encoding_timestamp,
             "timestamp": self.timestamp,
             "tool_versions": self.tool_versions,
-            "worst_images": self.worst_images,
-            "worst_fragments": self.worst_fragments,
             "comparison_tile_parameter": self.comparison_tile_parameter,
+            "comparison_targets": self.comparison_targets,
             "analysis_x_axis": self.analysis_x_axis,
             "analysis_group_by": self.analysis_group_by,
             "measurements": [
