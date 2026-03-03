@@ -60,6 +60,14 @@
             "additionalProperties": false
           },
           "minItems": 1
+        },
+        "exclude_images": {
+          "type": "array",
+          "description": "List of image filenames to exclude from automatic source-image selection for comparison figures. Use this to skip images where synthetic quality metrics do not reflect perceived visual quality well. Filenames are matched against the basename of source/original image paths (e.g. '0801.png').",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
         }
       },
       "additionalProperties": false

@@ -67,53 +67,37 @@
         Butteraugli spatial distortion analysis.
     </p>
 
-    {# Group sets by strategy #}
-    {% set strategies_seen = [] %}
-    {% for img_set in comparison_images.sets %}
-        {% if img_set.strategy not in strategies_seen %}
-            {% if strategies_seen.append(img_set.strategy) %}{% endif %}
-        {% endif %}
-    {% endfor %}
-
-    {% for strategy in strategies_seen %}
-    {% set strategy_sets = [] %}
-    {% for s in comparison_images.sets %}
-        {% if s.strategy == strategy %}
-            {% if strategy_sets.append(s) %}{% endif %}
-        {% endif %}
-    {% endfor %}
-
-    <details class="comparison-strategy"{% if loop.first %} open{% endif %}>
+    <details class="comparison-strategy" open>
         <summary>
-            <h3 style="display: inline;">
-                {% if strategy == "anisotropic" %}
-                    Anisotropic Variance Analysis
-                {% else %}
-                    {{ strategy | title }} Analysis
-                {% endif %}
-            </h3>
+            <h3 style="display: inline;">Anisotropic Variance Analysis</h3>
         </summary>
 
-        {% if strategy == "anisotropic" %}
         <p class="strategy-description">
             Identifies the image and fragment where the <strong>choice of
             encoding parameters has the greatest anisotropic impact</strong>
-            on quality. Measurements are grouped by the parameters that
-            produce separate comparison figures; the variance within each
-            group is averaged to find the most sensitive image and region.
+            on quality. One fragment is selected per target metric group
+            and shared across all target values within that group for
+            direct comparability.
         </p>
-        {% endif %}
 
-        {% for img_set in strategy_sets %}
+        {% for img_set in comparison_images.sets %}
+
+        {# Resolution heading (if applicable) #}
         {% if img_set.resolution %}
         <details class="comparison-resolution">
             <summary><strong>Resolution {{ img_set.resolution }}</strong></summary>
         {% endif %}
 
+        {# Metric group heading #}
+        {% if img_set.target_metric %}
+        <div class="comparison-metric-group">
+            <h4>Matched {{ img_set.target_metric | replace('_', ' ') | title }}</h4>
+        {% endif %}
+
         {# 1. Annotated original #}
         {% if img_set.original_annotated %}
         <div class="comparison-figure">
-            <h4>Selected Image &amp; Fragment Location</h4>
+            <h5>Selected Image &amp; Fragment Location</h5>
             <p>The dashed rectangle marks the fragment used for the
             comparisons below.</p>
             {{ picture_html(img_set.original_annotated, css_class="comparison-img") }}
@@ -123,12 +107,13 @@
         {# 2. Aggregated distortion map #}
         {% if img_set.distortion_map %}
         <div class="comparison-figure">
-            <h4>Anisotropic Distortion Map</h4>
+            <h5>Anisotropic Distortion Map</h5>
             <p>
                 Per-pixel anisotropic variance of Butteraugli distortion —
                 bright regions show where quality varies most across
-                tile-parameter values within each split-parameter group.
-                The selected fragment targets the area of highest sensitivity.
+                tile-parameter values.  The variance maps for each target
+                value are averaged to select one fragment for the entire
+                group.
             </p>
             {{ picture_html(img_set.distortion_map, css_class="comparison-img") }}
         </div>
@@ -137,7 +122,7 @@
         {# 3. Fragment comparison grids #}
         {% if img_set.fragment_grids %}
         <div class="comparison-figure">
-            <h4>Fragment Comparison</h4>
+            <h5>Fragment Comparison</h5>
             <p>
                 Nearest-neighbour 3&times; zoom of the selected fragment,
                 comparing original against each encoding variant.
@@ -154,7 +139,7 @@
         {# 4. Distortion map comparison grids #}
         {% if img_set.distmap_grids %}
         <div class="comparison-figure">
-            <h4>Distortion Map Comparison</h4>
+            <h5>Distortion Map Comparison</h5>
             <p>
                 Per-variant Butteraugli distortion maps shown as viridis
                 heatmaps at uniform scale (darker = higher distortion).
@@ -168,12 +153,15 @@
         </div>
         {% endif %}
 
+        {% if img_set.target_metric %}
+        </div>
+        {% endif %}
+
         {% if img_set.resolution %}
         </details>
         {% endif %}
         {% endfor %}
     </details>
-    {% endfor %}
 </div>
 {% endif %}
 

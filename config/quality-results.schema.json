@@ -55,45 +55,6 @@
         "type": "string"
       }
     },
-    "comparison_tile_parameter": {
-      "type": ["string", "null"],
-      "description": "The encoding parameter that should vary within each comparison figure (tiles). Propagated from the study config. When null the comparison module uses its built-in heuristic.",
-      "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", null]
-    },
-    "comparison_targets": {
-      "type": ["array", "null"],
-      "description": "Target metric values for comparison figure generation. Each entry specifies a metric and a list of target values at which comparison figures should be produced. Propagated from the study config.",
-      "items": {
-        "type": "object",
-        "required": ["metric", "values"],
-        "properties": {
-          "metric": {
-            "type": "string",
-            "description": "The metric to target for comparison figures.",
-            "enum": ["ssimulacra2", "psnr", "ssim", "butteraugli", "bytes_per_pixel"]
-          },
-          "values": {
-            "type": "array",
-            "description": "Target values for this metric. Each value produces a separate set of comparison figures.",
-            "items": {
-              "type": "number"
-            },
-            "minItems": 1
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-    "analysis_x_axis": {
-      "type": ["string", "null"],
-      "description": "The parameter to use as the primary x-axis in analysis plots. Propagated from the study config. When null the heuristic picks the parameter with the most unique values.",
-      "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", null]
-    },
-    "analysis_group_by": {
-      "type": ["string", "null"],
-      "description": "The parameter to use for line grouping in analysis plots. Propagated from the study config. When null the heuristic picks the parameter with the second-most unique values.",
-      "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", null]
-    },
     "measurements": {
       "type": "array",
       "description": "List of all quality measurement records",

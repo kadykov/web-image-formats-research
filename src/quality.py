@@ -629,10 +629,6 @@ class QualityResults:
     timestamp: str
     encoding_timestamp: str | None = None
     tool_versions: dict[str, str] | None = None
-    comparison_tile_parameter: str | None = None
-    comparison_targets: list[dict[str, Any]] | None = None
-    analysis_x_axis: str | None = None
-    analysis_group_by: str | None = None
 
     def save(self, path: Path) -> None:
         """Save quality results to a JSON file.
@@ -653,10 +649,6 @@ class QualityResults:
             "encoding_timestamp": self.encoding_timestamp,
             "timestamp": self.timestamp,
             "tool_versions": self.tool_versions,
-            "comparison_tile_parameter": self.comparison_tile_parameter,
-            "comparison_targets": self.comparison_targets,
-            "analysis_x_axis": self.analysis_x_axis,
-            "analysis_group_by": self.analysis_group_by,
             "measurements": [
                 {
                     "source_image": rec.source_image,

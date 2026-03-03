@@ -139,6 +139,12 @@ Examples:
     # Determine output directory
     output_dir = args.output or Path("data/analysis") / study_id
 
+    # Resolve study config path for analysis parameter overrides
+    project_root = Path(__file__).parent.parent
+    study_config_path = project_root / "config" / "studies" / f"{study_id}.json"
+    if not study_config_path.exists():
+        study_config_path = None
+
     # Run analysis
     print(f"Analyzing study: {study_id}")
     print(f"Quality data: {quality_json_path}")
@@ -146,7 +152,13 @@ Examples:
     print()
 
     try:
-        analyze_study(quality_json_path, output_dir, x_axis=args.x_axis, group_by=args.group_by)
+        analyze_study(
+            quality_json_path,
+            output_dir,
+            x_axis=args.x_axis,
+            group_by=args.group_by,
+            study_config_path=study_config_path,
+        )
         print()
         print("Analysis complete!")
         return 0

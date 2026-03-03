@@ -75,21 +75,28 @@ class OptimisedImage:
 
 @dataclass
 class ComparisonImageSet:
-    """All optimised images for one strategy (or resolution within a strategy).
+    """All optimised images for one target metric group.
+
+    Each set corresponds to one metric subdirectory (e.g.
+    ``ssimulacra2/`` or ``bytes_per_pixel/``).  Within that directory
+    there is one annotated original and one aggregate distortion map,
+    plus one fragment grid and one distmap grid per target value.
 
     Attributes:
         strategy: Always ``"anisotropic"`` for the current pipeline.
         resolution: Resolution label (e.g. ``"r720"``) or ``None``.
+        target_metric: Target metric name (e.g. ``"ssimulacra2"``).
         original_annotated: The annotated original image.
         distortion_map: The aggregated distortion map.
-        fragment_grids: Fragment comparison grids (may be >1 when split
-            by a varying parameter).
-        distmap_grids: Distortion-map comparison grids (same cardinality
-            as *fragment_grids*).
+        fragment_grids: Fragment comparison grids (one per target
+            value within the group).
+        distmap_grids: Distortion-map comparison grids (same
+            cardinality as *fragment_grids*).
     """
 
     strategy: str
     resolution: str | None = None
+    target_metric: str | None = None
     original_annotated: OptimisedImage | None = None
     distortion_map: OptimisedImage | None = None
     fragment_grids: list[OptimisedImage] = field(default_factory=list)
@@ -448,10 +455,24 @@ def discover_and_optimise(
     them for web delivery, and returns structured metadata for template
     rendering.
 
-    The comparison directory layout is now flat (no strategy subdirs):
-    files are placed directly in ``comparison/`` for single-resolution
-    studies, or in ``comparison/r<N>/`` subdirectories for resolution
-    studies.
+    The expected directory layout is::
+
+        comparison/
+            <metric>/               # e.g. ssimulacra2/, bytes_per_pixel/
+                comparison_60.webp
+                distortion_map_comparison_60.webp
+                distortion_map_anisotropic.webp
+                original_annotated.webp
+
+    For resolution studies::
+
+        comparison/
+            r720/
+                <metric>/
+                    ...
+            r1080/
+                <metric>/
+                    ...
 
     Args:
         analysis_dir: Root analysis directory (e.g. ``data/analysis``).
@@ -472,27 +493,43 @@ def discover_and_optimise(
     strategy = "anisotropic"
 
     # Check for per-resolution subdirectories (e.g. r720, r1080)
-    subdirs = sorted(d for d in comparison_dir.iterdir() if d.is_dir() and d.name.startswith("r"))
-    if subdirs:
-        # Resolution study: process each sub-directory
-        for res_dir in subdirs:
+    res_dirs = sorted(d for d in comparison_dir.iterdir() if d.is_dir() and d.name.startswith("r"))
+    if res_dirs:
+        # Resolution study: each res dir contains metric subdirs
+        for res_dir in res_dirs:
+            metric_dirs = sorted(d for d in res_dir.iterdir() if d.is_dir())
+            for metric_dir in metric_dirs:
+                image_set = _process_directory(
+                    metric_dir,
+                    strategy,
+                    img_output_base / res_dir.name / metric_dir.name,
+                    report_root,
+                    resolution=res_dir.name,
+                    target_metric=metric_dir.name,
+                )
+                result.sets.append(image_set)
+    else:
+        # Non-resolution study: top-level subdirs are metric dirs
+        metric_dirs = sorted(d for d in comparison_dir.iterdir() if d.is_dir())
+        if metric_dirs:
+            for metric_dir in metric_dirs:
+                image_set = _process_directory(
+                    metric_dir,
+                    strategy,
+                    img_output_base / metric_dir.name,
+                    report_root,
+                    target_metric=metric_dir.name,
+                )
+                result.sets.append(image_set)
+        else:
+            # Fallback: flat directory (no metric subdirs)
             image_set = _process_directory(
-                res_dir,
+                comparison_dir,
                 strategy,
-                img_output_base / res_dir.name,
+                img_output_base,
                 report_root,
-                resolution=res_dir.name,
             )
             result.sets.append(image_set)
-    else:
-        # Non-resolution study: process the comparison directory directly
-        image_set = _process_directory(
-            comparison_dir,
-            strategy,
-            img_output_base,
-            report_root,
-        )
-        result.sets.append(image_set)
 
     return result
 
@@ -504,6 +541,7 @@ def _process_directory(
     report_root: Path,
     *,
     resolution: str | None = None,
+    target_metric: str | None = None,
 ) -> ComparisonImageSet:
     """Optimise all comparison images in a single directory.
 
@@ -513,11 +551,17 @@ def _process_directory(
         out_dir: Output directory for optimised files.
         report_root: Root for relative path computation.
         resolution: Optional resolution label (e.g. ``"r720"``).
+        target_metric: Optional target metric name (e.g.
+            ``"ssimulacra2"``).
 
     Returns:
         Populated :class:`ComparisonImageSet`.
     """
-    image_set = ComparisonImageSet(strategy=strategy, resolution=resolution)
+    image_set = ComparisonImageSet(
+        strategy=strategy,
+        resolution=resolution,
+        target_metric=target_metric,
+    )
 
     for src_file in sorted(src_dir.iterdir()):
         if not src_file.is_file():

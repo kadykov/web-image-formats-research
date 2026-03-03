@@ -20,6 +20,7 @@ returned.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 # Quality metrics where *higher* measured value → *better* quality.
@@ -241,6 +242,7 @@ def select_best_image(
     target_metric: str,
     target_values: list[float],
     output_metric: str,
+    exclude_images: list[str] | None = None,
 ) -> str | None:
     """Select the source image with highest mean anisotropic variance.
 
@@ -254,6 +256,8 @@ def select_best_image(
         target_metric: Metric being targeted.
         target_values: List of target values.
         output_metric: Metric whose variance we maximize.
+        exclude_images: Optional list of image filenames to skip.
+            Matched against the basename of each image path.
 
     Returns:
         Path string of the selected source image, or ``None`` if
@@ -270,6 +274,11 @@ def select_best_image(
     # Collect unique source images
     images = sorted({m.get("original_image", m.get("source_image", "")) for m in valid})
     images = [img for img in images if img]
+
+    # Apply exclusion filter
+    if exclude_images:
+        excluded = set(exclude_images)
+        images = [img for img in images if Path(img).name not in excluded]
 
     best_image: str | None = None
     best_score = float("-inf")

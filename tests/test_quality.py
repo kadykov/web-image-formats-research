@@ -286,9 +286,6 @@ class TestQualityResultsSave:
             timestamp=sample_quality_data["timestamp"],
             encoding_timestamp=sample_quality_data.get("encoding_timestamp"),
             tool_versions={"cjpeg": "2.1.5", "cwebp": "1.5.0"},
-            comparison_tile_parameter="quality",
-            analysis_x_axis="quality",
-            analysis_group_by="format",
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:

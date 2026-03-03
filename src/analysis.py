@@ -894,6 +894,7 @@ def analyze_study(
     output_dir: Path,
     x_axis: str | None = None,
     group_by: str | None = None,
+    study_config_path: Path | None = None,
 ) -> None:
     """Run complete analysis for a study.
 
@@ -908,18 +909,21 @@ def analyze_study(
     Parameter resolution order for *x_axis* and *group_by*:
 
     1. Explicit CLI argument (``x_axis`` / ``group_by`` parameters).
-    2. Study-config metadata stored in quality.json
-       (``analysis_x_axis`` / ``analysis_group_by``).
+    2. Study configuration file (``analysis.x_axis`` /
+       ``analysis.group_by``).
     3. Built-in heuristic: parameter with most / second-most unique values.
 
     Args:
         quality_json_path: Path to quality.json file
         output_dir: Directory to save analysis outputs
         x_axis: Override for primary x-axis parameter.  When ``None`` the
-            value from quality.json metadata or the heuristic is used.
+            value from the study config or the heuristic is used.
         group_by: Override for secondary (line-grouping) parameter.
-            When ``None`` the value from quality.json metadata or the
-            heuristic is used.
+            When ``None`` the value from the study config or the heuristic
+            is used.
+        study_config_path: Optional path to the study configuration JSON
+            file.  When provided, ``analysis.x_axis`` and
+            ``analysis.group_by`` are read from it.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -945,9 +949,22 @@ def analyze_study(
     stats.to_csv(stats_path, index=False, float_format="%.4g")
     print(f"Statistics saved to: {stats_path}")
 
-    # Resolve x_axis: CLI arg → quality.json metadata → heuristic
+    # Load study config overrides (if available)
+    study_cfg_x_axis: str | None = None
+    study_cfg_group_by: str | None = None
+    if study_config_path is not None:
+        from src.study import StudyConfig
+
+        try:
+            study_config = StudyConfig.from_file(study_config_path)
+            study_cfg_x_axis = study_config.analysis_x_axis
+            study_cfg_group_by = study_config.analysis_group_by
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Warning: could not load study config: {exc}")
+
+    # Resolve x_axis: CLI arg → study config → heuristic
     if x_axis is None:
-        x_axis = quality_results.get("analysis_x_axis")
+        x_axis = study_cfg_x_axis
     if x_axis is None:
         x_param = determine_sweep_parameter(df)
         print(f"Using '{x_param}' as primary x-axis for plots (auto-detected)")
@@ -961,9 +978,9 @@ def analyze_study(
             x_param = determine_sweep_parameter(df)
         print(f"Using '{x_param}' as primary x-axis for plots")
 
-    # Resolve group_by: CLI arg → quality.json metadata → heuristic
+    # Resolve group_by: CLI arg → study config → heuristic
     if group_by is None:
-        group_by = quality_results.get("analysis_group_by")
+        group_by = study_cfg_group_by
     if group_by is None:
         secondary_param = determine_secondary_sweep_parameter(df, x_param)
         if secondary_param:

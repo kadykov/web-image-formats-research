@@ -6,19 +6,23 @@ levels using interpolation-based quality matching.
 
 The workflow is:
 
-1. Load pipeline quality measurements and comparison targets from the
-   study configuration (stored in ``quality.json``).
+1. Load pipeline quality measurements from ``quality.json`` and
+   comparison configuration from the study configuration file.
 2. For each target group (e.g., ``ssimulacra2=[60,70,80]``), select the
    source image with highest cross-format metric variance via
    interpolation.
-3. For each target value, interpolate the encoder quality setting that
-   achieves that value for every format / tile-parameter value.
-4. Encode images at interpolated quality settings, compute Butteraugli
-   distortion maps, and locate the most representative fragment using
-   anisotropic variance.
-5. Crop the fragment from every variant and assemble labeled comparison
-   grids with supplementary figures (distortion-map grids, annotated
-   originals).
+3. Encode images at interpolated quality settings for **every** target
+   value in the group, compute Butteraugli distortion maps, then
+   compute a single aggregate anisotropic variance map across all
+   target values.  This yields **one** fragment region per group.
+4. Using the shared fragment, crop every variant at every target value
+   and assemble labeled comparison grids with supplementary figures
+   (distortion-map grids, annotated originals).
+
+The comparison script reads its configuration (targets, tile parameter,
+excluded images) directly from the study configuration JSON, not from
+quality.json.  This allows tuning comparison parameters without
+re-running the main pipeline.
 
 This decouples the comparison figure generation from the pipeline:
 the pipeline is a pure encode-and-measure step, while this module
@@ -75,11 +79,14 @@ class ComparisonConfig:
             each comparison figure — i.e. each tile shows a different
             value of this parameter.
 
-            When ``None`` the value is taken from the quality.json
-            metadata (propagated from the study config).  If that is
-            also absent the built-in heuristic is used:
-            ``"format"`` when multiple formats vary, otherwise the
-            first non-quality sweep parameter.
+            When ``None`` the value is taken from the study
+            configuration file.  If that is also absent the built-in
+            heuristic is used: ``"format"`` when multiple formats vary,
+            otherwise the first non-quality sweep parameter.
+        study_config_path: Path to the study configuration JSON file.
+            When provided, comparison targets, tile parameter, and
+            excluded images are read from this file instead of from
+            quality.json metadata.
     """
 
     crop_size: int = 128
@@ -89,6 +96,7 @@ class ComparisonConfig:
     distmap_vmax: float = 5.0
     source_image: str | None = None
     tile_parameter: str | None = None
+    study_config_path: Path | None = None
 
 
 @dataclass
@@ -647,11 +655,19 @@ def generate_comparison(
     this function:
 
     1. Selects the source image with highest cross-format metric variance
-       (via :func:`src.interpolation.select_best_image`).
-    2. For each target value, interpolates the encoder quality per format
-       to hit the target, encodes, measures distortion maps, and selects
-       the most representative fragment via anisotropic variance.
-    3. Assembles labeled comparison grids and supplementary figures.
+       (via :func:`src.interpolation.select_best_image`), respecting any
+       image exclusions from the study config.
+    2. For **all** target values in the group, interpolates encoder
+       quality per format, encodes, and computes distortion maps.
+    3. Computes a **single** aggregate anisotropic variance map across
+       all target values, yielding one fragment region per group.
+    4. Using the shared fragment, crops every variant at every target
+       value and assembles labeled comparison grids and supplementary
+       figures (one distortion-map + annotated original per group).
+
+    The comparison configuration (targets, tile parameter, excluded
+    images) is read from the study configuration file when
+    ``config.study_config_path`` is set.
 
     Args:
         quality_json_path: Path to the quality.json results file.
@@ -679,18 +695,32 @@ def generate_comparison(
     print(f"Generating visual comparison for study: {study_id}")
     print(f"  Total measurements: {len(measurements)}")
 
-    # 2. Get targets from quality.json metadata
-    targets: list[dict] = data.get("comparison_targets") or []
+    # 2. Load study config for comparison parameters
+    from src.study import StudyConfig
+
+    study_config: StudyConfig | None = None
+    if config.study_config_path is not None:
+        study_config = StudyConfig.from_file(config.study_config_path)
+
+    # 3. Resolve targets
+    targets: list[dict] = []
+    if study_config is not None and study_config.comparison_targets:
+        targets = study_config.comparison_targets
     if not targets:
         targets = [{"metric": "ssimulacra2", "values": [60, 70, 80]}]
         print("  No comparison targets configured; using defaults")
 
-    # 3. Determine varying parameters and tile parameter
+    # 4. Resolve exclude images
+    exclude_images: list[str] | None = None
+    if study_config is not None:
+        exclude_images = study_config.comparison_exclude_images
+
+    # 5. Determine varying parameters and tile parameter
     varying = determine_varying_parameters(measurements)
 
     tile_param: str | None = config.tile_parameter
-    if tile_param is None:
-        tile_param = data.get("comparison_tile_parameter")
+    if tile_param is None and study_config is not None:
+        tile_param = study_config.comparison_tile_parameter
     if tile_param is None:
         tile_param = _default_tile_parameter(varying)
 
@@ -698,8 +728,10 @@ def generate_comparison(
     print(f"  Targets: {len(targets)} group(s)")
     for tg in targets:
         print(f"    {tg['metric']}: {tg['values']}")
+    if exclude_images:
+        print(f"  Excluded images: {exclude_images}")
 
-    # 4. Collect unique tile-parameter values
+    # 6. Collect unique tile-parameter values
     tile_values = sorted(
         {str(m.get(tile_param)) for m in measurements if m.get(tile_param) is not None}
     )
@@ -732,8 +764,7 @@ def generate_comparison(
             else:
                 output_metric = "ssimulacra2"
 
-            # Select source image
-            # variable may start as None; type will be refined by checks below
+            # Select source image (once per target group)
             selected_image: str | None
             if config.source_image is not None:
                 selected_image = config.source_image
@@ -745,10 +776,19 @@ def generate_comparison(
                     target_metric,
                     target_values,
                     output_metric,
+                    exclude_images=exclude_images,
                 )
                 if selected_image is None:
                     # Fallback: pick the image with the most valid measurements
                     valid = [m for m in measurements if m.get("measurement_error") is None]
+                    if exclude_images:
+                        excluded_set = set(exclude_images)
+                        valid = [
+                            m
+                            for m in valid
+                            if Path(m.get("original_image", m.get("source_image", ""))).name
+                            not in excluded_set
+                        ]
                     if valid:
                         from collections import Counter
 
@@ -765,7 +805,6 @@ def generate_comparison(
                         continue
                 else:
                     print(f"  [{target_metric}] Selected image: {selected_image}")
-            # At this point selected_image is guaranteed to be a str
             assert selected_image is not None
 
             original_path = project_root / selected_image
@@ -773,28 +812,35 @@ def generate_comparison(
                 msg = f"Source image not found: {original_path}"
                 raise FileNotFoundError(msg)
 
-            for target_value in target_values:
-                for resolution in unique_resolutions:
-                    source_path = _resolve_source_for_resolution(
-                        original_path,
-                        resolution,
-                        preprocess_cache,
-                        work / "prep",
-                    )
+            for resolution in unique_resolutions:
+                source_path = _resolve_source_for_resolution(
+                    original_path,
+                    resolution,
+                    preprocess_cache,
+                    work / "prep",
+                )
 
-                    res_label = f"r{resolution}" if resolution is not None else None
+                res_label = f"r{resolution}" if resolution is not None else None
+                group_label = target_metric
+                if res_label:
+                    group_label = f"{res_label}/{group_label}"
+
+                # ----------------------------------------------------------
+                # Phase 1: Encode all target values, collect distortion maps
+                # ----------------------------------------------------------
+                # per_value_data[target_value] = list of (enc_path, measurement, dm_arr)
+                per_value_data: dict[float, list[tuple[Path, dict, np.ndarray | None]]] = {}
+                per_value_qualities: dict[float, dict[str, float]] = {}
+
+                for target_value in target_values:
                     target_label = f"{target_metric}_{target_value}"
-                    if res_label:
-                        target_label = f"{target_label}_{res_label}"
 
-                    print(f"  [{target_label}] Interpolating quality settings...")
+                    print(f"  [{group_label}/{target_value}] Interpolating quality settings...")
 
-                    # For each tile value, interpolate quality and encode
                     encoded_variants: list[tuple[Path, dict, np.ndarray | None]] = []
                     interpolated_qualities: dict[str, float] = {}
 
                     for tv in tile_values:
-                        # Find an example measurement with this tile param value
                         example = next(
                             (
                                 m
@@ -810,11 +856,9 @@ def generate_comparison(
                         fmt = example["format"]
                         fixed_kwargs = _extract_fixed_params(example, tile_param or "format")
 
-                        # Filter by resolution if applicable
                         if resolution is not None:
                             fixed_kwargs["resolution"] = resolution
 
-                        # Interpolate quality to hit the target
                         quality = interpolate_quality_for_metric(
                             measurements,
                             fmt,
@@ -833,7 +877,6 @@ def generate_comparison(
                         interpolated_qualities[fmt] = quality
                         rounded_q = round(quality)
 
-                        # Build a measurement-like dict for encoding
                         enc_measurement: dict = {
                             "format": fmt,
                             "quality": rounded_q,
@@ -845,7 +888,6 @@ def generate_comparison(
                         if resolution is not None:
                             enc_measurement["resolution"] = resolution
 
-                        # Encode
                         encoded_dir = work / "encoded" / target_label
                         encoded_dir.mkdir(parents=True, exist_ok=True)
                         enc_path = encode_image(source_path, enc_measurement, encoded_dir)
@@ -854,13 +896,11 @@ def generate_comparison(
 
                         print(f"    {fmt}: q={rounded_q} (interpolated from {quality:.1f})")
 
-                        # Compute exact file size and BPP
                         enc_measurement["file_size"] = enc_path.stat().st_size
                         with Image.open(source_path) as _img:
                             enc_measurement["width"] = _img.width
                             enc_measurement["height"] = _img.height
 
-                        # Interpolate other metric values for labels
                         for m_name in ("ssimulacra2", "butteraugli", "psnr", "ssim"):
                             val = interpolate_metric_at_quality(
                                 measurements,
@@ -873,7 +913,6 @@ def generate_comparison(
                             if val is not None:
                                 enc_measurement[m_name] = val
 
-                        # Generate distortion map
                         pfm_path = work / "pfms" / target_label / f"distmap_{fmt}_q{rounded_q}.pfm"
                         pfm_path.parent.mkdir(parents=True, exist_ok=True)
                         dm_arr: np.ndarray | None = None
@@ -885,26 +924,79 @@ def generate_comparison(
 
                         encoded_variants.append((enc_path, enc_measurement, dm_arr))
 
+                    per_value_data[target_value] = encoded_variants
+                    per_value_qualities[target_value] = interpolated_qualities
+
+                # ----------------------------------------------------------
+                # Phase 2: Compute single shared fragment for the group
+                # ----------------------------------------------------------
+                # Collect per-value anisotropic variance maps, then average
+                per_value_aniso_maps: list[np.ndarray] = []
+                for _target_value, variants in per_value_data.items():
+                    variant_pairs = [(arr, m) for _, m, arr in variants if arr is not None]
+                    if len(variant_pairs) >= 2:  # noqa: PLR2004
+                        aniso = _anisotropic_variance_map(variant_pairs, [])
+                        per_value_aniso_maps.append(aniso)
+
+                if not per_value_aniso_maps:
+                    # Fallback: try pooling all variants across all values
+                    all_pairs = [
+                        (arr, m)
+                        for variants in per_value_data.values()
+                        for _, m, arr in variants
+                        if arr is not None
+                    ]
+                    if len(all_pairs) >= 2:  # noqa: PLR2004
+                        per_value_aniso_maps = [_anisotropic_variance_map(all_pairs, [])]
+
+                if not per_value_aniso_maps:
+                    print(f"  [{group_label}] No distortion maps available, skipping")
+                    continue
+
+                aggregate_map = np.stack(per_value_aniso_maps, axis=0).mean(axis=0)
+                region = find_worst_region_in_array(aggregate_map, crop_size=config.crop_size)
+
+                print(
+                    f"  [{group_label}] Shared region: ({region.x}, {region.y}) "
+                    f"{region.width}x{region.height} "
+                    f"score={region.avg_distortion:.4f}"
+                )
+
+                # Determine the group output directory
+                if res_label:
+                    group_dir = output_dir / res_label / target_metric
+                else:
+                    group_dir = output_dir / target_metric
+                group_dir.mkdir(parents=True, exist_ok=True)
+
+                # Save supplementary figures (once per group)
+                _visualize_distortion_map(
+                    aggregate_map,
+                    region,
+                    group_dir / "distortion_map_anisotropic.webp",
+                    dash_color="cyan",
+                )
+                _save_annotated_original(
+                    source_path,
+                    region,
+                    group_dir / "original_annotated.webp",
+                )
+
+                # ----------------------------------------------------------
+                # Phase 3: Crop and assemble grids per target value
+                # ----------------------------------------------------------
+                for target_value in target_values:
+                    encoded_variants = per_value_data[target_value]
+                    interpolated_qualities = per_value_qualities[target_value]
+
                     if not encoded_variants:
-                        print(f"  [{target_label}] No variants could be encoded, skipping")
+                        print(
+                            f"  [{group_label}/{target_value}] "
+                            f"No variants could be encoded, skipping"
+                        )
                         continue
 
-                    # Compute anisotropic variance map across variants
-                    variant_pairs = [(arr, m) for _, m, arr in encoded_variants if arr is not None]
-                    if not variant_pairs:
-                        print(f"  [{target_label}] No distortion maps available, skipping")
-                        continue
-
-                    aniso_map = _anisotropic_variance_map(variant_pairs, [])
-                    region = find_worst_region_in_array(aniso_map, crop_size=config.crop_size)
-
-                    print(
-                        f"  [{target_label}] Region: ({region.x}, {region.y}) "
-                        f"{region.width}x{region.height} "
-                        f"score={region.avg_distortion:.4f}"
-                    )
-
-                    # Crop and assemble grid
+                    target_label = f"{target_metric}_{target_value}"
                     crops_dir = work / "crops" / target_label
                     crops_dir.mkdir(parents=True, exist_ok=True)
 
@@ -938,13 +1030,9 @@ def generate_comparison(
                         if dm_arr is not None:
                             variant_distmap_entries.append((dm_arr, label, metric_label))
 
-                    # Assemble comparison grid
-                    target_dir = output_dir / target_label
-                    if res_label:
-                        target_dir = output_dir / res_label / target_label
-                    target_dir.mkdir(parents=True, exist_ok=True)
-
-                    grid_path = target_dir / "comparison.webp"
+                    # Fragment comparison grid
+                    value_suffix = str(target_value)
+                    grid_path = group_dir / f"comparison_{value_suffix}.webp"
                     assemble_comparison_grid(
                         crop_entries,
                         grid_path,
@@ -952,7 +1040,7 @@ def generate_comparison(
                         label_font_size=config.label_font_size,
                     )
                     output_images: list[Path] = [grid_path]
-                    print(f"  [{target_label}] Generated comparison grid: {grid_path}")
+                    print(f"  [{group_label}/{target_value}] Generated: {grid_path}")
 
                     # Distortion map comparison grid
                     if variant_distmap_entries:
@@ -983,7 +1071,7 @@ def generate_comparison(
                             )
                             distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
 
-                        dm_grid_path = target_dir / "distortion_map_comparison.webp"
+                        dm_grid_path = group_dir / f"distortion_map_comparison_{value_suffix}.webp"
                         assemble_comparison_grid(
                             distmap_crop_entries,
                             dm_grid_path,
@@ -991,20 +1079,7 @@ def generate_comparison(
                             label_font_size=config.label_font_size,
                         )
                         output_images.append(dm_grid_path)
-                        print(f"  [{target_label}] Generated distortion map grid: {dm_grid_path}")
-
-                    # Supplementary figures
-                    _visualize_distortion_map(
-                        aniso_map,
-                        region,
-                        target_dir / "distortion_map_anisotropic.webp",
-                        dash_color="cyan",
-                    )
-                    _save_annotated_original(
-                        source_path,
-                        region,
-                        target_dir / "original_annotated.webp",
-                    )
+                        print(f"  [{group_label}/{target_value}] Generated: {dm_grid_path}")
 
                     target_results.append(
                         TargetComparisonResult(

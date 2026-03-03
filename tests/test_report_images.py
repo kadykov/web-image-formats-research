@@ -84,16 +84,19 @@ def comparison_tree(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def comparison_tree_with_resolution(tmp_path: Path) -> Path:
-    """Build a comparison tree with per-resolution subdirectories."""
+    """Build a comparison tree with per-resolution subdirectories.
+
+    New layout: comparison/<res>/<metric>/files
+    """
     analysis = tmp_path / "analysis"
     study_id = "res-study"
     for res in ("r120", "r240"):
-        d = analysis / study_id / "comparison" / res
+        d = analysis / study_id / "comparison" / res / "ssimulacra2"
         d.mkdir(parents=True)
         for name in (
-            "comparison.webp",
+            "comparison_70.webp",
             "distortion_map_anisotropic.webp",
-            "distortion_map_comparison.webp",
+            "distortion_map_comparison_70.webp",
             "original_annotated.webp",
         ):
             img = Image.new("RGB", (384, 450), color=(80, 80, 80))
@@ -316,11 +319,12 @@ class TestDiscoverAndOptimise:
             tmp_report_root,
             tmp_report_root,
         )
-        assert len(result.sets) == 2  # r120 + r240
+        assert len(result.sets) == 2  # r120/ssimulacra2 + r240/ssimulacra2
         resolutions = {s.resolution for s in result.sets}
         assert resolutions == {"r120", "r240"}
         for s in result.sets:
             assert s.strategy == "anisotropic"
+            assert s.target_metric == "ssimulacra2"
 
 
 # ---------------------------------------------------------------------------
