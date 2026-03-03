@@ -84,10 +84,10 @@ Generates interactive Plotly figures for the HTML report.
 
 Generates side-by-side comparison images with distortion maps.
 
-- `ComparisonConfig` — crop_size, zoom_factor, metric, strategy (average/variance/both)
-- `find_worst_source_image()` — select worst-performing image by metric
+- `ComparisonConfig` — crop_size, zoom_factor, tile_parameter, source_image, study_config_path
+- `select_best_image()` — select most representative image by cross-format CV (std / mean)
 - `generate_distortion_map()` — create Butteraugli PFM distortion maps
-- `generate_comparison()` — main entry point: find worst image, crop, assemble montage
+- `generate_comparison()` — main entry point: select image, crop fragment by std-dev map, assemble montage
 - Uses ImageMagick 7 (`magick montage`) for grid assembly
 
 ## `src/report_images.py` — Report image optimization

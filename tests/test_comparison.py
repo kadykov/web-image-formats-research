@@ -14,6 +14,7 @@ from src.comparison import (
     ComparisonResult,
     TargetComparisonResult,
     WorstRegion,
+    _anisotropic_std_map,
     _build_label,
     _build_metric_label,
     _default_tile_parameter,
@@ -934,3 +935,66 @@ class TestDefaultTileParameter:
     def test_resolution_as_non_quality(self) -> None:
         """Resolution is preferred over quality."""
         assert _default_tile_parameter(["resolution", "quality"]) == "resolution"
+
+
+# ---------------------------------------------------------------------------
+# _anisotropic_std_map
+# ---------------------------------------------------------------------------
+
+
+class TestAnisotropicStdMap:
+    """Tests for the fragment-selection std-dev distortion map."""
+
+    def _arr(self, values: list[list[float]]) -> np.ndarray:
+        return np.array(values, dtype=np.float64)
+
+    def _pair(self, values: list[list[float]], **kwargs) -> tuple[np.ndarray, dict]:
+        return self._arr(values), {"format": "jpeg", **kwargs}
+
+    def test_single_variant_returns_map_itself(self) -> None:
+        arr = self._arr([[1.0, 2.0], [3.0, 4.0]])
+        result = _anisotropic_std_map([(arr, {})], [])
+        np.testing.assert_array_almost_equal(result, arr)
+
+    def test_two_variants_returns_pixelwise_std(self) -> None:
+        a = self._arr([[1.0, 0.0], [0.0, 1.0]])
+        b = self._arr([[3.0, 0.0], [0.0, 3.0]])
+        result = _anisotropic_std_map([(a, {}), (b, {})], [])
+        # std of [1,3] = 1.0; std of [0,0] = 0.0
+        expected = np.array([[1.0, 0.0], [0.0, 1.0]])
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_std_not_normalised_by_mean(self) -> None:
+        """Fragment selection uses absolute std, not CV: two high-distortion
+        variants with the same *relative* spread should score higher than two
+        low-distortion variants with the same relative spread."""
+        high = [self._pair([[10.0, 10.0], [10.0, 10.0]]), self._pair([[30.0, 30.0], [30.0, 30.0]])]
+        low = [self._pair([[1.0, 1.0], [1.0, 1.0]]), self._pair([[3.0, 3.0], [3.0, 3.0]])]
+        std_high = _anisotropic_std_map(high, []).mean()
+        std_low = _anisotropic_std_map(low, []).mean()
+        assert std_high > std_low
+
+    def test_groups_by_split_params(self) -> None:
+        """Variants are grouped by split_params; each group's std is averaged."""
+        # Two groups (value of 'quality'), each with 2 variants
+        # Group q=50: [2,2] and [4,4] → std=1
+        # Group q=80: [1,1] and [5,5] → std=2
+        # Expected average std map = [[1.5, 1.5], [1.5, 1.5]]
+        pairs = [
+            (self._arr([[2.0, 2.0], [2.0, 2.0]]), {"quality": 50}),
+            (self._arr([[4.0, 4.0], [4.0, 4.0]]), {"quality": 50}),
+            (self._arr([[1.0, 1.0], [1.0, 1.0]]), {"quality": 80}),
+            (self._arr([[5.0, 5.0], [5.0, 5.0]]), {"quality": 80}),
+        ]
+        result = _anisotropic_std_map(pairs, ["quality"])
+        np.testing.assert_array_almost_equal(result, np.full((2, 2), 1.5))
+
+    def test_fallback_when_no_group_has_two_variants(self) -> None:
+        """When each split-param group has only 1 variant, falls back to pooled std."""
+        pairs = [
+            (self._arr([[2.0, 2.0], [2.0, 2.0]]), {"quality": 50}),
+            (self._arr([[4.0, 4.0], [4.0, 4.0]]), {"quality": 80}),
+        ]
+        result = _anisotropic_std_map(pairs, ["quality"])
+        # Pooled std of [2,4] = 1.0
+        np.testing.assert_array_almost_equal(result, np.full((2, 2), 1.0))

@@ -20,6 +20,7 @@ returned.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +156,7 @@ def interpolate_metric_at_quality(
 # ---------------------------------------------------------------------------
 
 
-def compute_cross_format_variance(
+def compute_cross_format_cv(
     measurements: list[dict[str, Any]],
     source_image: str,
     tile_param: str,
@@ -163,16 +164,20 @@ def compute_cross_format_variance(
     target_value: float,
     output_metric: str,
 ) -> float | None:
-    """Compute variance of *output_metric* across tile-parameter values at a target.
+    """Compute the coefficient of variation (CV) of *output_metric* across tile-parameter values.
 
     For a given source image, for each unique value of *tile_param*
     (e.g., each format), interpolates the encoder quality that achieves
     *target_value* of *target_metric*, then interpolates what
-    *output_metric* would be at that quality.  Returns the variance
-    of *output_metric* across tile-parameter values.
+    *output_metric* would be at that quality.  Returns
+    ``std / mean`` (relative standard deviation) of *output_metric*
+    across tile-parameter values.
 
-    This is the building block for anisotropic image selection: images
-    with high variance are the most informative for comparison figures.
+    Using CV instead of raw variance prevents bias towards images or
+    fragments with inherently high absolute metric values: a low-quality
+    image has the same chance of being selected as a high-quality one
+    if its *relative* spread across tile-parameter values is equally
+    large.
 
     Args:
         measurements: All measurements.
@@ -180,11 +185,12 @@ def compute_cross_format_variance(
         tile_param: Parameter that varies within comparison tiles (e.g. "format").
         target_metric: Metric being targeted (e.g. "ssimulacra2").
         target_value: Target value of target_metric.
-        output_metric: Metric whose variance we compute (e.g. "bytes_per_pixel").
+        output_metric: Metric whose CV we compute (e.g. "bytes_per_pixel").
 
     Returns:
-        Variance of output_metric across tile-param values, or ``None``
-        if fewer than 2 tile-param values have valid interpolations.
+        CV (std / mean) of output_metric across tile-param values, or
+        ``None`` if fewer than 2 tile-param values have valid
+        interpolations or if the mean is zero.
     """
     # Collect unique tile-param values for this image
     img_ms = [
@@ -233,7 +239,11 @@ def compute_cross_format_variance(
         return None
 
     mean = sum(output_values) / len(output_values)
-    return sum((v - mean) ** 2 for v in output_values) / len(output_values)
+    if mean == 0.0:
+        return None
+    variance = sum((v - mean) ** 2 for v in output_values) / len(output_values)
+    std = math.sqrt(variance)
+    return std / mean
 
 
 def select_best_image(
@@ -244,18 +254,23 @@ def select_best_image(
     output_metric: str,
     exclude_images: list[str] | None = None,
 ) -> str | None:
-    """Select the source image with highest mean anisotropic variance.
+    """Select the source image with highest mean anisotropic relative standard deviation.
 
     For each source image and each target value, computes the
-    cross-format variance of *output_metric*.  The image with the
-    highest mean variance across all target values is returned.
+    cross-format coefficient of variation (CV = std / mean) of
+    *output_metric*.  The image with the highest mean CV across all
+    target values is returned.
+
+    Using CV instead of raw variance avoids privileging high-metric
+    images: a darker / lower-quality image is equally likely to be
+    selected if its *relative* spread across formats is as large.
 
     Args:
         measurements: All measurements from quality.json.
         tile_param: Parameter that varies within comparison tiles.
         target_metric: Metric being targeted.
         target_values: List of target values.
-        output_metric: Metric whose variance we maximize.
+        output_metric: Metric whose CV we maximise.
         exclude_images: Optional list of image filenames to skip.
             Matched against the basename of each image path.
 
@@ -284,16 +299,14 @@ def select_best_image(
     best_score = float("-inf")
 
     for img in images:
-        variances: list[float] = []
+        cvs: list[float] = []
         for tv in target_values:
-            v = compute_cross_format_variance(
-                valid, img, tile_param, target_metric, tv, output_metric
-            )
+            v = compute_cross_format_cv(valid, img, tile_param, target_metric, tv, output_metric)
             if v is not None:
-                variances.append(v)
+                cvs.append(v)
 
-        if variances:
-            score = sum(variances) / len(variances)
+        if cvs:
+            score = sum(cvs) / len(cvs)
             if score > best_score:
                 best_score = score
                 best_image = img
