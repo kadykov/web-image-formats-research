@@ -50,11 +50,10 @@ from src.analysis import load_quality_results as load_quality_results
 from src.encoder import ImageEncoder
 from src.interpolation import (
     _extract_fixed_params,
-    interpolate_metric_at_quality,
     interpolate_quality_for_metric,
     select_best_image,
 )
-from src.quality import WorstRegion, find_worst_region_in_array, read_pfm, to_png
+from src.quality import QualityMeasurer, WorstRegion, find_worst_region_in_array, read_pfm, to_png
 
 
 @dataclass
@@ -268,6 +267,26 @@ def crop_and_zoom(
         zoomed.save(output_path, format="PNG")
 
     return zoomed
+
+
+def sort_tile_values(raw: set[str] | list[str]) -> list[str]:
+    """Sort tile-parameter value strings numerically when possible.
+
+    Numeric values (e.g. effort levels ``["1", "2", ..., "10"]``) are
+    sorted as floats so that ``"10"`` comes after ``"9"`` rather than
+    after ``"1"`` (lexicographic order).  Non-numeric strings fall back
+    to plain lexicographic sort.
+
+    Args:
+        raw: Collection of tile-parameter value strings.
+
+    Returns:
+        Sorted list of value strings.
+    """
+    try:
+        return sorted(raw, key=lambda v: (float(v), v))
+    except ValueError:
+        return sorted(raw)
 
 
 def determine_varying_parameters(measurements: list[dict]) -> list[str]:
@@ -744,10 +763,11 @@ def generate_comparison(
     if exclude_images:
         print(f"  Excluded images: {exclude_images}")
 
-    # 6. Collect unique tile-parameter values
-    tile_values = sorted(
-        {str(m.get(tile_param)) for m in measurements if m.get(tile_param) is not None}
-    )
+    # 6. Collect unique tile-parameter values, sorted numerically when possible
+    _tile_values_raw = {
+        str(m.get(tile_param)) for m in measurements if m.get(tile_param) is not None
+    }
+    tile_values = sort_tile_values(_tile_values_raw)
 
     # Detect resolution variation
     resolution_varies = "resolution" in varying
@@ -872,6 +892,23 @@ def generate_comparison(
                         if resolution is not None:
                             fixed_kwargs["resolution"] = resolution
 
+                        # When the tile parameter is one of the encoder-level filter
+                        # params (effort, speed, method, chroma_subsampling, resolution)
+                        # it must be passed explicitly to interpolation so that the
+                        # lookup is restricted to measurements for *this* specific tile
+                        # value rather than being averaged across all tile values.
+                        # 'format' is already passed as the `fmt` positional argument;
+                        # 'quality' is the target of the interpolation and cannot be
+                        # used as a filter — both are excluded here.
+                        _ENCODER_FILTER_PARAMS = {
+                            "speed", "effort", "method", "chroma_subsampling", "resolution"
+                        }
+                        extra_tile_kwargs: dict = {}
+                        if tile_param is not None and tile_param in _ENCODER_FILTER_PARAMS:
+                            tile_val = example.get(tile_param)
+                            if tile_val is not None:
+                                extra_tile_kwargs[tile_param] = tile_val
+
                         quality = interpolate_quality_for_metric(
                             measurements,
                             fmt,
@@ -879,15 +916,20 @@ def generate_comparison(
                             target_value,
                             source_image=selected_image,
                             **fixed_kwargs,
+                            **extra_tile_kwargs,
                         )
                         if quality is None:
                             print(
-                                f"    {fmt}: target {target_metric}={target_value} "
+                                f"    {fmt} ({tile_param}={tv}): target "
+                                f"{target_metric}={target_value} "
                                 f"out of measured range, skipping"
                             )
                             continue
 
-                        interpolated_qualities[fmt] = quality
+                        # Key by tile value (tv) rather than format so that multiple
+                        # tile values sharing the same format (e.g. different JXL
+                        # effort levels) each get their own entry.
+                        interpolated_qualities[tv] = quality
                         rounded_q = round(quality)
 
                         enc_measurement: dict = {
@@ -907,33 +949,48 @@ def generate_comparison(
                         if enc_path is None:
                             continue
 
-                        print(f"    {fmt}: q={rounded_q} (interpolated from {quality:.1f})")
+                        print(
+                            f"    {fmt} ({tile_param}={tv}): "
+                            f"q={rounded_q} (interpolated from {quality:.1f})"
+                        )
 
                         enc_measurement["file_size"] = enc_path.stat().st_size
                         with Image.open(source_path) as _img:
                             enc_measurement["width"] = _img.width
                             enc_measurement["height"] = _img.height
 
-                        for m_name in ("ssimulacra2", "butteraugli", "psnr", "ssim"):
-                            val = interpolate_metric_at_quality(
-                                measurements,
-                                fmt,
-                                quality,
-                                m_name,
-                                source_image=selected_image,
-                                **fixed_kwargs,
-                            )
-                            if val is not None:
-                                enc_measurement[m_name] = val
-
-                        pfm_path = work / "pfms" / target_label / f"distmap_{fmt}_q{rounded_q}.pfm"
+                        # Measure quality metrics and generate the distortion map
+                        # directly from the encoded file.  The encoded file already
+                        # exists on disk, so using actual measurements is both more
+                        # accurate and simpler than interpolating from the pipeline
+                        # data — interpolation was only an approximation that also
+                        # produced circular labels when the metric target matched the
+                        # interpolated value exactly.
+                        pfm_path = (
+                            work
+                            / "pfms"
+                            / target_label
+                            / f"distmap_{fmt}_{tile_param}-{tv}_q{rounded_q}.pfm"
+                        )
                         pfm_path.parent.mkdir(parents=True, exist_ok=True)
+                        measurer = QualityMeasurer()
                         dm_arr: np.ndarray | None = None
                         try:
-                            generate_distortion_map(source_path, enc_path, pfm_path)
-                            dm_arr = read_pfm(pfm_path)
-                        except (RuntimeError, ValueError) as exc:
-                            print(f"    Warning: distortion map for {fmt} failed: {exc}")
+                            metrics = measurer.measure_all(
+                                source_path, enc_path, distmap_path=pfm_path
+                            )
+                            if metrics.ssimulacra2 is not None:
+                                enc_measurement["ssimulacra2"] = metrics.ssimulacra2
+                            if metrics.butteraugli is not None:
+                                enc_measurement["butteraugli"] = metrics.butteraugli
+                            if metrics.psnr is not None:
+                                enc_measurement["psnr"] = metrics.psnr
+                            if metrics.ssim is not None:
+                                enc_measurement["ssim"] = metrics.ssim
+                            if pfm_path.exists():
+                                dm_arr = read_pfm(pfm_path)
+                        except (RuntimeError, ValueError, OSError) as exc:
+                            print(f"    Warning: measurement for {fmt} ({tile_param}={tv}) failed: {exc}")
 
                         encoded_variants.append((enc_path, enc_measurement, dm_arr))
 
