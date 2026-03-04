@@ -198,7 +198,11 @@ Examples:
             print(
                 f"    Region: ({tr.region.x}, {tr.region.y}) {tr.region.width}x{tr.region.height}"
             )
-            print(f"    Interpolated qualities: {tr.interpolated_qualities}")
+            # Format interpolated qualities nicely
+            qualities_str = ", ".join(
+                f"{k}: {v:.2f}" for k, v in sorted(tr.interpolated_qualities.items())
+            )
+            print(f"    Interpolated qualities: {qualities_str}")
             print(f"    Output images: {len(tr.output_images)}")
             for img in tr.output_images:
                 print(f"      - {img}")

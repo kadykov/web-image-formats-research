@@ -27,6 +27,7 @@ from src.comparison import (
     generate_comparison,
     generate_distortion_map,
     load_quality_results,
+    sort_tile_values,
 )
 from src.quality import find_worst_region_in_array, read_pfm
 
@@ -998,3 +999,217 @@ class TestAnisotropicStdMap:
         result = _anisotropic_std_map(pairs, ["quality"])
         # Pooled std of [2,4] = 1.0
         np.testing.assert_array_almost_equal(result, np.full((2, 2), 1.0))
+
+
+# ---------------------------------------------------------------------------
+# Tests: sort_tile_values
+# ---------------------------------------------------------------------------
+
+
+class TestSortTileValues:
+    """Tests for the numeric tile-value sorting helper."""
+
+    def test_numeric_effort_values_sorted_numerically(self) -> None:
+        """Effort values 1-10 must come out in numeric order, not lexicographic."""
+        raw = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+        result = sort_tile_values(raw)
+        assert result == ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+
+    def test_ten_after_nine_not_after_one(self) -> None:
+        """The key regression: '10' must come after '9', not after '1'."""
+        result = sort_tile_values({"1", "10", "2"})
+        assert result == ["1", "2", "10"]
+
+    def test_format_strings_sorted_lexicographically(self) -> None:
+        """Non-numeric values fall back to lexicographic sort."""
+        result = sort_tile_values({"webp", "avif", "jpeg", "jxl"})
+        assert result == sorted(["webp", "avif", "jpeg", "jxl"])
+
+    def test_single_value(self) -> None:
+        """Single-element input is returned as a one-element list."""
+        assert sort_tile_values({"5"}) == ["5"]
+
+    def test_empty(self) -> None:
+        """Empty input returns empty list."""
+        assert sort_tile_values(set()) == []
+
+    def test_float_values_sorted_numerically(self) -> None:
+        """Float-representation strings (e.g. quality 0.1 / 0.5 / 1.0) sort numerically."""
+        result = sort_tile_values({"0.5", "0.1", "1.0"})
+        assert result == ["0.1", "0.5", "1.0"]
+
+    def test_accepts_list(self) -> None:
+        """Accepts a plain list as well as a set."""
+        result = sort_tile_values(["10", "1", "2"])
+        assert result == ["1", "2", "10"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: per-tile interpolation for non-format tile_param
+# ---------------------------------------------------------------------------
+
+
+def _make_jxl_effort_measurements(image: str = "img.png") -> list[dict]:
+    """Create synthetic JXL effort-sweep measurements.
+
+    Effort 1 (fast/low quality): ssimulacra2 climbs steeply with quality.
+    Effort 7 (slow/high quality): ssimulacra2 is notably higher at the same
+    encoder quality setting, simulating the real-world gain from higher effort.
+    This ensures that interpolating to the same ssimulacra2 target gives a
+    *different* encoder quality for each effort level.
+    """
+    base = {
+        "format": "jxl",
+        "width": 100,
+        "height": 100,
+        "measurement_error": None,
+        "speed": None,
+        "method": None,
+        "chroma_subsampling": None,
+        "resolution": None,
+        "source_image": image,
+        "original_image": image,
+    }
+    measurements = []
+    for quality in (40, 50, 60, 70, 80):
+        # effort=1: each quality point adds 1 unit of ssimulacra2 starting at 40
+        ssim1 = 40.0 + (quality - 40) * 1.0
+        measurements.append(
+            {
+                **base,
+                "quality": quality,
+                "effort": 1,
+                "ssimulacra2": ssim1,
+                "file_size": 1000 + quality * 10,
+            }
+        )
+        # effort=7: 10 units better than effort=1 at the same encoder quality
+        ssim7 = ssim1 + 10.0
+        measurements.append(
+            {
+                **base,
+                "quality": quality,
+                "effort": 7,
+                "ssimulacra2": ssim7,
+                "file_size": 900 + quality * 10,  # slightly smaller at same quality
+            }
+        )
+    return measurements
+
+
+class TestEffortSweepInterpolation:
+    """Tests covering the fixes for effort-sweep (tile_param != 'format') studies."""
+
+    def test_interpolate_quality_differs_per_effort(self) -> None:
+        """Each effort level must yield a different encoder quality for the same target.
+
+        This is the core regression: before the fix, all effort levels shared the
+        same interpolated quality because the effort filter was not passed.
+        """
+        from src.interpolation import interpolate_quality_for_metric
+
+        ms = _make_jxl_effort_measurements()
+        target_ssim = 60.0
+
+        q_effort1 = interpolate_quality_for_metric(
+            ms, "jxl", "ssimulacra2", target_ssim, effort=1
+        )
+        q_effort7 = interpolate_quality_for_metric(
+            ms, "jxl", "ssimulacra2", target_ssim, effort=7
+        )
+
+        assert q_effort1 is not None
+        assert q_effort7 is not None
+        # effort=7 needs a *lower* encoder quality to hit the same ssimulacra2 target
+        assert q_effort1 > q_effort7, (
+            f"effort=1 quality ({q_effort1:.2f}) should be higher than "
+            f"effort=7 quality ({q_effort7:.2f}) to achieve the same ssimulacra2"
+        )
+
+    def test_interpolate_quality_without_effort_gives_averaged_result(self) -> None:
+        """Without an effort filter the result is an average-case estimate.
+
+        When effort is not specified, the interpolation averages across all
+        effort levels.  The averaged quality should fall between the per-effort
+        values (not be identical to either), confirming that effort= filtering
+        is necessary for per-tile accuracy.
+        """
+        from src.interpolation import interpolate_quality_for_metric
+
+        ms = _make_jxl_effort_measurements()
+        target_ssim = 60.0
+
+        q_effort1 = interpolate_quality_for_metric(ms, "jxl", "ssimulacra2", target_ssim, effort=1)
+        q_effort7 = interpolate_quality_for_metric(ms, "jxl", "ssimulacra2", target_ssim, effort=7)
+        q_no_filter = interpolate_quality_for_metric(ms, "jxl", "ssimulacra2", target_ssim)
+
+        assert q_effort1 is not None
+        assert q_effort7 is not None
+        assert q_no_filter is not None
+        lo, hi = min(q_effort1, q_effort7), max(q_effort1, q_effort7)
+        assert lo <= q_no_filter <= hi, (
+            "No-effort result should be between the per-effort values"
+        )
+
+    def test_interpolation_at_exact_quality_is_circular(self) -> None:
+        """Interpolating a metric at the exact float quality that was chosen to hit
+        a target reproduces that target exactly — a circular result.
+
+        This test documents *why* interpolation must not be used for metric labels
+        in comparison figures.  The comparison script instead measures metrics
+        directly from the encoded file using QualityMeasurer, which produces the
+        true (non-circular) measured value.
+        """
+        from src.interpolation import (
+            interpolate_metric_at_quality,
+            interpolate_quality_for_metric,
+        )
+
+        ms = _make_jxl_effort_measurements()
+        target_ssim = 62.7  # not an exact data point
+
+        quality = interpolate_quality_for_metric(
+            ms, "jxl", "ssimulacra2", target_ssim, effort=1
+        )
+        assert quality is not None
+
+        # Evaluating the metric at the float quality that was designed to hit
+        # target_ssim will return target_ssim (circular by construction).
+        val = interpolate_metric_at_quality(ms, "jxl", quality, "ssimulacra2", effort=1)
+        assert val is not None
+        assert val == pytest.approx(target_ssim, abs=0.01), (
+            "Interpolating at the exact float quality must reproduce the target "
+            "(documenting the circularity that makes interpolation unsuitable for labels)"
+        )
+
+    def test_interpolated_qualities_keyed_by_tile_value(self) -> None:
+        """interpolated_qualities must use the tile value as key, not the format.
+
+        When tile_param='effort', every effort level has format='jxl'.
+        If the key were fmt ('jxl'), only the last effort's quality would
+        survive in the dict.  The key must be the tile value (e.g. '1', '7')
+        so that every effort level retains its own interpolated quality setting.
+        """
+        from src.interpolation import interpolate_quality_for_metric
+
+        ms = _make_jxl_effort_measurements()
+        target_ssim = 60.0
+
+        tile_values = sort_tile_values({"1", "7"})
+        interpolated_qualities: dict[str, float] = {}
+        for tv in tile_values:
+            example = next(
+                m for m in ms if str(m.get("effort")) == tv and m.get("measurement_error") is None
+            )
+            q = interpolate_quality_for_metric(
+                ms, "jxl", "ssimulacra2", target_ssim, effort=example["effort"]
+            )
+            assert q is not None
+            # Simulate the fixed code: key by tv, not by fmt
+            interpolated_qualities[tv] = q
+
+        assert "1" in interpolated_qualities
+        assert "7" in interpolated_qualities
+        assert interpolated_qualities["1"] != interpolated_qualities["7"], (
+            "Different efforts must produce different interpolated qualities"
+        )
