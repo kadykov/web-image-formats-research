@@ -901,7 +901,11 @@ def generate_comparison(
                         # 'quality' is the target of the interpolation and cannot be
                         # used as a filter — both are excluded here.
                         _ENCODER_FILTER_PARAMS = {
-                            "speed", "effort", "method", "chroma_subsampling", "resolution"
+                            "speed",
+                            "effort",
+                            "method",
+                            "chroma_subsampling",
+                            "resolution",
                         }
                         extra_tile_kwargs: dict = {}
                         if tile_param is not None and tile_param in _ENCODER_FILTER_PARAMS:
@@ -990,7 +994,9 @@ def generate_comparison(
                             if pfm_path.exists():
                                 dm_arr = read_pfm(pfm_path)
                         except (RuntimeError, ValueError, OSError) as exc:
-                            print(f"    Warning: measurement for {fmt} ({tile_param}={tv}) failed: {exc}")
+                            print(
+                                f"    Warning: measurement for {fmt} ({tile_param}={tv}) failed: {exc}"
+                            )
 
                         encoded_variants.append((enc_path, enc_measurement, dm_arr))
 

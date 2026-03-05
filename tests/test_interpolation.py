@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.interpolation import (
+    _SPLINE_MIN_POINTS,
     _collect_quality_metric_pairs,
     _interpolate_target,
     _lerp,
@@ -151,6 +152,93 @@ class TestInterpolateMetricAtQuality:
     def test_returns_none_out_of_range(self) -> None:
         ms = [_make_m("jpeg", 40, 40.0, 4000), _make_m("jpeg", 80, 80.0, 8000)]
         assert interpolate_metric_at_quality(ms, "jpeg", 100.0, "ssimulacra2") is None
+
+
+# ---------------------------------------------------------------------------
+# Spline vs. linear-fallback behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestSplineInterpolation:
+    """Tests for the cubic-spline code path (>= _SPLINE_MIN_POINTS data points)."""
+
+    def _make_quadratic_ms(self, fmt: str = "jpeg") -> list[dict]:
+        """Four measurements following a quadratic quality→ssimulacra2 curve.
+
+        ssimulacra2 = (quality / 10) ** 2, so:
+          q=10 → 1,  q=40 → 16,  q=70 → 49,  q=100 → 100
+        """
+        return [
+            _make_m(fmt, 10, 1.0, 1000),
+            _make_m(fmt, 40, 16.0, 4000),
+            _make_m(fmt, 70, 49.0, 7000),
+            _make_m(fmt, 100, 100.0, 10000),
+        ]
+
+    # --- basic sanity checks ------------------------------------------------
+
+    def test_spline_min_points_constant_is_four(self) -> None:
+        assert _SPLINE_MIN_POINTS == 4
+
+    def test_interpolate_quality_for_metric_returns_in_range(self) -> None:
+        ms = self._make_quadratic_ms()
+        result = interpolate_quality_for_metric(ms, "jpeg", "ssimulacra2", 25.0)
+        assert result is not None
+        # True solution: q = 10 * sqrt(25) = 50; must lie between 40 and 70
+        assert 40.0 < result < 70.0
+
+    def test_interpolate_metric_at_quality_returns_in_range(self) -> None:
+        ms = self._make_quadratic_ms()
+        result = interpolate_metric_at_quality(ms, "jpeg", 55.0, "ssimulacra2")
+        assert result is not None
+        assert 16.0 < result < 49.0
+
+    # --- spline accuracy vs. piecewise-linear -------------------------------
+
+    def test_spline_closer_to_truth_than_linear_for_nonlinear_data(self) -> None:
+        """Spline estimate should be more accurate than linear for curved data."""
+        ms = self._make_quadratic_ms()
+        spline_result = interpolate_quality_for_metric(ms, "jpeg", "ssimulacra2", 25.0)
+        # True quality: q = 10 * sqrt(25) = 50.0
+        true_q = 50.0
+        # Piecewise-linear estimate between (40,16) and (70,49):
+        #   q = 40 + (70-40) * (25-16) / (49-16) ≈ 48.18
+        linear_est = 40.0 + (70.0 - 40.0) * (25.0 - 16.0) / (49.0 - 16.0)
+        assert spline_result is not None
+        assert abs(spline_result - true_q) < abs(linear_est - true_q)
+
+    def test_spline_differs_noticeably_from_linear_on_curved_data(self) -> None:
+        """Spline and linear should give different answers for non-linear data."""
+        ms = self._make_quadratic_ms()
+        spline_result = interpolate_quality_for_metric(ms, "jpeg", "ssimulacra2", 25.0)
+        linear_est = 40.0 + (70.0 - 40.0) * (25.0 - 16.0) / (49.0 - 16.0)
+        assert spline_result is not None
+        assert abs(spline_result - linear_est) > 0.5
+
+    # --- out-of-range still returns None ------------------------------------
+
+    def test_out_of_range_quality_for_metric_returns_none(self) -> None:
+        ms = self._make_quadratic_ms()
+        assert interpolate_quality_for_metric(ms, "jpeg", "ssimulacra2", 200.0) is None
+
+    def test_out_of_range_metric_at_quality_returns_none(self) -> None:
+        ms = self._make_quadratic_ms()
+        assert interpolate_metric_at_quality(ms, "jpeg", 110.0, "ssimulacra2") is None
+
+    # --- linear fallback with sparse data (< _SPLINE_MIN_POINTS) -----------
+
+    def test_two_point_linear_fallback_quality_for_metric(self) -> None:
+        """With 2 data points the result must equal the linear (_lerp) answer."""
+        ms = [_make_m("jpeg", 50, 50.0, 5000), _make_m("jpeg", 90, 90.0, 9000)]
+        result = interpolate_quality_for_metric(ms, "jpeg", "ssimulacra2", 70.0)
+        # Linear: q = 50 + (90-50) * (70-50) / (90-50) = 70
+        assert result == pytest.approx(70.0)
+
+    def test_two_point_linear_fallback_metric_at_quality(self) -> None:
+        """With 2 data points the result must equal the linear (_lerp) answer."""
+        ms = [_make_m("jpeg", 40, 40.0, 4000), _make_m("jpeg", 80, 80.0, 8000)]
+        result = interpolate_metric_at_quality(ms, "jpeg", 60.0, "ssimulacra2")
+        assert result == pytest.approx(60.0)
 
 
 # ---------------------------------------------------------------------------
