@@ -21,6 +21,9 @@ datasets/*
 # Release assets
 release-assets/*
 
+# Report assets
+report/assets/*
+
 # IDE
 *.swp
 *.swo

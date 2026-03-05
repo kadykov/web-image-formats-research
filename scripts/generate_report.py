@@ -37,6 +37,13 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "report"
 PLOTLY_BASIC_VERSION = "3.3.1"
 PLOTLY_BASIC_URL = f"https://cdn.plot.ly/plotly-basic-{PLOTLY_BASIC_VERSION}.min.js"
 
+# PhotoSwipe CDN URLs
+PHOTOSWIPE_VERSION = "5.4.4"
+_PSW_BASE = f"https://cdn.jsdelivr.net/npm/photoswipe@{PHOTOSWIPE_VERSION}/dist"
+PHOTOSWIPE_CSS_URL = f"{_PSW_BASE}/photoswipe.css"
+PHOTOSWIPE_JS_URL = f"{_PSW_BASE}/photoswipe.esm.min.js"
+PHOTOSWIPE_LIGHTBOX_URL = f"{_PSW_BASE}/photoswipe-lightbox.esm.min.js"
+
 
 def ensure_plotly_bundle() -> Path:
     """Ensure plotly-basic.min.js exists in assets directory, download if needed.
@@ -60,6 +67,37 @@ def ensure_plotly_bundle() -> Path:
         return plotly_path
     except Exception as e:
         raise RuntimeError(f"Failed to download Plotly bundle from {PLOTLY_BASIC_URL}: {e}") from e
+
+
+def ensure_photoswipe_bundle() -> tuple[Path, Path, Path]:
+    """Ensure PhotoSwipe assets exist in assets directory, downloading if needed.
+
+    Returns:
+        Tuple of (css_path, js_path, lightbox_js_path)
+    """
+    css_path = ASSETS_DIR / "photoswipe.css"
+    js_path = ASSETS_DIR / "photoswipe.esm.min.js"
+    lightbox_path = ASSETS_DIR / "photoswipe-lightbox.esm.min.js"
+
+    if css_path.exists() and js_path.exists() and lightbox_path.exists():
+        return css_path, js_path, lightbox_path
+
+    print(f"PhotoSwipe bundle not found, downloading version {PHOTOSWIPE_VERSION}...")
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        for url, dest in [
+            (PHOTOSWIPE_CSS_URL, css_path),
+            (PHOTOSWIPE_JS_URL, js_path),
+            (PHOTOSWIPE_LIGHTBOX_URL, lightbox_path),
+        ]:
+            if not dest.exists():
+                urlretrieve(url, dest)
+                size_kb = dest.stat().st_size / 1024
+                print(f"  Downloaded {dest.name} ({size_kb:.1f} KB)")
+        return css_path, js_path, lightbox_path
+    except Exception as e:
+        raise RuntimeError(f"Failed to download PhotoSwipe from {_PSW_BASE}: {e}") from e
 
 
 def discover_studies() -> list[Path]:
@@ -144,6 +182,9 @@ def generate_study_page(
     plotly_js_path: str,
     index_path: str,
     timestamp: str,
+    photoswipe_css_path: str = "",
+    photoswipe_js_path: str = "",
+    photoswipe_lightbox_js_path: str = "",
 ) -> dict[str, str | int | list[str]]:
     """Generate an HTML page for a single study.
 
@@ -232,6 +273,9 @@ def generate_study_page(
         img_srcset_html=img_srcset_html,
         picture_html=picture_html,
         plotly_js_path=plotly_js_path,
+        photoswipe_css_path=photoswipe_css_path,
+        photoswipe_js_path=photoswipe_js_path,
+        photoswipe_lightbox_js_path=photoswipe_lightbox_js_path,
         index_path=index_path,
         generation_timestamp=timestamp,
     )
@@ -259,11 +303,18 @@ def generate_report(
     # Ensure plotly bundle is available
     plotly_src = ensure_plotly_bundle()
 
+    # Ensure PhotoSwipe bundle is available
+    pswp_css_src, pswp_js_src, pswp_lightbox_src = ensure_photoswipe_bundle()
+
     # Copy plotly.js bundle to output
     assets_output = output_dir / "assets"
     assets_output.mkdir(exist_ok=True)
     plotly_dst = assets_output / "plotly-basic.min.js"
     shutil.copy2(plotly_src, plotly_dst)
+
+    # Copy PhotoSwipe assets to output
+    for src in (pswp_css_src, pswp_js_src, pswp_lightbox_src):
+        shutil.copy2(src, assets_output / src.name)
 
     # Set up Jinja2
     env = Environment(
@@ -273,13 +324,24 @@ def generate_report(
 
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     plotly_js_path = "assets/plotly-basic.min.js"
+    pswp_css_path = "assets/photoswipe.css"
+    pswp_js_path = "assets/photoswipe.esm.min.js"
+    pswp_lightbox_js_path = "assets/photoswipe-lightbox.esm.min.js"
     index_path = "index.html"
 
     # Generate study pages
     study_metadata_list = []
     for quality_path in study_paths:
         metadata = generate_study_page(
-            quality_path, env, output_dir, plotly_js_path, index_path, timestamp
+            quality_path,
+            env,
+            output_dir,
+            plotly_js_path,
+            index_path,
+            timestamp,
+            photoswipe_css_path=pswp_css_path,
+            photoswipe_js_path=pswp_js_path,
+            photoswipe_lightbox_js_path=pswp_lightbox_js_path,
         )
         study_metadata_list.append(metadata)
 
