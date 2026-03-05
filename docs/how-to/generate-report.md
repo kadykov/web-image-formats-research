@@ -44,8 +44,19 @@ Each study page includes:
   efficiency plots with zoom, pan, and hover tooltips
 - **Static SVG figures** — downloadable vector plots from the analysis step
 - **CSV statistics** — downloadable per-study statistics tables
-- **Comparison images** — worst-case visual comparisons (if generated)
+- **Comparison figures** — visual comparison grids with matched quality and matched file-size
+  figure groups (if generated); each raster figure opens in a **PhotoSwipe lightbox** for
+  full-resolution zoom and swipe navigation
 - **Tool versions** — encoder and measurement tool versions for reproducibility
+
+### Navigation
+
+Each report page has:
+
+- A **table of contents** at the top with expandable sub-entries for each comparison
+  figure group (matched quality vs. matched file size).
+- **Back to top** links throughout the page so the reader can quickly return to the
+  table of contents from any section.
 
 ## Output structure
 

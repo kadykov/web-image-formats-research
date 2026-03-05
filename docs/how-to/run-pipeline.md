@@ -50,7 +50,6 @@ just fetch div2k-valid
 
 ## Advanced options via the script
 
-The `just pipeline` command runs with `--save-worst-image` enabled by default.
 For additional control, use the script directly:
 
 ```bash
@@ -59,9 +58,6 @@ python3 scripts/run_pipeline.py format-comparison --time-budget 30m --dry-run
 
 # Save encoded artifacts to disk (normally discarded after measurement)
 python3 scripts/run_pipeline.py format-comparison --time-budget 1h --save-artifacts
-
-# Disable worst-image saving
-python3 scripts/run_pipeline.py format-comparison --time-budget 30m --no-save-worst-image
 
 # Control parallelism
 python3 scripts/run_pipeline.py format-comparison --time-budget 30m --workers 8

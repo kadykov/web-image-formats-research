@@ -122,6 +122,41 @@ All dependencies are declared in `pyproject.toml`:
 
 There is no `requirements.txt`. The pyproject is the single source of truth.
 
+## Comparison module design
+
+The `comparison.py` module is **decoupled from the main pipeline**.  The pipeline
+is a pure encode-and-measure step that writes `quality.json`; the comparison module
+reads that file and independently re-encodes images to produce its figures.
+
+This separation has several benefits:
+
+- **Tunable without re-running the pipeline** — comparison targets, tile parameter,
+  and excluded images can be changed in the study config and the comparison
+  regenerated without a costly re-run of the encoding pipeline.
+- **No pipeline artefacts required** — the comparison script re-encodes from the
+  original dataset images using interpolated quality settings, so the pipeline no
+  longer needs to save encoded artefacts to disk.
+- **Richer figure types** — because quality settings are interpolated on the fly,
+  the comparison can produce figures at *arbitrary* target metric values (e.g.,
+  SSIMULACRA2 = 60, 75, 90) or file-size targets (e.g., bytes_per_pixel = 0.1,
+  0.3, 0.5) regardless of which quality levels the pipeline swept.
+
+### Image and fragment selection
+
+The comparison module uses two layers of selection to maximise the visual
+informativeness of each figure:
+
+1. **Cross-format CV** (`src/interpolation.py:select_best_image`) — the source
+   image that shows the highest *relative* spread (coefficient of variation =
+   std / mean) of the output metric across encoding variants is selected.  Using
+   CV instead of raw variance avoids bias towards inherently brighter or
+   higher-quality images.
+2. **Anisotropic std map** — across all target values in a group, per-pixel
+   Butteraugli distortion maps are aggregated into a single anisotropic
+   standard-deviation map.  The crop region with the highest mean std is chosen.
+   The same fragment is shared across all target values in the group, making
+   visual differences directly comparable.
+
 ## CI design
 
 1. **Lint & type check** — runs on bare Ubuntu with Python 3.13 for fast feedback.
@@ -145,8 +180,9 @@ The `src/` modules map to pipeline stages and post-processing:
 | `encoder.py` | Encode images via subprocess calls to native tools |
 | `quality.py` | Measure quality metrics via subprocess calls |
 | `pipeline.py` | Orchestrate encode → measure per image with time budget |
+| `interpolation.py` | Interpolate encoder quality settings and output metrics from measurement data |
 | `analysis.py` | Generate plots and statistics from quality results |
-| `comparison.py` | Generate side-by-side visual comparison images |
+| `comparison.py` | Generate side-by-side visual comparison figures via interpolation-based quality matching |
 | `interactive.py` | Build interactive HTML report |
 | `report_images.py` | Generate report visualisation assets |
 

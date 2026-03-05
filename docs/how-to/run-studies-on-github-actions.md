@@ -33,11 +33,13 @@ Click into the workflow run to see the job graph:
 1. **Build Container Image** — builds the dev container (~5–10 min, cached after first run)
 2. **Prepare Study Matrix** — computes which studies to run
 3. **Fetch Dataset** — downloads `div2k-valid` (~2 min)
-4. **Study: \<name\>** — one job per study, running in parallel.
-   Each study job runs the pipeline, analysis, and comparison generation.
-5. **Generate Report** — combines all results into an interactive report
-6. **Deploy Report** — publishes to GitHub Pages
-7. **Create Release** — tags the commit and creates a GitHub Release
+4. **Study: \<name\>** — one job per study, running in parallel; runs the pipeline (encode + measure) and analysis.
+5. **Comparison: \<name\>** — one job per study, runs after the corresponding Study job;
+   re-encodes images using interpolated quality settings and generates visual comparison figures.
+   Studies without comparison targets produce no output and upload no artifact.
+6. **Generate Report** — combines all results into an interactive report
+7. **Deploy Report** — publishes to GitHub Pages
+8. **Create Release** — tags the commit and creates a GitHub Release
 
 Each job's logs are visible in real time. Study jobs show encoding progress
 including image count and time remaining.
