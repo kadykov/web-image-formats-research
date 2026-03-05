@@ -13,13 +13,17 @@
 #   "Deploy from a branch" with branch "gh-pages" and folder "/ (root)".
 #
 # Workflow structure:
-#   1. build-image     – Build and push the dev container image to GHCR
-#   2. prepare         – Compute the matrix of studies to run
-#   3. fetch-dataset   – Download the dataset and upload as artifact
-#   4. run-study       – One parallel job per study (encode + measure + analyze)
-#   5. generate-report – Combine all results into an interactive HTML report
-#   6. deploy-report   – Publish the report to GitHub Pages (report/ subdirectory)
-#   7. release         – Tag the commit and create a GitHub Release with assets
+#   1. build-image      – Build and push the dev container image to GHCR
+#   2. prepare          – Compute the matrix of studies to run
+#   3. fetch-dataset    – Download the dataset and upload as artifact
+#   4. run-study        – One parallel job per study (encode + measure + analyze)
+#   5. run-comparison   – One parallel job per study; generates visual comparison
+#                         figures by re-encoding the most representative image.
+#                         Studies without comparison targets produce no output
+#                         and upload no artifact (handled gracefully).
+#   6. generate-report  – Combine all results into an interactive HTML report
+#   7. deploy-report    – Publish the report to GitHub Pages (report/ subdirectory)
+#   8. release          – Tag the commit and create a GitHub Release with assets
 
 name: Run Studies
 
@@ -181,14 +185,10 @@ jobs:
       - name: Run pipeline
         run: |
           python3 scripts/run_pipeline.py "${{ matrix.study }}" \
-            --time-budget "${{ inputs.time_budget || '2h' }}" \
-            --save-worst-image
+            --time-budget "${{ inputs.time_budget || '2h' }}"
 
       - name: Run analysis
         run: python3 scripts/analyze_study.py "${{ matrix.study }}"
-
-      - name: Generate visual comparison
-        run: python3 scripts/generate_comparison.py "${{ matrix.study }}"
 
       - name: Upload study results
         uses: actions/upload-artifact@v4
@@ -200,11 +200,56 @@ jobs:
             data/analysis/${{ matrix.study }}/
           retention-days: 90
 
-  # ── 5. Generate interactive HTML report ─────────────────────────────
+  # ── 5. Run visual comparison per study ────────────────────────────
+  run-comparison:
+    name: "Comparison: ${{ matrix.study }}"
+    runs-on: ubuntu-latest
+    needs: [build-image, prepare, run-study]
+    if: ${{ !cancelled() && needs.run-study.result != 'skipped' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install project
+        run: pip install -e .
+
+      - name: Download dataset
+        uses: actions/download-artifact@v4
+        with:
+          name: dataset
+          path: data/datasets/
+
+      - name: Download study results
+        uses: actions/download-artifact@v4
+        with:
+          name: study-results-${{ matrix.study }}
+          path: data/
+
+      - name: Generate visual comparison
+        run: python3 scripts/generate_comparison.py "${{ matrix.study }}"
+
+      - name: Upload comparison results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: comparison-results-${{ matrix.study }}
+          path: data/analysis/${{ matrix.study }}/comparison/
+          if-no-files-found: ignore   # studies without comparison targets produce no output
+          retention-days: 90
+
+  # ── 6. Generate interactive HTML report ─────────────────────────────
   generate-report:
     name: Generate Report
     runs-on: ubuntu-latest
-    needs: [build-image, run-study]
+    needs: [build-image, run-comparison]
     if: ${{ !cancelled() && needs.build-image.result == 'success' }}
     container:
       image: ${{ needs.build-image.outputs.image-tag }}
@@ -222,6 +267,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: study-results-*
+          path: data/
+          merge-multiple: true
+
+      - name: Download all comparison results
+        uses: actions/download-artifact@v4
+        continue-on-error: true      # some (or all) studies may have no comparison figures
+        with:
+          pattern: comparison-results-*
           path: data/
           merge-multiple: true
 
@@ -257,7 +310,7 @@ jobs:
             release-assets/
             release-notes.md
 
-  # ── 6. Deploy report to GitHub Pages ────────────────────────────────
+  # ── 7. Deploy report to GitHub Pages ────────────────────────────────
   deploy-report:
     name: Deploy Report to GitHub Pages
     runs-on: ubuntu-latest
@@ -289,7 +342,7 @@ jobs:
           publish_dir: ./pages
           keep_files: true
 
-  # ── 7. Create GitHub Release with assets ────────────────────────────
+  # ── 8. Create GitHub Release with assets ────────────────────────────
   release:
     name: Create Release
     runs-on: ubuntu-latest
