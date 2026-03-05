@@ -379,3 +379,58 @@ class TestHtmlHelpers:
         opt.default = opt.variants["image/webp"][0]
         html = picture_html(opt, sizes="100vw")
         assert 'sizes="100vw"' in html
+
+    def test_picture_html_lightbox(self) -> None:
+        opt = OptimisedImage(source_path=Path("dummy.webp"), alt="lb", kind="lossy")
+        opt.variants["image/avif"] = [
+            ImageVariant(Path("a.avif"), "img/a_600.avif", 600, 330, "image/avif"),
+            ImageVariant(Path("b.avif"), "img/a_1400.avif", 1400, 770, "image/avif"),
+        ]
+        opt.variants["image/webp"] = [
+            ImageVariant(Path("a.webp"), "img/a_600.webp", 600, 330, "image/webp"),
+        ]
+        opt.default = opt.variants["image/webp"][0]
+        html = picture_html(opt, lightbox=True)
+        assert html.startswith("<a ")
+        assert 'href="img/a_1400.avif"' in html
+        assert 'data-pswp-width="1400"' in html
+        assert 'data-pswp-height="770"' in html
+        assert 'target="_blank"' in html
+        assert "<picture>" in html
+        assert "</a>" in html
+
+    def test_img_srcset_html_lightbox(self) -> None:
+        opt = OptimisedImage(source_path=Path("dummy.webp"), alt="lb lossless", kind="lossless")
+        opt.variants["image/webp"] = [
+            ImageVariant(Path("a.webp"), "img/a_1x.webp", 256, 300, "image/webp", True),
+            ImageVariant(Path("b.webp"), "img/a_3x.webp", 768, 900, "image/webp", True),
+        ]
+        opt.default = opt.variants["image/webp"][0]
+        html = img_srcset_html(opt, lightbox=True)
+        assert html.startswith("<a ")
+        assert 'href="img/a_3x.webp"' in html
+        assert 'data-pswp-width="768"' in html
+        assert 'data-pswp-height="900"' in html
+        assert 'target="_blank"' in html
+        assert "<img " in html
+        assert "</a>" in html
+
+    def test_picture_html_no_lightbox_by_default(self) -> None:
+        opt = OptimisedImage(source_path=Path("dummy.webp"), alt="no lb", kind="lossy")
+        opt.variants["image/webp"] = [
+            ImageVariant(Path("a.webp"), "a.webp", 400, 300, "image/webp"),
+        ]
+        opt.default = opt.variants["image/webp"][0]
+        html = picture_html(opt)
+        assert not html.startswith("<a ")
+        assert "data-pswp-width" not in html
+
+    def test_img_srcset_html_no_lightbox_by_default(self) -> None:
+        opt = OptimisedImage(source_path=Path("dummy.webp"), alt="no lb", kind="lossless")
+        opt.variants["image/webp"] = [
+            ImageVariant(Path("a.webp"), "a.webp", 400, 300, "image/webp", True),
+        ]
+        opt.default = opt.variants["image/webp"][0]
+        html = img_srcset_html(opt)
+        assert not html.startswith("<a ")
+        assert "data-pswp-width" not in html

@@ -628,11 +628,19 @@ def srcset_lossless(opt: OptimisedImage) -> str:
     return ", ".join(parts)
 
 
-def picture_html(opt: OptimisedImage, *, css_class: str = "", sizes: str = "") -> str:
+def picture_html(
+    opt: OptimisedImage,
+    *,
+    css_class: str = "",
+    sizes: str = "",
+    lightbox: bool = False,
+) -> str:
     """Render a ``<picture>`` element for a lossy :class:`OptimisedImage`.
 
     Emits ``<source>`` elements for AVIF and WebP, with a ``<img>``
-    fallback.
+    fallback.  When *lightbox* is ``True`` the whole element is wrapped
+    in an ``<a>`` with ``data-pswp-*`` attributes understood by
+    PhotoSwipe 5.
     """
     if not sizes:
         sizes = "(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1100px"
@@ -666,11 +674,38 @@ def picture_html(opt: OptimisedImage, *, css_class: str = "", sizes: str = "") -
             f'width="{fallback.width}" height="{fallback.height}"{cls_attr}>'
         )
     lines.append("</picture>")
-    return "\n".join(lines)
+    picture = "\n".join(lines)
+
+    if lightbox:
+        # Resolve full-size URL: prefer largest AVIF, fall back to largest WebP
+        full: ImageVariant | None = None
+        if avif_variants:
+            full = max(avif_variants, key=lambda v: v.width)
+        elif webp_variants:
+            full = max(webp_variants, key=lambda v: v.width)
+        if full:
+            return (
+                f'<a href="{full.rel_path}" '
+                f'data-pswp-width="{full.width}" '
+                f'data-pswp-height="{full.height}" '
+                f'target="_blank">\n{picture}\n</a>'
+            )
+
+    return picture
 
 
-def img_srcset_html(opt: OptimisedImage, *, css_class: str = "", sizes: str = "") -> str:
-    """Render an ``<img>`` with ``srcset`` for a lossless :class:`OptimisedImage`."""
+def img_srcset_html(
+    opt: OptimisedImage,
+    *,
+    css_class: str = "",
+    sizes: str = "",
+    lightbox: bool = False,
+) -> str:
+    """Render an ``<img>`` with ``srcset`` for a lossless :class:`OptimisedImage`.
+
+    When *lightbox* is ``True`` the element is wrapped in an ``<a>``
+    with ``data-pswp-*`` attributes understood by PhotoSwipe 5.
+    """
     if not sizes:
         sizes = "(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1100px"
 
@@ -681,12 +716,23 @@ def img_srcset_html(opt: OptimisedImage, *, css_class: str = "", sizes: str = ""
     if fallback is None and webp_variants:
         fallback = webp_variants[len(webp_variants) // 2]
 
+    # Full-size = largest WebP variant
+    full: ImageVariant | None = max(webp_variants, key=lambda v: v.width) if webp_variants else None
+
     cls_attr = f' class="{css_class}"' if css_class else ""
     if fallback:
-        return (
+        img = (
             f'<img srcset="{srcset}" sizes="{sizes}" '
             f'src="{fallback.rel_path}" alt="{opt.alt}" '
             f'loading="lazy" decoding="async" '
             f'width="{fallback.width}" height="{fallback.height}"{cls_attr}>'
         )
+        if lightbox and full:
+            return (
+                f'<a href="{full.rel_path}" '
+                f'data-pswp-width="{full.width}" '
+                f'data-pswp-height="{full.height}" '
+                f'target="_blank">{img}</a>'
+            )
+        return img
     return ""

@@ -2,13 +2,27 @@
 
 {% block title %}{{ study_name }} — Web Image Formats Research{% endblock %}
 
+{% block head_extra %}
+{% if photoswipe_lightbox_js_path and photoswipe_js_path %}
+<script type="module">
+import PhotoSwipeLightbox from './{{ photoswipe_lightbox_js_path }}';
+const lightbox = new PhotoSwipeLightbox({
+  gallery: '#pswp-gallery',
+  children: 'a[data-pswp-width]',
+  pswpModule: () => import('./{{ photoswipe_js_path }}'),
+});
+lightbox.init();
+</script>
+{% endif %}
+{% endblock %}
+
 {% block nav_links %}
 <a href="{{ index_path }}">Home</a>
 <a href="#" class="active">{{ study_name }}</a>
 {% endblock %}
 
 {% block content %}
-<h1>{{ study_name }}</h1>
+<h1 id="top">{{ study_name }}</h1>
 {% if study_description %}
 <p>{{ study_description }}</p>
 {% endif %}
@@ -37,7 +51,33 @@
         <li><a href="#{{ section.id }}">{{ section.title }}</a></li>
     {% endfor %}
     {% if comparison_images %}
-        <li><a href="#visual-comparison">Visual Comparison</a></li>
+        <li>
+            <a href="#visual-comparison">Visual Comparison</a>
+            {% set has_subchapters = (comparison_images.sets | selectattr('target_metric') | list | length > 0)
+                                  or (comparison_images.sets | selectattr('resolution') | list | length > 0) %}
+            {% if has_subchapters %}
+            <ul>
+                {% for img_set in comparison_images.sets %}
+                {% if img_set.target_metric or img_set.resolution %}
+                {% set vc_anchor = "vc"
+                    ~ ("-" ~ img_set.resolution if img_set.resolution else "")
+                    ~ ("-" ~ img_set.target_metric | replace("_", "-") if img_set.target_metric else "") %}
+                <li>
+                    <a href="#{{ vc_anchor }}">
+                        {%- if img_set.resolution and img_set.target_metric -%}
+                            {{ img_set.resolution }} / {{ img_set.target_metric | replace("_", " ") | title }}
+                        {%- elif img_set.resolution -%}
+                            {{ img_set.resolution }}
+                        {%- else -%}
+                            {{ img_set.target_metric | replace("_", " ") | title }}
+                        {%- endif -%}
+                    </a>
+                </li>
+                {% endif %}
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </li>
     {% endif %}
     </ul>
     {% if csv_data_file %}
@@ -55,6 +95,7 @@
 <div class="figure-section" id="{{ section.id }}">
     <h2>{{ section.title }}</h2>
     {{ section.html_fragment }}
+    <p class="back-to-top"><a href="#top">↑ Back to top</a></p>
 </div>
 {% endfor %}
 
@@ -80,17 +121,23 @@
             direct comparability.
         </p>
 
+        <div id="pswp-gallery" class="pswp-gallery">
         {% for img_set in comparison_images.sets %}
+
+        {# Compute anchor for this set #}
+        {% set vc_anchor = "vc"
+            ~ ("-" ~ img_set.resolution if img_set.resolution else "")
+            ~ ("-" ~ img_set.target_metric | replace("_", "-") if img_set.target_metric else "") %}
 
         {# Resolution heading (if applicable) #}
         {% if img_set.resolution %}
-        <details class="comparison-resolution">
+        <details class="comparison-resolution" {% if not img_set.target_metric %}id="{{ vc_anchor }}"{% endif %}>
             <summary><strong>Resolution {{ img_set.resolution }}</strong></summary>
         {% endif %}
 
         {# Metric group heading #}
         {% if img_set.target_metric %}
-        <div class="comparison-metric-group">
+        <div class="comparison-metric-group" id="{{ vc_anchor }}">
             <h4>Matched {{ img_set.target_metric | replace('_', ' ') | title }}</h4>
         {% endif %}
 
@@ -100,7 +147,7 @@
             <h5>Selected Image &amp; Fragment Location</h5>
             <p>The dashed rectangle marks the fragment used for the
             comparisons below.</p>
-            {{ picture_html(img_set.original_annotated, css_class="comparison-img") }}
+            {{ picture_html(img_set.original_annotated, css_class="comparison-img", lightbox=true) }}
         </div>
         {% endif %}
 
@@ -115,7 +162,7 @@
                 value are averaged to select one fragment for the entire
                 group.
             </p>
-            {{ picture_html(img_set.distortion_map, css_class="comparison-img") }}
+            {{ picture_html(img_set.distortion_map, css_class="comparison-img", lightbox=true) }}
         </div>
         {% endif %}
 
@@ -127,10 +174,11 @@
                 Nearest-neighbour 3&times; zoom of the selected fragment,
                 comparing original against each encoding variant.
                 Images are served losslessly to preserve pixel fidelity.
+                Click any image to open it in the lightbox viewer.
             </p>
             {% for grid in img_set.fragment_grids %}
             <div class="comparison-grid-item">
-                {{ img_srcset_html(grid, css_class="comparison-img comparison-img--lossless") }}
+                {{ img_srcset_html(grid, css_class="comparison-img comparison-img--lossless", lightbox=true) }}
             </div>
             {% endfor %}
         </div>
@@ -147,11 +195,13 @@
             </p>
             {% for grid in img_set.distmap_grids %}
             <div class="comparison-grid-item">
-                {{ picture_html(grid, css_class="comparison-img") }}
+                {{ picture_html(grid, css_class="comparison-img", lightbox=true) }}
             </div>
             {% endfor %}
         </div>
         {% endif %}
+
+        <p class="back-to-top"><a href="#top">↑ Back to top</a></p>
 
         {% if img_set.target_metric %}
         </div>
@@ -161,6 +211,7 @@
         </details>
         {% endif %}
         {% endfor %}
+        </div>{# end pswp-gallery #}
     </details>
 </div>
 {% endif %}
@@ -174,6 +225,7 @@
         <li style="margin-bottom: 0.5rem;"><a href="{{ svg }}" download>{{ svg.split('/')[-1] }}</a></li>
     {% endfor %}
     </ul>
+    <p class="back-to-top"><a href="#top">↑ Back to top</a></p>
 </div>
 {% endif %}
 {% endblock %}
