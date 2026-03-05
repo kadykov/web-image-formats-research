@@ -1111,12 +1111,8 @@ class TestEffortSweepInterpolation:
         ms = _make_jxl_effort_measurements()
         target_ssim = 60.0
 
-        q_effort1 = interpolate_quality_for_metric(
-            ms, "jxl", "ssimulacra2", target_ssim, effort=1
-        )
-        q_effort7 = interpolate_quality_for_metric(
-            ms, "jxl", "ssimulacra2", target_ssim, effort=7
-        )
+        q_effort1 = interpolate_quality_for_metric(ms, "jxl", "ssimulacra2", target_ssim, effort=1)
+        q_effort7 = interpolate_quality_for_metric(ms, "jxl", "ssimulacra2", target_ssim, effort=7)
 
         assert q_effort1 is not None
         assert q_effort7 is not None
@@ -1147,9 +1143,7 @@ class TestEffortSweepInterpolation:
         assert q_effort7 is not None
         assert q_no_filter is not None
         lo, hi = min(q_effort1, q_effort7), max(q_effort1, q_effort7)
-        assert lo <= q_no_filter <= hi, (
-            "No-effort result should be between the per-effort values"
-        )
+        assert lo <= q_no_filter <= hi, "No-effort result should be between the per-effort values"
 
     def test_interpolation_at_exact_quality_is_circular(self) -> None:
         """Interpolating a metric at the exact float quality that was chosen to hit
@@ -1168,9 +1162,7 @@ class TestEffortSweepInterpolation:
         ms = _make_jxl_effort_measurements()
         target_ssim = 62.7  # not an exact data point
 
-        quality = interpolate_quality_for_metric(
-            ms, "jxl", "ssimulacra2", target_ssim, effort=1
-        )
+        quality = interpolate_quality_for_metric(ms, "jxl", "ssimulacra2", target_ssim, effort=1)
         assert quality is not None
 
         # Evaluating the metric at the float quality that was designed to hit

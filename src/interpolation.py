@@ -24,8 +24,16 @@ import math
 from pathlib import Path
 from typing import Any
 
+from scipy.interpolate import CubicSpline
+from scipy.optimize import brentq
+
 # Quality metrics where *higher* measured value → *better* quality.
 _HIGHER_IS_BETTER: set[str] = {"ssimulacra2", "psnr", "ssim"}
+
+# Minimum number of distinct data points required to use cubic-spline
+# interpolation.  With fewer points the function falls back to linear
+# interpolation so that sparse measurements still produce reasonable results.
+_SPLINE_MIN_POINTS: int = 4
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +118,10 @@ def interpolate_metric_at_quality(
 ) -> float | None:
     """Interpolate an output metric at a given encoder quality.
 
-    Useful for estimating what BPP or SSIMULACRA2 value an encoder
-    would produce at a non-measured quality setting.
+    Uses cubic-spline interpolation when at least ``_SPLINE_MIN_POINTS``
+    measured quality levels are available.  Falls back to piecewise-linear
+    interpolation for sparser data so that measurements with only a handful
+    of quality levels still produce valid results.
 
     Args:
         measurements: List of measurement dicts.
@@ -142,13 +152,24 @@ def interpolate_metric_at_quality(
     if len(points) < 2:  # noqa: PLR2004
         return None
 
-    # points is sorted by quality (x); interpolate metric (y) at quality (x)
-    for i in range(len(points) - 1):
-        q0, m0 = points[i]
-        q1, m1 = points[i + 1]
-        if q0 <= quality <= q1:
-            return _lerp(m0, q0, m1, q1, quality)
-    return None
+    qs = [p[0] for p in points]
+    ms = [p[1] for p in points]
+
+    # Out-of-range check (no extrapolation)
+    if quality < qs[0] or quality > qs[-1]:
+        return None
+
+    if len(points) < _SPLINE_MIN_POINTS:
+        # Piecewise-linear fallback for sparse data
+        for i in range(len(points) - 1):
+            if qs[i] <= quality <= qs[i + 1]:
+                return _lerp(ms[i], qs[i], ms[i + 1], qs[i + 1], quality)
+        return None
+
+    # Cubic-spline interpolation: metric as a function of encoder quality
+    spl = CubicSpline(qs, ms, extrapolate=False)
+    result = float(spl(quality))
+    return None if math.isnan(result) else result
 
 
 # ---------------------------------------------------------------------------
@@ -406,20 +427,44 @@ def _interpolate_target(
     metrics, metric values should generally increase with quality.
     For lower-is-better metrics (butteraugli), they decrease.
 
-    Finds the pair of adjacent points that brackets the target value
-    and linearly interpolates.
+    When at least ``_SPLINE_MIN_POINTS`` data points are available a
+    cubic spline is fitted over the full quality range and the target
+    quality is located by Brent's method inside the bracketing interval.
+    With fewer points the function falls back to piecewise-linear
+    interpolation.
     """
-    # Check each adjacent pair
+    # Locate the adjacent-pair interval that brackets the target value
+    bracket_idx: int | None = None
     for i in range(len(points) - 1):
         q0, m0 = points[i]
         q1, m1 = points[i + 1]
-
-        # Check if target is bracketed (either ascending or descending)
         lo, hi = min(m0, m1), max(m0, m1)
         if lo <= target_value <= hi:
-            return _lerp(q0, m0, q1, m1, target_value)
+            bracket_idx = i
+            break
 
-    return None
+    if bracket_idx is None:
+        return None
+
+    q0, m0 = points[bracket_idx]
+    q1, m1 = points[bracket_idx + 1]
+
+    if len(points) < _SPLINE_MIN_POINTS:
+        # Piecewise-linear fallback for sparse data
+        return _lerp(q0, m0, q1, m1, target_value)
+
+    # Cubic-spline interpolation: use the full dataset to build the spline,
+    # then locate the target within the bracketing quality interval via
+    # Brent's root-finding method.
+    qs = [p[0] for p in points]
+    ms = [p[1] for p in points]
+    spl = CubicSpline(qs, ms)
+    try:
+        return float(brentq(lambda q: float(spl(q)) - target_value, q0, q1))
+    except ValueError:
+        # brentq requires a sign change at the interval endpoints; fall back
+        # to linear if the spline overshoots within the bracket.
+        return _lerp(q0, m0, q1, m1, target_value)
 
 
 def _extract_fixed_params(measurement: dict[str, Any], tile_param: str) -> dict[str, Any]:
