@@ -65,10 +65,13 @@ build-image ──┐
 prepare ──────┘                   │
                                   ├── run-study (parallel per study)
                                   │      ├── pipeline (encode + measure)
-                                  │      ├── analyze (statistics + plots)
-                                  │      └── compare (visual comparisons)
+                                  │      └── analyze (statistics + plots)
                                   │
-                                  └── generate-report
+                                  ├── run-comparison (parallel per study, after run-study)
+                                  │      └── generate visual comparison figures
+                                  │          (re-encodes from dataset; no pipeline artefacts needed)
+                                  │
+                                  └── generate-report (after run-comparison)
                                          ├── interactive HTML report
                                          ├── release notes
                                          └── release assets (CSV)
@@ -86,6 +89,13 @@ prepare ──────┘                   │
 - **Parallel studies**: Each study runs as an independent matrix job.
   A format-comparison study and an AVIF speed sweep run simultaneously on
   separate runners, maximizing throughput within the 6-hour window.
+
+- **Separate comparison job**: Visual comparison figure generation (`run-comparison`)
+  runs as a dedicated job after `run-study`, downloading the dataset and study
+  results as artifacts.  This keeps the pipeline job focused on pure
+  encode-and-measure, and lets comparison parameters be tuned independently.
+  Studies without comparison targets produce no output; the artifact upload
+  uses `if-no-files-found: ignore` to handle this gracefully.
 
 - **Artifact pipeline**: Study results flow through GitHub Actions artifacts.
   The dataset is fetched once and shared. Each study uploads its metrics and

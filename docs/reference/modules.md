@@ -80,15 +80,31 @@ Generates interactive Plotly figures for the HTML report.
 - `plot_quality_vs_param()`, `plot_rate_distortion()` — Plotly equivalents of analysis plots
 - `figure_to_html_fragment()` — convert Plotly figure to embeddable HTML div
 
+## `src/interpolation.py` — Quality interpolation
+
+Estimates encoder quality settings that produce a desired output metric value,
+and selects the most representative source image for comparison figures.
+
+- `interpolate_quality_for_metric()` — find encoder quality for a target metric value (linear or cubic-spline)
+- `interpolate_metric_at_quality()` — predict output metric at a given quality setting
+- `compute_cross_format_cv()` — coefficient of variation (std / mean) of an output metric across tile-parameter values for one image
+- `select_best_image()` — pick the source image with the highest mean CV across target values
+- `_collect_quality_metric_pairs()` — filter and sort (quality, metric) pairs from measurement data
+
 ## `src/comparison.py` — Visual comparisons
 
-Generates side-by-side comparison images with distortion maps.
+Generates side-by-side comparison figures via interpolation-based quality matching.
+Fully decoupled from the pipeline: re-encodes images on the fly using quality
+settings interpolated from `quality.json`.
 
-- `ComparisonConfig` — crop_size, zoom_factor, tile_parameter, source_image, study_config_path
-- `select_best_image()` — select most representative image by cross-format CV (std / mean)
-- `generate_distortion_map()` — create Butteraugli PFM distortion maps
-- `generate_comparison()` — main entry point: select image, crop fragment by std-dev map, assemble montage
-- Uses ImageMagick 7 (`magick montage`) for grid assembly
+- `ComparisonConfig` — crop_size, zoom_factor, max_columns, distmap_vmax, tile_parameter, source_image, study_config_path
+- `generate_comparison()` — main entry point: select image by CV, interpolate quality, re-encode, build aggregate std map, crop fragment, assemble grids
+- `generate_distortion_map()` — create raw Butteraugli PFM distortion maps
+- `find_worst_region()` — sliding-window worst-region search on a PFM map
+- `crop_and_zoom()` — crop a fragment and scale with nearest-neighbour interpolation
+- `assemble_comparison_grid()` — assemble labeled tiles with ImageMagick 7 `montage`
+- `encode_image()` — re-encode a source image using measurement-record parameters
+- `_anisotropic_std_map()` — compute aggregate per-pixel std map across distortion maps
 
 ## `src/report_images.py` — Report image optimization
 
