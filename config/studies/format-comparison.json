@@ -6,9 +6,11 @@
   "comparison": {
     "tile_parameter": "format",
     "targets": [
-      { "metric": "ssimulacra2", "values": [60, 70, 80] },
-      { "metric": "bytes_per_pixel", "values": [0.1, 0.2, 0.3] }
-    ]
+      { "metric": "ssimulacra2", "values": [65, 70, 75, 80, 85, 90] },
+      { "metric": "butteraugli", "values": [2.0, 2.5, 3.0, 3.5] },
+      { "metric": "bytes_per_pixel", "values": [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6] }
+    ],
+    "exclude_images": ["0828.png"]
   },
   "analysis": {
     "x_axis": "quality",
@@ -21,21 +23,21 @@
   "encoders": [
     {
       "format": "jpeg",
-      "quality": [40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95]
+      "quality": [30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95]
     },
     {
       "format": "webp",
-      "quality": [45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100],
+      "quality": [30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100],
       "method": 6
     },
     {
       "format": "avif",
-      "quality": [40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
+      "quality": [35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
       "speed": 4
     },
     {
       "format": "jxl",
-      "quality": [50, 55, 60, 65, 70, 75, 80, 85, 90, 95],
+      "quality": [40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95],
       "effort": 9
     }
   ]
