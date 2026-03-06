@@ -137,7 +137,7 @@ jobs:
         run: python3 scripts/fetch_dataset.py ${{ env.DATASET_ID }}
 
       - name: Upload dataset artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dataset
           path: data/datasets/
@@ -191,7 +191,7 @@ jobs:
         run: python3 scripts/analyze_study.py "${{ matrix.study }}"
 
       - name: Upload study results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: study-results-${{ matrix.study }}
@@ -237,7 +237,7 @@ jobs:
         run: python3 scripts/generate_comparison.py "${{ matrix.study }}"
 
       - name: Upload comparison results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: comparison-results-${{ matrix.study }}
@@ -299,13 +299,13 @@ jobs:
         run: python3 scripts/prepare_release_assets.py --output-dir release-assets
 
       - name: Upload report artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: report
           path: data/report/
 
       - name: Upload release materials artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-materials
           path: |
