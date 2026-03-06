@@ -241,7 +241,9 @@ jobs:
         if: always()
         with:
           name: comparison-results-${{ matrix.study }}
-          path: data/analysis/${{ matrix.study }}/comparison/
+          path: |
+            data/metrics/${{ matrix.study }}/
+            data/analysis/${{ matrix.study }}/
           if-no-files-found: ignore   # studies without comparison targets produce no output
           retention-days: 90
 
