@@ -7,6 +7,7 @@ This script:
 3. Processes and organizes all markdown files for Astro Starlight
 """
 
+import re
 import shutil
 import subprocess
 import sys
@@ -113,7 +114,39 @@ description: Research project for determining optimal modern image formats for t
         shutil.copytree(src_section, dest_section)
         print(f"  ✓ Copied {section_dir}/")
 
+    # Fix relative cross-section links for Astro Starlight
+    # Source docs use '../section/page' which works for GitHub file browsing.
+    # Starlight renders pages at 'section/page/' (trailing slash), so '../'
+    # only reaches 'section/', not the docs root.  Rewrite to '../../section/page'.
+    _rewrite_relative_links(content_dir)
+
     print("✅ Documentation copied successfully")
+
+
+def _rewrite_relative_links(content_dir: Path) -> None:
+    """Rewrite cross-section relative links for Astro Starlight URL layout.
+
+    Starlight serves each page at ``section/slug/`` (with a trailing slash),
+    so a link like ``../other-section/page`` resolves to
+    ``section/other-section/page`` in the browser instead of the intended
+    ``other-section/page``.  Replace every ``](../`` with ``](../../`` so
+    the links resolve correctly from the page's trailing-slash URL.
+
+    Args:
+        content_dir: Path to Astro content/docs directory containing the
+            copied markdown files.
+    """
+    count = 0
+    for md_file in content_dir.rglob("*.md"):
+        original = md_file.read_text()
+        # Match "](../" only when NOT already "](../../" (negative lookahead).
+        # This makes the function idempotent and safe to run multiple times.
+        rewritten = re.sub(r"\]\(\.\./(?!\.\.\/)", "](../../", original)
+        if rewritten != original:
+            md_file.write_text(rewritten)
+            count += 1
+    if count:
+        print(f"  ✓ Rewrote cross-section relative links in {count} file(s)")
 
 
 def add_frontmatter_to_docs(content_dir: Path) -> None:
