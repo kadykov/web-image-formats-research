@@ -219,6 +219,100 @@ def determine_secondary_sweep_parameter(df: pd.DataFrame, primary: str) -> str |
     return max(counts, key=lambda k: counts[k])
 
 
+def resolve_axis_parameters(
+    df: pd.DataFrame,
+    stats: pd.DataFrame,
+    *,
+    x_axis: str | None = None,
+    group_by: str | None = None,
+    study_config_path: Path | None = None,
+    quiet: bool = False,
+) -> tuple[str, str | None]:
+    """Determine the primary x-axis and secondary grouping parameters.
+
+    Resolution order (for both *x_axis* and *group_by*):
+
+    1. Explicit argument (``x_axis`` / ``group_by``).
+    2. Study configuration file (``analysis.x_axis`` /
+       ``analysis.group_by``).
+    3. Built-in heuristic: parameter with most / second-most unique
+       values.
+
+    This helper centralises the logic so that the static SVG analysis
+    and the interactive Plotly report produce identical axis choices.
+
+    Args:
+        df: Analysis DataFrame (used by the heuristic).
+        stats: Statistics DataFrame (used for column-existence checks).
+        x_axis: Explicit override for the x-axis parameter.
+        group_by: Explicit override for the grouping parameter.
+        study_config_path: Optional path to the study configuration
+            JSON — ``analysis.x_axis`` and ``analysis.group_by`` are
+            read from it when present.
+        quiet: Suppress informational prints.
+
+    Returns:
+        ``(x_param, secondary_param)`` — resolved x-axis and grouping
+        parameter (the latter may be ``None``).
+    """
+    # Load study config overrides (if available)
+    study_cfg_x: str | None = None
+    study_cfg_group: str | None = None
+    if study_config_path is not None:
+        from src.study import StudyConfig
+
+        try:
+            cfg = StudyConfig.from_file(study_config_path)
+            study_cfg_x = cfg.analysis_x_axis
+            study_cfg_group = cfg.analysis_group_by
+        except (FileNotFoundError, ValueError) as exc:
+            if not quiet:
+                print(f"Warning: could not load study config: {exc}")
+
+    # --- Resolve x_axis ---
+    effective_x = x_axis if x_axis is not None else study_cfg_x
+    if effective_x is None:
+        x_param = determine_sweep_parameter(df)
+        if not quiet:
+            print(f"Using '{x_param}' as primary x-axis for plots (auto-detected)")
+    else:
+        x_param = effective_x
+        if x_param not in stats.columns:
+            if not quiet:
+                print(
+                    f"Warning: configured x_axis '{x_param}' not found in data; "
+                    "falling back to auto-detection"
+                )
+            x_param = determine_sweep_parameter(df)
+        elif not quiet:
+            print(f"Using '{x_param}' as primary x-axis for plots")
+
+    # --- Resolve group_by ---
+    effective_group = group_by if group_by is not None else study_cfg_group
+    if effective_group is None:
+        secondary_param = determine_secondary_sweep_parameter(df, x_param)
+        if secondary_param and not quiet:
+            print(
+                f"Using '{secondary_param}' as secondary axis for "
+                f"rate-distortion plots (auto-detected)"
+            )
+    else:
+        secondary_param = effective_group
+        if secondary_param not in stats.columns:
+            if not quiet:
+                print(
+                    f"Warning: configured group_by '{secondary_param}' not found in data; "
+                    "falling back to auto-detection"
+                )
+            secondary_param = determine_secondary_sweep_parameter(df, x_param)
+        elif not quiet:
+            print(
+                f"Using '{secondary_param}' as secondary axis for rate-distortion plots"
+            )
+
+    return x_param, secondary_param
+
+
 # Metric direction: True = higher is better, False = lower is better
 METRIC_DIRECTIONS = {
     "ssimulacra2": True,
@@ -954,54 +1048,14 @@ def analyze_study(
     stats.to_csv(stats_path, index=False, float_format="%.4g")
     print(f"Statistics saved to: {stats_path}")
 
-    # Load study config overrides (if available)
-    study_cfg_x_axis: str | None = None
-    study_cfg_group_by: str | None = None
-    if study_config_path is not None:
-        from src.study import StudyConfig
-
-        try:
-            study_config = StudyConfig.from_file(study_config_path)
-            study_cfg_x_axis = study_config.analysis_x_axis
-            study_cfg_group_by = study_config.analysis_group_by
-        except (FileNotFoundError, ValueError) as exc:
-            print(f"Warning: could not load study config: {exc}")
-
-    # Resolve x_axis: CLI arg → study config → heuristic
-    if x_axis is None:
-        x_axis = study_cfg_x_axis
-    if x_axis is None:
-        x_param = determine_sweep_parameter(df)
-        print(f"Using '{x_param}' as primary x-axis for plots (auto-detected)")
-    else:
-        x_param = x_axis
-        if x_param not in stats.columns:
-            print(
-                f"Warning: configured x_axis '{x_param}' not found in data; "
-                "falling back to auto-detection"
-            )
-            x_param = determine_sweep_parameter(df)
-        print(f"Using '{x_param}' as primary x-axis for plots")
-
-    # Resolve group_by: CLI arg → study config → heuristic
-    if group_by is None:
-        group_by = study_cfg_group_by
-    if group_by is None:
-        secondary_param = determine_secondary_sweep_parameter(df, x_param)
-        if secondary_param:
-            print(
-                f"Using '{secondary_param}' as secondary axis for rate-distortion plots (auto-detected)"
-            )
-    else:
-        secondary_param = group_by
-        if secondary_param not in stats.columns:
-            print(
-                f"Warning: configured group_by '{secondary_param}' not found in data; "
-                "falling back to auto-detection"
-            )
-            secondary_param = determine_secondary_sweep_parameter(df, x_param)
-        elif secondary_param:
-            print(f"Using '{secondary_param}' as secondary axis for rate-distortion plots")
+    # Resolve axis parameters: CLI arg → study config → heuristic
+    x_param, secondary_param = resolve_axis_parameters(
+        df,
+        stats,
+        x_axis=x_axis,
+        group_by=group_by,
+        study_config_path=study_config_path,
+    )
 
     # Generate quality metric plots vs sweep parameter
     quality_metrics = ["ssimulacra2", "psnr", "ssim", "butteraugli"]

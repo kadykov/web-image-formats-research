@@ -14,11 +14,10 @@ from src.analysis import (
     METRIC_DIRECTIONS,
     compute_statistics,
     create_analysis_dataframe,
-    determine_secondary_sweep_parameter,
-    determine_sweep_parameter,
     determine_varying_parameters,
     get_worst_percentile_col,
     load_quality_results,
+    resolve_axis_parameters,
 )
 
 # Consistent color palette for formats
@@ -134,6 +133,7 @@ def _build_hover_text(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         for col in param_cols:
             if col in group.columns and pd.notna(row.get(col)):
@@ -258,6 +258,7 @@ def plot_quality_vs_param(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
@@ -485,6 +486,7 @@ def plot_bytes_per_pixel(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
@@ -682,6 +684,7 @@ def plot_encoding_time_per_pixel(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
@@ -840,6 +843,7 @@ def plot_efficiency(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
@@ -945,14 +949,23 @@ def figure_to_html_fragment(fig: go.Figure) -> str:
 
 def generate_study_figures(
     quality_json_path: str | Path,
+    *,
+    study_config_path: Path | None = None,
 ) -> dict[str, go.Figure]:
     """Generate all interactive figures for a study.
 
-    This is the main entry point that mirrors analyze_study() but produces
-    Plotly figures instead of saving matplotlib images.
+    This is the main entry point that mirrors ``analyze_study()`` but
+    produces Plotly figures instead of saving matplotlib images.
+
+    Axis resolution uses the same shared helper
+    (:func:`~src.analysis.resolve_axis_parameters`) as the static SVG
+    analysis so that the interactive report matches exactly.
 
     Args:
         quality_json_path: Path to quality.json file
+        study_config_path: Optional path to the study configuration JSON
+            file.  ``analysis.x_axis`` / ``analysis.group_by`` are read
+            from it when present.
 
     Returns:
         Dictionary mapping figure names to Plotly Figure objects
@@ -969,8 +982,15 @@ def generate_study_figures(
 
     stats = compute_statistics(df, varying)
     study_id = quality_results.get("study_id", "unknown")
-    x_param = determine_sweep_parameter(df)
-    secondary_param = determine_secondary_sweep_parameter(df, x_param)
+
+    # Resolve axis parameters using the shared helper (respects
+    # study config → heuristic fallback, same as the SVG analysis).
+    x_param, secondary_param = resolve_axis_parameters(
+        df,
+        stats,
+        study_config_path=study_config_path,
+        quiet=True,
+    )
 
     figures: dict[str, go.Figure] = {}
 

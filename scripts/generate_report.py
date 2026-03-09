@@ -202,8 +202,16 @@ def generate_study_page(
     metadata = _load_study_metadata(quality_json_path)
     study_id = str(metadata["study_id"])
 
+    # Resolve study config path for analysis parameter overrides
+    study_config_path = PROJECT_ROOT / "config" / "studies" / f"{study_id}.json"
+    if not study_config_path.exists():
+        study_config_path = None
+
     print(f"  Generating figures for: {metadata['study_name']}")
-    figures = generate_study_figures(quality_json_path)
+    figures = generate_study_figures(
+        quality_json_path,
+        study_config_path=study_config_path,
+    )
 
     # Copy CSV and SVG files to output data directory
     data_output = output_dir / "data" / study_id

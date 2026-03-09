@@ -1377,10 +1377,26 @@ def generate_comparison(
                             group_dir / "distortion_map_anisotropic.webp",
                             dash_color="cyan",
                         )
+
+                    # Prepare crop-study annotation overlays
+                    _annot_af: dict[str, int] | None = None
+                    _annot_crop_regions: dict[int, dict] | None = None
+                    if tile_param == "crop":
+                        _annot_af = (
+                            _af_frag if _af_frag is not None else None  # type: ignore[possibly-undefined]
+                        )
+                        _annot_crop_regions = {
+                            lvl: entry[1]
+                            for lvl, entry in crop_cache.items()
+                            if entry[1] is not None
+                        } or None
+
                     _save_annotated_original(
                         source_path,
                         region,
                         group_dir / "original_annotated.webp",
+                        analysis_fragment=_annot_af,
+                        crop_regions=_annot_crop_regions,
                     )
 
                     # ----------------------------------------------------------
@@ -1414,8 +1430,14 @@ def generate_comparison(
                         ]
                         variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
 
+                        # When crop is the tile parameter, include it in the
+                        # label so each tile shows its crop resolution.
+                        label_varying = intra_res_varying
+                        if tile_param == "crop" and "crop" not in label_varying:
+                            label_varying = [*intra_res_varying, "crop"]
+
                         for enc_path, m, dm_arr in encoded_variants:
-                            label = _build_label(m, intra_res_varying)
+                            label = _build_label(m, label_varying)
                             metric_label = _build_metric_label(m)
                             safe_name = label.replace(" ", "_").replace("=", "-")
                             crop_path = crops_dir / f"{safe_name}.png"
@@ -1624,9 +1646,10 @@ def _draw_annotation_on_image(
     )
     if label:
         tx, ty = x1 + 2, y1 + 2
+        badge_w = max(34, len(label) * 9 + 8)
         draw_cmd += (
             f" fill rgba(255,255,255,0.82) stroke none "
-            f"roundrectangle {tx},{ty} {tx + 34},{ty + 18} 3,3 "
+            f"roundrectangle {tx},{ty} {tx + badge_w},{ty + 18} 3,3 "
             f"fill {dash_color} font DejaVu-Sans font-size 13 stroke none "
             f"text {tx + 4},{ty + 14} '{label}'"
         )
@@ -1683,12 +1706,63 @@ def _save_annotated_original(
     source_path: Path,
     region: WorstRegion,
     output_path: Path,
+    *,
+    analysis_fragment: dict[str, int] | None = None,
+    crop_regions: dict[int, dict] | None = None,
 ) -> None:
     """Save a copy of the source image with the selected region annotated.
 
+    For crop-impact studies, additional overlays are drawn:
+
+    * The **analysis fragment** (e.g. 200×200 pixels) in green — this is
+      the fixed area where quality metrics are measured.
+    * Each **crop level boundary** in orange with a label so readers can
+      see how much of the image is retained at every crop resolution.
+
     Args:
         source_path: Path to the original source image.
-        region: The region to annotate.
+        region: The comparison-crop region to annotate (cyan dashes).
         output_path: Destination image path.
+        analysis_fragment: ``{"x", "y", "width", "height"}`` in
+            original-image coordinates for the analysis fragment overlay.
+        crop_regions: Mapping of crop-level → ``{"x", "y", "width",
+            "height"}`` in original-image coordinates.
     """
+    # 1. Comparison-crop region (default annotation)
     _draw_annotation_on_image(source_path, region, output_path)
+
+    # 2. Analysis fragment (green)
+    if analysis_fragment is not None:
+        af_region = WorstRegion(
+            x=analysis_fragment["x"],
+            y=analysis_fragment["y"],
+            width=analysis_fragment["width"],
+            height=analysis_fragment["height"],
+            avg_distortion=0.0,
+        )
+        _draw_annotation_on_image(
+            output_path,
+            af_region,
+            output_path,
+            dash_color="lime",
+            label=f"{analysis_fragment['width']}px",
+        )
+
+    # 3. Crop-level boundaries (orange, labeled)
+    if crop_regions:
+        for crop_level in sorted(crop_regions.keys(), reverse=True):
+            cr = crop_regions[crop_level]
+            cr_region = WorstRegion(
+                x=cr["x"],
+                y=cr["y"],
+                width=cr["width"],
+                height=cr["height"],
+                avg_distortion=0.0,
+            )
+            _draw_annotation_on_image(
+                output_path,
+                cr_region,
+                output_path,
+                dash_color="orange",
+                label=str(crop_level),
+            )
