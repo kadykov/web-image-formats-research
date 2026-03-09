@@ -113,6 +113,34 @@
             "type": ["integer", "null"],
             "description": "Target resolution (longest edge in pixels) if preprocessing was applied. Null when no resolution constraint was used."
           },
+          "crop": {
+            "type": ["integer", "null"],
+            "description": "Target crop size (longest edge in pixels) if crop preprocessing was applied. Null when no cropping was used."
+          },
+          "analysis_fragment": {
+            "type": ["object", "null"],
+            "description": "Coordinates of the analysis fragment in the original image coordinate space. Quality metrics are measured only on this region. Null when crop-impact mode is not used.",
+            "properties": {
+              "x": { "type": "integer", "minimum": 0 },
+              "y": { "type": "integer", "minimum": 0 },
+              "width": { "type": "integer", "minimum": 1 },
+              "height": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["x", "y", "width", "height"],
+            "additionalProperties": false
+          },
+          "crop_region": {
+            "type": ["object", "null"],
+            "description": "Coordinates of the crop window applied to the original image. Defines the region that was extracted before encoding. Null when no cropping was used.",
+            "properties": {
+              "x": { "type": "integer", "minimum": 0 },
+              "y": { "type": "integer", "minimum": 0 },
+              "width": { "type": "integer", "minimum": 1 },
+              "height": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["x", "y", "width", "height"],
+            "additionalProperties": false
+          },
           "width": {
             "type": "integer",
             "description": "Width of the encoded image in pixels",

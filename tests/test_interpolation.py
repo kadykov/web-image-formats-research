@@ -99,6 +99,19 @@ class TestCollectQualityMetricPairs:
         pairs = _collect_quality_metric_pairs(ms, "jpeg", "ssimulacra2")
         assert pairs[0][0] < pairs[1][0]
 
+    def test_filters_by_crop(self) -> None:
+        m1 = {**_make_m("avif", 50, 55.0, 5000), "crop": 800}
+        m2 = {**_make_m("avif", 50, 70.0, 4000), "crop": 400}
+        pairs = _collect_quality_metric_pairs([m1, m2], "avif", "ssimulacra2", crop=800)
+        assert len(pairs) == 1
+        assert pairs[0][1] == pytest.approx(55.0)
+
+    def test_crop_none_returns_all(self) -> None:
+        m1 = {**_make_m("avif", 50, 55.0, 5000), "crop": 800}
+        m2 = {**_make_m("avif", 80, 70.0, 4000), "crop": 400}
+        pairs = _collect_quality_metric_pairs([m1, m2], "avif", "ssimulacra2", crop=None)
+        assert len(pairs) == 2
+
 
 # ---------------------------------------------------------------------------
 # _interpolate_target

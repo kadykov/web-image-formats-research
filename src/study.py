@@ -21,6 +21,7 @@ class EncoderConfig:
     effort: list[int] | None = None
     method: list[int] | None = None
     resolution: list[int] | None = None
+    crop: list[int] | None = None
     extra_args: dict[str, str | int | bool] | None = None
 
 
@@ -71,6 +72,23 @@ class StudyConfig:
     Each entry is matched against the basename of source/original
     image paths (e.g. ``"0801.png"``).  Excluded images are never
     chosen as the most representative image for comparison figures.
+    """
+    analysis_fragment_size: int | None = None
+    """Side length in pixels of the square analysis fragment for crop-impact studies.
+
+    The pipeline selects the most distorted fragment of this size and
+    measures quality metrics only on this region.  When ``None`` the
+    default of 200 is used.
+    """
+    crop_too_small_strategy: str = "skip_image"
+    """Strategy when an image is too small for a crop level's analysis fragment.
+
+    * ``"skip_image"`` – skip the entire image if *any* crop level cannot
+      accommodate the analysis fragment (default / safest).
+    * ``"skip_measurement"`` – skip only the individual crop-level
+      measurements that don't fit.
+    * ``"adjust_aspect_ratio"`` – expand the crop dimensions to at least
+      the fragment size (may change the crop's aspect ratio).
     """
 
     @classmethod
@@ -131,6 +149,10 @@ class StudyConfig:
             analysis_x_axis=analysis.get("x_axis"),
             analysis_group_by=analysis.get("group_by"),
             comparison_exclude_images=comparison.get("exclude_images"),
+            analysis_fragment_size=data.get("analysis_fragment_size"),
+            crop_too_small_strategy=data.get(
+                "crop_too_small_strategy", "skip_image"
+            ),
         )
 
 
@@ -191,6 +213,11 @@ def _parse_encoder_config(data: dict[str, Any]) -> EncoderConfig:
     if resolution_raw is not None:
         resolution = [resolution_raw] if isinstance(resolution_raw, int) else resolution_raw
 
+    crop_raw = data.get("crop")
+    crop: list[int] | None = None
+    if crop_raw is not None:
+        crop = [crop_raw] if isinstance(crop_raw, int) else crop_raw
+
     return EncoderConfig(
         format=data["format"],
         quality=quality,
@@ -199,5 +226,6 @@ def _parse_encoder_config(data: dict[str, Any]) -> EncoderConfig:
         effort=effort,
         method=method,
         resolution=resolution,
+        crop=crop,
         extra_args=data.get("extra_args"),
     )

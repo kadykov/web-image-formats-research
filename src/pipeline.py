@@ -131,6 +131,7 @@ def _build_output_name(
     effort: int | None = None,
     method: int | None = None,
     resolution: int | None = None,
+    crop: int | None = None,
 ) -> str:
     """Build a descriptive output filename for an encoding task."""
     parts = [stem, f"q{quality}"]
@@ -144,6 +145,8 @@ def _build_output_name(
         parts.append(f"m{method}")
     if resolution is not None:
         parts.append(f"r{resolution}")
+    if crop is not None:
+        parts.append(f"c{crop}")
     return "_".join(parts)
 
 
@@ -167,9 +170,15 @@ def _process_image(
     - Naturally staggers memory-intensive operations across workers
     - Provides better cache locality
 
-    Resolution is now part of the per-encoder Cartesian product.
-    Preprocessing (resizing) is handled inline with an in-worker cache
-    so each resolution is only computed once per image.
+    Resolution and crop are part of the per-encoder Cartesian product.
+    Preprocessing (resizing / cropping) is handled inline with
+    in-worker caches so each level is only computed once per image.
+
+    For crop-impact studies the worker first performs a **fragment
+    selection phase**: the image is encoded at the lowest quality with
+    the first encoder, a Butteraugli distortion map is measured, and
+    the most distorted analysis fragment is identified.  All subsequent
+    tasks then use this shared fragment for quality measurement.
 
     Args:
         image_path_str: Absolute path to the source image.
@@ -185,12 +194,22 @@ def _process_image(
     """
     import tempfile
 
-    from src.preprocessing import ImagePreprocessor
+    from src.preprocessing import CropResult, ImagePreprocessor
+    from src.quality import (
+        QualityMeasurer as _QM,
+        extract_fragment as _extract_frag,
+        find_worst_region_in_array,
+        read_pfm,
+    )
     from src.study import EncoderConfig
 
     image_path = Path(image_path_str)
     project_root = Path(project_root_str)
     study_id = config_dict["id"]
+    analysis_fragment_size: int = config_dict.get("analysis_fragment_size") or 200
+    crop_too_small_strategy: str = config_dict.get(
+        "crop_too_small_strategy", "skip_image"
+    )
 
     # Reconstruct encoder configs
     encoders = [EncoderConfig(**enc_dict) for enc_dict in config_dict["encoders"]]
@@ -203,10 +222,14 @@ def _process_image(
     else:
         save_artifact_dir = None
 
+    # Check if any encoder uses crop
+    uses_crop = any(enc.crop for enc in encoders)
+
     all_records: list[QualityRecord] = []
 
-    # In-worker preprocessing cache: resolution → preprocessed path
-    preprocessed_cache: dict[int, Path] = {}
+    # In-worker preprocessing caches
+    preprocessed_cache: dict[int, Path] = {}  # resolution → resized path
+    crop_cache: dict[int, CropResult] = {}    # crop_level → CropResult
 
     with tempfile.TemporaryDirectory() as prep_tmpdir:
 
@@ -228,7 +251,134 @@ def _process_image(
             preprocessed_cache[resolution] = resized
             return resized
 
-        # Process all encoders — resolution is part of each encoder's sweep
+        def _get_cropped_source(
+            crop_level: int,
+            fragment: dict[str, int],
+        ) -> CropResult:
+            """Get cropped source image (cached)."""
+            if crop_level in crop_cache:
+                return crop_cache[crop_level]
+            crop_dir = Path(prep_tmpdir) / f"c{crop_level}"
+            preprocessor = ImagePreprocessor(crop_dir)
+            output_name = f"{image_path.stem}_c{crop_level}.png"
+            result = preprocessor.crop_image_around_fragment(
+                image_path,
+                fragment=fragment,
+                target_longest_edge=crop_level,
+                output_name=output_name,
+                adjust_aspect_ratio=(
+                    crop_too_small_strategy == "adjust_aspect_ratio"
+                ),
+            )
+            crop_cache[crop_level] = result
+            return result
+
+        # ------------------------------------------------------------------
+        # Fragment selection phase (crop-impact studies only)
+        # ------------------------------------------------------------------
+        # Encode at the lowest quality of the first encoder using the
+        # full-resolution image and generate a Butteraugli distortion
+        # map.  The worst region in this map becomes the shared analysis
+        # fragment for all tasks on this image.
+        analysis_fragment: dict[str, int] | None = None
+
+        if uses_crop:
+            first_crop_enc = next(e for e in encoders if e.crop)
+            lowest_q = min(first_crop_enc.quality)
+            fmt0 = first_crop_enc.format
+
+            frag_dir = Path(prep_tmpdir) / "fragment_selection"
+            frag_dir.mkdir(exist_ok=True)
+
+            from src.encoder import ImageEncoder as _IE
+
+            _enc0 = _IE(frag_dir)
+            _speed0 = (min(first_crop_enc.speed) if first_crop_enc.speed else None)
+            _effort0 = (min(first_crop_enc.effort) if first_crop_enc.effort else None)
+            _method0 = (min(first_crop_enc.method) if first_crop_enc.method else None)
+
+            try:
+                if fmt0 == "jpeg":
+                    _r0 = _enc0.encode_jpeg(image_path, lowest_q)
+                elif fmt0 == "webp":
+                    _r0 = _enc0.encode_webp(image_path, lowest_q, method=_method0 or 4)
+                elif fmt0 == "avif":
+                    _r0 = _enc0.encode_avif(image_path, lowest_q, speed=_speed0 or 6)
+                elif fmt0 == "jxl":
+                    _r0 = _enc0.encode_jxl(image_path, lowest_q, effort=_effort0 or 7)
+                else:
+                    _r0 = None  # type: ignore[assignment]
+
+                if _r0 is not None and _r0.success and _r0.output_path is not None:
+                    pfm_path = frag_dir / "distmap.pfm"
+                    _meas = _QM()
+                    _meas.measure_butteraugli_with_distmap(
+                        image_path, _r0.output_path, pfm_path
+                    )
+                    if pfm_path.exists():
+                        dm = read_pfm(pfm_path)
+                        region = find_worst_region_in_array(
+                            dm, crop_size=analysis_fragment_size
+                        )
+                        analysis_fragment = {
+                            "x": region.x,
+                            "y": region.y,
+                            "width": region.width,
+                            "height": region.height,
+                        }
+            except Exception:
+                # If fragment selection fails, fall back to top-left corner
+                pass
+
+            if analysis_fragment is None:
+                # Fallback: use top-left corner
+                from PIL import Image as _PILImage
+                with _PILImage.open(image_path) as _im:
+                    _iw, _ih = _im.size
+                analysis_fragment = {
+                    "x": 0,
+                    "y": 0,
+                    "width": min(analysis_fragment_size, _iw),
+                    "height": min(analysis_fragment_size, _ih),
+                }
+
+        # ------------------------------------------------------------------
+        # skip_image pre-check: verify all crop levels fit the fragment
+        # ------------------------------------------------------------------
+        if uses_crop and analysis_fragment is not None:
+            if crop_too_small_strategy == "skip_image":
+                from PIL import Image as _PILImg
+
+                with _PILImg.open(image_path) as _chk:
+                    _cw, _ch = _chk.size
+                _longest = max(_cw, _ch)
+                fw = analysis_fragment["width"]
+                fh = analysis_fragment["height"]
+                all_crop_levels: set[int] = set()
+                for enc in encoders:
+                    if enc.crop:
+                        all_crop_levels.update(enc.crop)
+                for cl in all_crop_levels:
+                    if cl >= _longest:
+                        continue
+                    sc = cl / _longest
+                    cw_check = max(1, round(_cw * sc))
+                    ch_check = max(1, round(_ch * sc))
+                    if fw > cw_check or fh > ch_check:
+                        import warnings
+
+                        warnings.warn(
+                            f"Skipping {image_path.name}: crop level "
+                            f"{cl} produces {cw_check}x{ch_check} "
+                            f"which cannot fit analysis fragment "
+                            f"{fw}x{fh}",
+                            stacklevel=1,
+                        )
+                        return all_records  # empty
+
+        # ------------------------------------------------------------------
+        # Main encoding loop
+        # ------------------------------------------------------------------
         for enc in encoders:
             tasks = _expand_encoder_tasks(
                 source_image=image_path,
@@ -236,14 +386,47 @@ def _process_image(
                 enc=enc,
                 save_artifact_dir=save_artifact_dir,
                 study_id=study_id,
+                analysis_fragment=analysis_fragment if enc.crop else None,
             )
 
             # Execute tasks sequentially within this worker
             for task_kw in tasks:
-                # Resolve the actual source image for this task's resolution
+                # Resolve the actual source image for this task
                 resolution = task_kw["resolution"]
-                actual_source = _get_source(resolution)
-                task_kw["source_image"] = str(actual_source)
+                crop_level = task_kw.get("crop")
+
+                if crop_level is not None and analysis_fragment is not None:
+                    # Crop-impact mode: crop the original image around the fragment
+                    try:
+                        crop_result = _get_cropped_source(
+                            crop_level, analysis_fragment
+                        )
+                    except ValueError:
+                        if crop_too_small_strategy == "skip_measurement":
+                            import warnings
+
+                            warnings.warn(
+                                f"Skipping {image_path.name} at crop "
+                                f"{crop_level}: fragment does not fit",
+                                stacklevel=1,
+                            )
+                            continue
+                        raise
+                    task_kw["source_image"] = str(crop_result.path)
+                    task_kw["crop_region"] = crop_result.crop_region
+
+                    # Transform fragment coordinates from original to cropped space
+                    cr = crop_result.crop_region
+                    task_kw["analysis_fragment"] = {
+                        "x": analysis_fragment["x"] - cr["x"],
+                        "y": analysis_fragment["y"] - cr["y"],
+                        "width": analysis_fragment["width"],
+                        "height": analysis_fragment["height"],
+                    }
+                elif resolution is not None:
+                    actual_source = _get_source(resolution)
+                    task_kw["source_image"] = str(actual_source)
+                # else: source_image already points to the original
 
                 record = _encode_and_measure(
                     project_root_str=project_root_str,
@@ -265,6 +448,9 @@ def _encode_and_measure(
     effort: int | None = None,
     method: int | None = None,
     resolution: int | None = None,
+    crop: int | None = None,
+    analysis_fragment: dict[str, int] | None = None,
+    crop_region: dict[str, int] | None = None,
     extra_args: dict[str, str | int | bool] | None = None,
     save_dir_str: str | None = None,
     source_image_label: str | None = None,
@@ -277,6 +463,11 @@ def _encode_and_measure(
 
     Encoded files are written to a temporary directory and
     automatically cleaned up after measurement.
+
+    When *analysis_fragment* is provided (crop-impact mode), quality
+    metrics are measured only on the extracted fragment while
+    ``width`` / ``height`` reflect the full cropped image dimensions
+    (for correct bytes-per-pixel calculation).
 
     Args:
         source_image: Absolute path to the image to encode (may be
@@ -291,6 +482,13 @@ def _encode_and_measure(
         effort: Optional JXL effort setting.
         method: Optional WebP method setting.
         resolution: Resolution tag (if preprocessed).
+        crop: Crop tag (target longest-edge if cropped).
+        analysis_fragment: Fragment coordinates in the *source image*
+            coordinate space.  When set, quality metrics are measured
+            only on this region.
+        crop_region: The crop window applied to the original image
+            (in original image coordinates).  Stored in the record for
+            downstream comparison use.
         extra_args: Extra encoder arguments.
         save_dir_str: If given, copy the encoded file to this directory.
         source_image_label: Relative path string to use for ``source_image``
@@ -325,6 +523,7 @@ def _encode_and_measure(
         effort=effort,
         method=method,
         resolution=resolution,
+        crop=crop,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -368,6 +567,9 @@ def _encode_and_measure(
                     resolution,
                     extra_args,
                     f"Unknown format: {fmt}",
+                    crop=crop,
+                    analysis_fragment=analysis_fragment,
+                    crop_region=crop_region,
                 )
         except Exception as exc:
             return _error_record(
@@ -385,6 +587,9 @@ def _encode_and_measure(
                 resolution,
                 extra_args,
                 f"Encoding exception: {exc}",
+                crop=crop,
+                analysis_fragment=analysis_fragment,
+                crop_region=crop_region,
             )
 
         encoding_time = time.monotonic() - t0
@@ -405,6 +610,9 @@ def _encode_and_measure(
                 resolution,
                 extra_args,
                 f"Encoding failed: {result.error_message}",
+                crop=crop,
+                analysis_fragment=analysis_fragment,
+                crop_region=crop_region,
             )
 
         file_size = result.file_size or result.output_path.stat().st_size
@@ -412,10 +620,24 @@ def _encode_and_measure(
         # --- Measure ----------------------------------------------------------
         try:
             measurer = QualityMeasurer()
-            metrics = measurer.measure_all(
-                source_path,
-                result.output_path,
-            )
+            if analysis_fragment is not None:
+                # Crop-impact mode: measure quality only on the fragment
+                from src.quality import extract_fragment as _extract_frag
+
+                frag_dir = Path(tmpdir) / "fragments"
+                frag_dir.mkdir(exist_ok=True)
+                src_frag = _extract_frag(
+                    source_path, analysis_fragment, frag_dir / "src_frag.png"
+                )
+                enc_frag = _extract_frag(
+                    result.output_path, analysis_fragment, frag_dir / "enc_frag.png"
+                )
+                metrics = measurer.measure_all(src_frag, enc_frag)
+            else:
+                metrics = measurer.measure_all(
+                    source_path,
+                    result.output_path,
+                )
         except Exception as exc:
             return _error_record(
                 src_label,
@@ -434,6 +656,9 @@ def _encode_and_measure(
                 f"Measurement exception: {exc}",
                 file_size=file_size,
                 encoding_time=encoding_time,
+                crop=crop,
+                analysis_fragment=analysis_fragment,
+                crop_region=crop_region,
             )
 
         # --- Optionally persist artifact --------------------------------------
@@ -466,6 +691,9 @@ def _encode_and_measure(
         effort=effort,
         method=method,
         resolution=resolution,
+        crop=crop,
+        analysis_fragment=analysis_fragment,
+        crop_region=crop_region,
         extra_args=extra_args,
         measurement_error=metrics.error_message,
     )
@@ -489,6 +717,9 @@ def _error_record(
     *,
     file_size: int = 0,
     encoding_time: float | None = None,
+    crop: int | None = None,
+    analysis_fragment: dict[str, int] | None = None,
+    crop_region: dict[str, int] | None = None,
 ) -> QualityRecord:
     """Build a :class:`QualityRecord` that records an error."""
     return QualityRecord(
@@ -511,6 +742,9 @@ def _error_record(
         effort=effort,
         method=method,
         resolution=resolution,
+        crop=crop,
+        analysis_fragment=analysis_fragment,
+        crop_region=crop_region,
         extra_args=extra_args,
         measurement_error=error,
     )
@@ -527,16 +761,30 @@ def _expand_encoder_tasks(
     enc: EncoderConfig,
     save_artifact_dir: Path | None,
     study_id: str,
+    analysis_fragment: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Expand one :class:`EncoderConfig` into keyword-arg dicts for
     :func:`_encode_and_measure`.
 
-    Resolution is now part of the Cartesian product alongside quality,
-    chroma, speed, effort, and method.
+    Resolution and crop are part of the Cartesian product alongside
+    quality, chroma, speed, effort, and method.  They are mutually
+    exclusive on the same encoder: if both are set a :class:`ValueError`
+    is raised.
+
+    When *analysis_fragment* is set (crop-impact mode), the fragment
+    coordinates and crop region are included in each task dict so that
+    :func:`_encode_and_measure` can measure metrics on the fragment only.
 
     Returns a list of dicts that can be unpacked as
     ``_encode_and_measure(**kw)`` (all values are pickle-safe).
     """
+    if enc.resolution and enc.crop:
+        msg = (
+            f"Encoder '{enc.format}' has both 'resolution' and 'crop' "
+            f"set — they are mutually exclusive."
+        )
+        raise ValueError(msg)
+
     chroma_options: list[str | None] = (
         list(enc.chroma_subsampling) if enc.chroma_subsampling else [None]
     )
@@ -544,45 +792,58 @@ def _expand_encoder_tasks(
     effort_options: list[int | None] = list(enc.effort) if enc.effort else [None]
     method_options: list[int | None] = list(enc.method) if enc.method else [None]
     resolution_options: list[int | None] = list(enc.resolution) if enc.resolution else [None]
+    crop_options: list[int | None] = list(enc.crop) if enc.crop else [None]
 
     tasks: list[dict[str, Any]] = []
     for resolution in resolution_options:
-        res_label = f"r{resolution}" if resolution else "original"
+        for crop_level in crop_options:
+            if resolution is not None:
+                level_label = f"r{resolution}"
+            elif crop_level is not None:
+                level_label = f"c{crop_level}"
+            else:
+                level_label = "original"
 
-        if save_artifact_dir is not None:
-            save_dir_str: str | None = str(save_artifact_dir / enc.format / res_label)
-        else:
-            save_dir_str = None
+            if save_artifact_dir is not None:
+                save_dir_str: str | None = str(save_artifact_dir / enc.format / level_label)
+            else:
+                save_dir_str = None
 
-        # Build source_image_label for preprocessed images
-        if resolution is not None:
-            source_image_label: str | None = (
-                f"data/preprocessed/{study_id}/r{resolution}/{source_image.stem}_r{resolution}.png"
-            )
-        else:
-            source_image_label = None
+            # Build source_image_label for preprocessed images
+            if resolution is not None:
+                source_image_label: str | None = (
+                    f"data/preprocessed/{study_id}/r{resolution}/{source_image.stem}_r{resolution}.png"
+                )
+            elif crop_level is not None:
+                source_image_label = (
+                    f"data/preprocessed/{study_id}/c{crop_level}/{source_image.stem}_c{crop_level}.png"
+                )
+            else:
+                source_image_label = None
 
-        for q in enc.quality:
-            for chroma in chroma_options:
-                for spd in speed_options:
-                    for eff in effort_options:
-                        for mth in method_options:
-                            tasks.append(
-                                {
-                                    "source_image": str(source_image),
-                                    "original_image": str(original_image),
-                                    "fmt": enc.format,
-                                    "quality": q,
-                                    "chroma_subsampling": chroma,
-                                    "speed": spd,
-                                    "effort": eff,
-                                    "method": mth,
-                                    "resolution": resolution,
-                                    "extra_args": enc.extra_args,
-                                    "save_dir_str": save_dir_str,
-                                    "source_image_label": source_image_label,
-                                }
-                            )
+            for q in enc.quality:
+                for chroma in chroma_options:
+                    for spd in speed_options:
+                        for eff in effort_options:
+                            for mth in method_options:
+                                tasks.append(
+                                    {
+                                        "source_image": str(source_image),
+                                        "original_image": str(original_image),
+                                        "fmt": enc.format,
+                                        "quality": q,
+                                        "chroma_subsampling": chroma,
+                                        "speed": spd,
+                                        "effort": eff,
+                                        "method": mth,
+                                        "resolution": resolution,
+                                        "crop": crop_level,
+                                        "analysis_fragment": analysis_fragment,
+                                        "extra_args": enc.extra_args,
+                                        "save_dir_str": save_dir_str,
+                                        "source_image_label": source_image_label,
+                                    }
+                                )
     return tasks
 
 
@@ -733,9 +994,12 @@ class PipelineRunner:
 
         # --- Resolutions (for banner display only) ----------------------------
         all_resolutions: set[int] = set()
+        all_crops: set[int] = set()
         for enc in config.encoders:
             if enc.resolution:
                 all_resolutions.update(enc.resolution)
+            if enc.crop:
+                all_crops.update(enc.crop)
 
         # --- Workers ----------------------------------------------------------
         if num_workers is None:
@@ -755,6 +1019,11 @@ class PipelineRunner:
             print(f"Resolutions: {', '.join(res_labels)}")
         else:
             print("Resolutions: original")
+        if all_crops:
+            crop_labels = sorted(f"c{c}" for c in all_crops)
+            frag_sz = config.analysis_fragment_size or 200
+            print(f"Crop levels: {', '.join(crop_labels)}")
+            print(f"Analysis fragment: {frag_sz}x{frag_sz}")
         print(f"Workers: {num_workers}")
         if save_artifacts:
             print(f"Saving artifacts to: {save_artifact_dir}")
@@ -773,10 +1042,13 @@ class PipelineRunner:
                     "effort": enc.effort,
                     "method": enc.method,
                     "resolution": enc.resolution,
+                    "crop": enc.crop,
                     "extra_args": enc.extra_args,
                 }
                 for enc in config.encoders
             ],
+            "analysis_fragment_size": config.analysis_fragment_size,
+            "crop_too_small_strategy": config.crop_too_small_strategy,
         }
 
         # --- Process images with worker-per-image model -----------------------
