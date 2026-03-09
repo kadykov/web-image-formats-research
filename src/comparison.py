@@ -53,7 +53,7 @@ from src.interpolation import (
     interpolate_quality_for_metric,
     select_best_image,
 )
-from src.quality import QualityMeasurer, WorstRegion, find_worst_region_in_array, read_pfm, to_png
+from src.quality import QualityMeasurer, WorstRegion, extract_fragment, find_worst_region_in_array, read_pfm, to_png
 
 
 @dataclass
@@ -1226,10 +1226,7 @@ def generate_comparison(
                                     measure_ref_path = _frag_ref
 
                                     _frag_enc = _frag_dir / f"enc_{fmt}_q{rounded_q}.png"
-                                    with Image.open(enc_path) as _eim:
-                                        _eim.crop(
-                                            (_fx, _fy, _fx + _fw, _fy + _fh)
-                                        ).save(_frag_enc)
+                                    extract_fragment(enc_path, _af, _frag_enc)
                                     measure_enc_path = _frag_enc
 
                             pfm_path = (
