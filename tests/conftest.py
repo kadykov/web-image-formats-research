@@ -58,6 +58,9 @@ def _make_measurement(
     effort: int | None = None,
     method: int | None = None,
     resolution: int | None = None,
+    crop: int | None = None,
+    analysis_fragment: dict | None = None,
+    crop_region: dict | None = None,
     error: str | None = None,
 ) -> dict:
     """Build a single measurement dict with sensible defaults."""
@@ -80,6 +83,9 @@ def _make_measurement(
         "effort": effort,
         "method": method,
         "resolution": resolution,
+        "crop": crop,
+        "analysis_fragment": analysis_fragment,
+        "crop_region": crop_region,
         "extra_args": None,
         "measurement_error": error,
     }

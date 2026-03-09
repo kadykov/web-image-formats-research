@@ -34,7 +34,7 @@
         "tile_parameter": {
           "type": "string",
           "description": "The encoding parameter that should vary within each comparison figure (i.e. each tile shows a different value of this parameter). All other varying parameters become split axes that produce separate figures. For multi-format studies use 'format'; for speed/effort/method sweeps use the sweep parameter so tiles show all its values at a fixed quality level.",
-          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", "crop"]
         },
         "targets": {
           "type": "array",
@@ -79,12 +79,12 @@
         "x_axis": {
           "type": "string",
           "description": "The parameter to use as the primary x-axis in quality metric and efficiency plots. When omitted, the parameter with the most unique values is used.",
-          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", "crop"]
         },
         "group_by": {
           "type": "string",
           "description": "The parameter to use for line grouping in plots (each unique value becomes a separate line). When omitted, the parameter with the second-most unique values is used.",
-          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution"]
+          "enum": ["format", "quality", "chroma_subsampling", "speed", "effort", "method", "resolution", "crop"]
         }
       },
       "additionalProperties": false
@@ -105,6 +105,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "analysis_fragment_size": {
+      "type": "integer",
+      "description": "Side length in pixels of the square analysis fragment used in crop-impact studies. The pipeline selects the most distorted fragment of this size and measures quality metrics only on this region. Defaults to 200 when omitted.",
+      "minimum": 32,
+      "default": 200
+    },
+    "crop_too_small_strategy": {
+      "type": "string",
+      "description": "Strategy when an image is too small for a crop level to accommodate the analysis fragment. 'skip_image' (default): skip the entire image if any crop level cannot fit the fragment. 'skip_measurement': skip only the individual crop-level measurements that don't fit. 'adjust_aspect_ratio': expand the crop dimensions to at least the fragment size, which may change the crop's aspect ratio.",
+      "enum": ["skip_image", "skip_measurement", "adjust_aspect_ratio"],
+      "default": "skip_image"
     },
     "encoders": {
       "type": "array",
@@ -228,6 +240,23 @@
           },
           "resolution": {
             "description": "Target resolutions (longest edge in pixels) to sweep. Each value produces a downscaled copy of the source image before encoding. If omitted, the original resolution is used.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "crop": {
+            "description": "Target crop sizes (longest edge in pixels) to sweep. Each value produces a cropped copy of the source image centered on the most distorted analysis fragment. Quality metrics are measured only on the fixed-size analysis fragment while bytes-per-pixel uses the full cropped image dimensions. Cannot be combined with 'resolution' on the same encoder.",
             "oneOf": [
               {
                 "type": "integer",

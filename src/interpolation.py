@@ -60,6 +60,7 @@ def interpolate_quality_for_metric(
     method: int | None = None,
     chroma_subsampling: str | None = None,
     resolution: int | None = None,
+    crop: int | None = None,
 ) -> float | None:
     """Find the encoder quality setting that produces *target_value* of *metric*.
 
@@ -81,6 +82,7 @@ def interpolate_quality_for_metric(
         method: Filter on WebP method.
         chroma_subsampling: Filter on chroma subsampling.
         resolution: Filter on resolution.
+        crop: Filter on crop level.
 
     Returns:
         Interpolated encoder quality as a float, or ``None`` if the
@@ -96,6 +98,7 @@ def interpolate_quality_for_metric(
         method=method,
         chroma_subsampling=chroma_subsampling,
         resolution=resolution,
+        crop=crop,
     )
     if len(points) < 2:  # noqa: PLR2004
         return None
@@ -115,6 +118,7 @@ def interpolate_metric_at_quality(
     method: int | None = None,
     chroma_subsampling: str | None = None,
     resolution: int | None = None,
+    crop: int | None = None,
 ) -> float | None:
     """Interpolate an output metric at a given encoder quality.
 
@@ -134,6 +138,7 @@ def interpolate_metric_at_quality(
         method: Filter on WebP method.
         chroma_subsampling: Filter on chroma subsampling.
         resolution: Filter on resolution.
+        crop: Filter on crop level.
 
     Returns:
         Interpolated metric value, or ``None`` if out of range.
@@ -148,6 +153,7 @@ def interpolate_metric_at_quality(
         method=method,
         chroma_subsampling=chroma_subsampling,
         resolution=resolution,
+        crop=crop,
     )
     if len(points) < 2:  # noqa: PLR2004
         return None
@@ -351,6 +357,7 @@ def _collect_quality_metric_pairs(
     method: int | None = None,
     chroma_subsampling: str | None = None,
     resolution: int | None = None,
+    crop: int | None = None,
 ) -> list[tuple[float, float]]:
     """Collect (quality, metric_value) pairs sorted by quality.
 
@@ -380,6 +387,8 @@ def _collect_quality_metric_pairs(
         if chroma_subsampling is not None and m.get("chroma_subsampling") != chroma_subsampling:
             continue
         if resolution is not None and m.get("resolution") != resolution:
+            continue
+        if crop is not None and m.get("crop") != crop:
             continue
 
         # Compute metric value
@@ -479,6 +488,7 @@ def _extract_fixed_params(measurement: dict[str, Any], tile_param: str) -> dict[
         "method": "method",
         "chroma_subsampling": "chroma_subsampling",
         "resolution": "resolution",
+        "crop": "crop",
     }
     result: dict[str, Any] = {}
     for param_name, kwarg_name in param_map.items():

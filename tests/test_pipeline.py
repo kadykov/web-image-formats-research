@@ -123,6 +123,9 @@ class TestBuildOutputName:
     def test_with_resolution(self) -> None:
         assert _build_output_name("img", 60, resolution=1280) == "img_q60_r1280"
 
+    def test_with_crop(self) -> None:
+        assert _build_output_name("img", 60, crop=800) == "img_q60_c800"
+
     def test_all_params(self) -> None:
         name = _build_output_name("img", 60, chroma_subsampling="444", speed=4, resolution=1920)
         assert name == "img_q60_444_s4_r1920"
@@ -313,6 +316,70 @@ class TestExpandEncoderTasks:
         )
         assert len(tasks) == 1
         assert tasks[0]["resolution"] is None
+
+    def test_crop_in_cartesian_product(self, tmp_path: Path) -> None:
+        """Crop participates in the Cartesian product."""
+        from PIL import Image
+
+        img = tmp_path / "test.png"
+        Image.new("RGB", (4, 4), "red").save(img)
+
+        enc = EncoderConfig(
+            format="avif",
+            quality=[60, 80],
+            crop=[800, 400],
+        )
+        tasks = _expand_encoder_tasks(
+            source_image=img,
+            original_image=img,
+            enc=enc,
+            save_artifact_dir=None,
+            study_id="test",
+        )
+        # 2 quality × 2 crop = 4 tasks
+        assert len(tasks) == 4
+        crops = {t["crop"] for t in tasks}
+        assert crops == {800, 400}
+
+    def test_no_crop_produces_none(self, tmp_path: Path) -> None:
+        """Encoder without crop produces tasks with crop=None."""
+        from PIL import Image
+
+        img = tmp_path / "test.png"
+        Image.new("RGB", (4, 4), "red").save(img)
+
+        enc = EncoderConfig(format="jpeg", quality=[75])
+        tasks = _expand_encoder_tasks(
+            source_image=img,
+            original_image=img,
+            enc=enc,
+            save_artifact_dir=None,
+            study_id="test",
+        )
+        assert len(tasks) == 1
+        assert tasks[0]["crop"] is None
+
+    def test_crop_and_resolution_mutually_exclusive(self, tmp_path: Path) -> None:
+        """Encoder with both crop and resolution raises ValueError."""
+        from PIL import Image
+
+        img = tmp_path / "test.png"
+        Image.new("RGB", (4, 4), "red").save(img)
+
+        enc = EncoderConfig(
+            format="avif",
+            quality=[75],
+            resolution=[1280],
+            crop=[800],
+        )
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            _expand_encoder_tasks(
+                source_image=img,
+                original_image=img,
+                enc=enc,
+                save_artifact_dir=None,
+                study_id="test",
+            )
 
 
 # ---------------------------------------------------------------------------

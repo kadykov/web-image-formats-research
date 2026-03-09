@@ -306,6 +306,7 @@ def determine_varying_parameters(measurements: list[dict]) -> list[str]:
         "effort",
         "method",
         "resolution",
+        "crop",
     ]
     varying = []
     for param in candidates:
@@ -466,6 +467,10 @@ def encode_image(
     When the measurement includes a ``resolution`` parameter, the source
     image is resized to that resolution (longest edge) before encoding.
 
+    When the measurement includes a ``crop`` parameter and
+    ``analysis_fragment`` / ``crop_region``, the source image is cropped
+    accordingly before encoding.
+
     Args:
         source_path: Path to the source image (PNG)
         measurement: Measurement dictionary with format, quality, and
@@ -479,8 +484,10 @@ def encode_image(
 
     # Handle resolution: resize source before encoding if needed
     resolution = measurement.get("resolution")
+    crop_level = measurement.get("crop")
     actual_source = source_path
     _tmp_dir = None
+
     if resolution is not None:
         import tempfile as _tempfile
 
@@ -493,6 +500,22 @@ def encode_image(
             output_name=output_name,
             keep_aspect_ratio=True,
         )
+    elif crop_level is not None:
+        crop_region = measurement.get("crop_region")
+        if crop_region is not None:
+            import tempfile as _tempfile
+
+            _tmp_dir = _tmp_dir or _tempfile.mkdtemp(prefix="comparison_crop_")
+            # Crop using stored crop_region coordinates
+            from PIL import Image as _PILImg
+
+            cx, cy = crop_region["x"], crop_region["y"]
+            cw, ch = crop_region["width"], crop_region["height"]
+            with _PILImg.open(source_path) as _im:
+                cropped = _im.crop((cx, cy, cx + cw, cy + ch))
+                crop_path = Path(_tmp_dir) / f"{source_path.stem}_c{crop_level}.png"
+                cropped.save(crop_path)
+                actual_source = crop_path
 
     encoder = ImageEncoder(output_dir)
     fmt = measurement["format"]
@@ -500,7 +523,7 @@ def encode_image(
     output_name = f"encoded_{fmt}_q{quality}"
 
     # Add extra params to output name for uniqueness
-    for param in ("chroma_subsampling", "speed", "effort", "method", "resolution"):
+    for param in ("chroma_subsampling", "speed", "effort", "method", "resolution", "crop"):
         if measurement.get(param) is not None:
             output_name += f"_{param}{measurement[param]}"
 
@@ -581,6 +604,130 @@ def _resolve_source_for_resolution(
     )
     cache[resolution] = resized
     return resized
+
+
+def _resolve_source_for_crop(
+    original_path: Path,
+    crop_level: int | None,
+    measurements: list[dict],
+    cache: dict[int, tuple[Path, dict, dict | None]],
+    tmpdir: Path,
+) -> tuple[Path, dict | None, dict | None]:
+    """Get the correct source image for a given crop level.
+
+    For ``crop_level=None`` returns the original image with no fragment/region.
+    For a specific crop level, crops the original using stored ``crop_region``
+    coordinates from the measurement data, caching the result.
+
+    Args:
+        original_path: Path to the original dataset image.
+        crop_level: Target longest-edge for the crop, or ``None``.
+        measurements: Measurement dicts from the quality results.
+        cache: Mutable dict mapping crop level to (path, crop_region, analysis_fragment).
+        tmpdir: Temporary directory for cropped copies.
+
+    Returns:
+        Tuple of (source_path, crop_region_dict, analysis_fragment_dict).
+    """
+    if crop_level is None:
+        return original_path, None, None
+    if crop_level in cache:
+        return cache[crop_level]
+
+    # Find a measurement with this crop level that has crop_region info
+    example = next(
+        (
+            m
+            for m in measurements
+            if m.get("crop") == crop_level and m.get("crop_region") is not None
+        ),
+        None,
+    )
+    if example is None:
+        # No crop_region stored — fall back to using preprocessing
+        from src.preprocessing import ImagePreprocessor
+
+        crop_dir = tmpdir / f"c{crop_level}"
+        preprocessor = ImagePreprocessor(crop_dir)
+        # Use a dummy fragment center (image center) when no data available
+        from PIL import Image as _PILImg
+
+        with _PILImg.open(original_path) as _im:
+            frag_size = 200
+            frag_x = max(0, _im.width // 2 - frag_size // 2)
+            frag_y = max(0, _im.height // 2 - frag_size // 2)
+            analysis_fragment = {
+                "x": frag_x,
+                "y": frag_y,
+                "width": min(frag_size, _im.width),
+                "height": min(frag_size, _im.height),
+            }
+        result = preprocessor.crop_image_around_fragment(
+            original_path,
+            fragment=analysis_fragment,
+            target_longest_edge=crop_level,
+        )
+        cache[crop_level] = (result.path, result.crop_region, analysis_fragment)
+        return cache[crop_level]
+
+    crop_region = example["crop_region"]
+    analysis_fragment = example.get("analysis_fragment")
+
+    from PIL import Image as _PILImg
+
+    cx, cy = crop_region["x"], crop_region["y"]
+    cw, ch = crop_region["width"], crop_region["height"]
+
+    crop_dir = tmpdir / f"c{crop_level}"
+    crop_dir.mkdir(parents=True, exist_ok=True)
+    crop_path = crop_dir / f"{original_path.stem}_c{crop_level}.png"
+
+    if not crop_path.exists():
+        with _PILImg.open(original_path) as _im:
+            cropped = _im.crop((cx, cy, cx + cw, cy + ch))
+            cropped.save(crop_path)
+
+    cache[crop_level] = (crop_path, crop_region, analysis_fragment)
+    return cache[crop_level]
+
+
+def _analysis_fragment_in_original(
+    crop_cache: dict[int, tuple[Path, dict, dict | None]],
+    measurements: list[dict],
+) -> dict[str, int] | None:
+    """Return the analysis fragment rectangle in original image coordinates.
+
+    Checks the crop_cache first (populated by ``_resolve_source_for_crop``),
+    then falls back to scanning measurements.
+
+    Returns:
+        ``{"x", "y", "width", "height"}`` in original-image coordinates,
+        or ``None`` if no fragment information is available.
+    """
+    # Try crop_cache entries (crop_region is in original coords,
+    # analysis_fragment is in crop coords).
+    for _crop_level, (_, cr, af) in crop_cache.items():
+        if cr is not None and af is not None:
+            return {
+                "x": cr["x"] + af["x"],
+                "y": cr["y"] + af["y"],
+                "width": af["width"],
+                "height": af["height"],
+            }
+
+    # Fallback: scan measurements for crop_region + analysis_fragment.
+    for m in measurements:
+        cr = m.get("crop_region")
+        af = m.get("analysis_fragment")
+        if cr is not None and af is not None:
+            return {
+                "x": cr["x"] + af["x"],
+                "y": cr["y"] + af["y"],
+                "width": af["width"],
+                "height": af["height"],
+            }
+
+    return None
 
 
 def _anisotropic_std_map(
@@ -779,15 +926,30 @@ def generate_comparison(
     else:
         unique_resolutions = [None]
 
-    intra_res_varying = [p for p in varying if p != "resolution"] if resolution_varies else varying
+    # Detect crop variation
+    crop_varies = "crop" in varying
+    unique_crops: list[int | None]
+    if crop_varies and tile_param != "crop":
+        unique_crops = sorted(
+            {m.get("crop") for m in measurements if m.get("crop") is not None}
+        )
+    else:
+        unique_crops = [None]
+
+    intra_res_varying = [
+        p for p in varying if p not in ("resolution", "crop")
+    ] if (resolution_varies or crop_varies) else varying
 
     target_results: list[TargetComparisonResult] = []
 
     with tempfile.TemporaryDirectory() as _work:
         work = Path(_work)
-        preprocess_cache: dict[int, Path] = {}
 
         for target_group in targets:
+            # Reset per-image caches at every target group because each
+            # group may select a different source image.
+            preprocess_cache: dict[int, Path] = {}
+            crop_cache: dict[int, tuple[Path, dict, dict | None]] = {}
             target_metric: str = target_group["metric"]
             target_values: list[float] = target_group["values"]
 
@@ -846,327 +1008,520 @@ def generate_comparison(
                 raise FileNotFoundError(msg)
 
             for resolution in unique_resolutions:
-                source_path = _resolve_source_for_resolution(
+                res_source_path = _resolve_source_for_resolution(
                     original_path,
                     resolution,
                     preprocess_cache,
                     work / "prep",
                 )
 
-                res_label = f"r{resolution}" if resolution is not None else None
-                group_label = target_metric
-                if res_label:
-                    group_label = f"{res_label}/{group_label}"
+                for crop_level in unique_crops:
+                    crop_source_path: Path
+                    crop_region_info: dict | None = None
+                    analysis_fragment_info: dict | None = None
 
-                # ----------------------------------------------------------
-                # Phase 1: Encode all target values, collect distortion maps
-                # ----------------------------------------------------------
-                # per_value_data[target_value] = list of (enc_path, measurement, dm_arr)
-                per_value_data: dict[float, list[tuple[Path, dict, np.ndarray | None]]] = {}
-                per_value_qualities: dict[float, dict[str, float]] = {}
-
-                for target_value in target_values:
-                    target_label = f"{target_metric}_{target_value}"
-
-                    print(f"  [{group_label}/{target_value}] Interpolating quality settings...")
-
-                    encoded_variants: list[tuple[Path, dict, np.ndarray | None]] = []
-                    interpolated_qualities: dict[str, float] = {}
-
-                    for tv in tile_values:
-                        example = next(
-                            (
-                                m
-                                for m in measurements
-                                if str(m.get(tile_param)) == tv
-                                and m.get("measurement_error") is None
-                            ),
-                            None,
-                        )
-                        if example is None:
-                            continue
-
-                        fmt = example["format"]
-                        fixed_kwargs = _extract_fixed_params(example, tile_param or "format")
-
-                        if resolution is not None:
-                            fixed_kwargs["resolution"] = resolution
-
-                        # When the tile parameter is one of the encoder-level filter
-                        # params (effort, speed, method, chroma_subsampling, resolution)
-                        # it must be passed explicitly to interpolation so that the
-                        # lookup is restricted to measurements for *this* specific tile
-                        # value rather than being averaged across all tile values.
-                        # 'format' is already passed as the `fmt` positional argument;
-                        # 'quality' is the target of the interpolation and cannot be
-                        # used as a filter — both are excluded here.
-                        _ENCODER_FILTER_PARAMS = {
-                            "speed",
-                            "effort",
-                            "method",
-                            "chroma_subsampling",
-                            "resolution",
-                        }
-                        extra_tile_kwargs: dict = {}
-                        if tile_param is not None and tile_param in _ENCODER_FILTER_PARAMS:
-                            tile_val = example.get(tile_param)
-                            if tile_val is not None:
-                                extra_tile_kwargs[tile_param] = tile_val
-
-                        quality = interpolate_quality_for_metric(
+                    if crop_level is not None:
+                        (
+                            crop_source_path,
+                            crop_region_info,
+                            analysis_fragment_info,
+                        ) = _resolve_source_for_crop(
+                            original_path,
+                            crop_level,
                             measurements,
-                            fmt,
-                            target_metric,
-                            target_value,
-                            source_image=selected_image,
-                            **fixed_kwargs,
-                            **extra_tile_kwargs,
+                            crop_cache,
+                            work / "prep",
                         )
-                        if quality is None:
+                    else:
+                        crop_source_path = res_source_path
+
+                    source_path = crop_source_path
+
+                    # Filter measurements to the current resolution/crop level
+                    level_measurements = measurements
+                    if resolution is not None:
+                        level_measurements = [
+                            m for m in level_measurements
+                            if m.get("resolution") == resolution
+                        ]
+                    if crop_level is not None:
+                        level_measurements = [
+                            m for m in level_measurements
+                            if m.get("crop") == crop_level
+                        ]
+
+                    # Build group label
+                    res_label = f"r{resolution}" if resolution is not None else None
+                    crop_label = f"c{crop_level}" if crop_level is not None else None
+                    group_label = target_metric
+                    level_prefix = res_label or crop_label
+                    if level_prefix:
+                        group_label = f"{level_prefix}/{group_label}"
+
+                    # ----------------------------------------------------------
+                    # Phase 1: Encode all target values, collect distortion maps
+                    # ----------------------------------------------------------
+                    # per_value_data[target_value] = list of (enc_path, measurement, dm_arr)
+                    per_value_data: dict[float, list[tuple[Path, dict, np.ndarray | None]]] = {}
+                    per_value_qualities: dict[float, dict[str, float]] = {}
+
+                    for target_value in target_values:
+                        target_label = f"{target_metric}_{target_value}"
+
+                        print(f"  [{group_label}/{target_value}] Interpolating quality settings...")
+
+                        encoded_variants: list[tuple[Path, dict, np.ndarray | None]] = []
+                        interpolated_qualities: dict[str, float] = {}
+
+                        for tv in tile_values:
+                            example = next(
+                                (
+                                    m
+                                    for m in level_measurements
+                                    if str(m.get(tile_param)) == tv
+                                    and m.get("measurement_error") is None
+                                ),
+                                None,
+                            )
+                            if example is None:
+                                continue
+
+                            fmt = example["format"]
+                            fixed_kwargs = _extract_fixed_params(example, tile_param or "format")
+
+                            if resolution is not None:
+                                fixed_kwargs["resolution"] = resolution
+                            if crop_level is not None and tile_param != "crop":
+                                fixed_kwargs["crop"] = crop_level
+
+                            # When the tile parameter is one of the encoder-level filter
+                            # params (effort, speed, method, chroma_subsampling, resolution)
+                            # it must be passed explicitly to interpolation so that the
+                            # lookup is restricted to measurements for *this* specific tile
+                            # value rather than being averaged across all tile values.
+                            # 'format' is already passed as the `fmt` positional argument;
+                            # 'quality' is the target of the interpolation and cannot be
+                            # used as a filter — both are excluded here.
+                            _ENCODER_FILTER_PARAMS = {
+                                "speed",
+                                "effort",
+                                "method",
+                                "chroma_subsampling",
+                                "resolution",
+                                "crop",
+                            }
+                            extra_tile_kwargs: dict = {}
+                            if tile_param is not None and tile_param in _ENCODER_FILTER_PARAMS:
+                                tile_val = example.get(tile_param)
+                                if tile_val is not None:
+                                    extra_tile_kwargs[tile_param] = tile_val
+
+                            quality = interpolate_quality_for_metric(
+                                level_measurements,
+                                fmt,
+                                target_metric,
+                                target_value,
+                                source_image=selected_image,
+                                **fixed_kwargs,
+                                **extra_tile_kwargs,
+                            )
+                            if quality is None:
+                                print(
+                                    f"    {fmt} ({tile_param}={tv}): target "
+                                    f"{target_metric}={target_value} "
+                                    f"out of measured range, skipping"
+                                )
+                                continue
+
+                            # Key by tile value (tv) rather than format so that multiple
+                            # tile values sharing the same format (e.g. different JXL
+                            # effort levels) each get their own entry.
+                            interpolated_qualities[tv] = quality
+                            rounded_q = round(quality)
+
+                            enc_measurement: dict = {
+                                "format": fmt,
+                                "quality": rounded_q,
+                                "source_image": selected_image,
+                            }
+                            for param in ("speed", "effort", "method", "chroma_subsampling"):
+                                if example.get(param) is not None:
+                                    enc_measurement[param] = example[param]
+                            if resolution is not None:
+                                enc_measurement["resolution"] = resolution
+
+                            # Resolve per-tile source for crop-tile studies.
+                            # When crop is the tile parameter each tile encodes
+                            # a different crop of the original image.
+                            tile_ref_path = source_path
+                            if tile_param == "crop":
+                                tile_crop_val = int(tv)
+                                enc_measurement["crop"] = tile_crop_val
+                                tile_ref_path, tile_cr, _ = _resolve_source_for_crop(
+                                    original_path,
+                                    tile_crop_val,
+                                    measurements,
+                                    crop_cache,
+                                    work / "prep",
+                                )
+                                # Do NOT set crop_region in enc_measurement:
+                                # tile_ref_path is already cropped and
+                                # encode_image would re-crop if it saw both.
+                            elif crop_level is not None:
+                                enc_measurement["crop"] = crop_level
+                                if crop_region_info is not None:
+                                    enc_measurement["crop_region"] = crop_region_info
+
+                            encoded_dir = work / "encoded" / target_label
+                            encoded_dir.mkdir(parents=True, exist_ok=True)
+                            enc_path = encode_image(tile_ref_path, enc_measurement, encoded_dir)
+                            if enc_path is None:
+                                continue
+
                             print(
-                                f"    {fmt} ({tile_param}={tv}): target "
-                                f"{target_metric}={target_value} "
-                                f"out of measured range, skipping"
+                                f"    {fmt} ({tile_param}={tv}): "
+                                f"q={rounded_q} (interpolated from {quality:.1f})"
+                            )
+
+                            enc_measurement["file_size"] = enc_path.stat().st_size
+                            with Image.open(tile_ref_path) as _img:
+                                enc_measurement["width"] = _img.width
+                                enc_measurement["height"] = _img.height
+
+                            # Measure quality metrics and generate the distortion map
+                            # directly from the encoded file.  The encoded file already
+                            # exists on disk, so using actual measurements is both more
+                            # accurate and simpler than interpolating from the pipeline
+                            # data — interpolation was only an approximation that also
+                            # produced circular labels when the metric target matched the
+                            # interpolated value exactly.
+                            #
+                            # For crop-tile studies the pipeline measures quality
+                            # on the 200×200 analysis fragment only (not the full
+                            # cropped image).  We replicate that here so that the
+                            # distortion maps are also fragment-sized and can be
+                            # meaningfully compared / aggregated across crop levels.
+                            measure_ref_path = tile_ref_path
+                            measure_enc_path = enc_path
+                            if tile_param == "crop":
+                                _tile_cache_entry = crop_cache.get(int(tv))
+                                _af = (
+                                    _tile_cache_entry[2]
+                                    if _tile_cache_entry is not None
+                                    else None
+                                )
+                                if _af is not None:
+                                    _frag_dir = (
+                                        work / "fragments" / target_label / f"crop-{tv}"
+                                    )
+                                    _frag_dir.mkdir(parents=True, exist_ok=True)
+                                    _fx, _fy = _af["x"], _af["y"]
+                                    _fw, _fh = _af["width"], _af["height"]
+
+                                    _frag_ref = _frag_dir / f"ref_q{rounded_q}.png"
+                                    with Image.open(tile_ref_path) as _rim:
+                                        _rim.crop(
+                                            (_fx, _fy, _fx + _fw, _fy + _fh)
+                                        ).save(_frag_ref)
+                                    measure_ref_path = _frag_ref
+
+                                    _frag_enc = _frag_dir / f"enc_{fmt}_q{rounded_q}.png"
+                                    with Image.open(enc_path) as _eim:
+                                        _eim.crop(
+                                            (_fx, _fy, _fx + _fw, _fy + _fh)
+                                        ).save(_frag_enc)
+                                    measure_enc_path = _frag_enc
+
+                            pfm_path = (
+                                work
+                                / "pfms"
+                                / target_label
+                                / f"distmap_{fmt}_{tile_param}-{tv}_q{rounded_q}.pfm"
+                            )
+                            pfm_path.parent.mkdir(parents=True, exist_ok=True)
+                            measurer = QualityMeasurer()
+                            dm_arr: np.ndarray | None = None
+                            try:
+                                metrics = measurer.measure_all(
+                                    measure_ref_path, measure_enc_path, distmap_path=pfm_path
+                                )
+                                if metrics.ssimulacra2 is not None:
+                                    enc_measurement["ssimulacra2"] = metrics.ssimulacra2
+                                if metrics.butteraugli is not None:
+                                    enc_measurement["butteraugli"] = metrics.butteraugli
+                                if metrics.psnr is not None:
+                                    enc_measurement["psnr"] = metrics.psnr
+                                if metrics.ssim is not None:
+                                    enc_measurement["ssim"] = metrics.ssim
+                                if pfm_path.exists():
+                                    dm_arr = read_pfm(pfm_path)
+                            except (RuntimeError, ValueError, OSError) as exc:
+                                print(
+                                    f"    Warning: measurement for {fmt} ({tile_param}={tv}) failed: {exc}"
+                                )
+
+                            encoded_variants.append((enc_path, enc_measurement, dm_arr))
+
+                        per_value_data[target_value] = encoded_variants
+                        per_value_qualities[target_value] = interpolated_qualities
+
+                    # ----------------------------------------------------------
+                    # Phase 2: Compute single shared fragment for the group
+                    # ----------------------------------------------------------
+
+                    region: WorstRegion
+                    aggregate_map: np.ndarray | None = None
+
+                    if tile_param == "crop":
+                        # Crop-tile studies: the comparison region is derived
+                        # from the analysis fragment position in the original
+                        # image so that crop-and-zoom works across different
+                        # crop levels.
+                        _af_frag = _analysis_fragment_in_original(
+                            crop_cache, measurements
+                        )
+                        if _af_frag is None:
+                            print(
+                                f"  [{group_label}] No analysis fragment info "
+                                f"available, skipping"
                             )
                             continue
+                        # Center the comparison crop within the analysis fragment
+                        _coff_x = max(0, (_af_frag["width"] - config.crop_size) // 2)
+                        _coff_y = max(0, (_af_frag["height"] - config.crop_size) // 2)
+                        region = WorstRegion(
+                            x=_af_frag["x"] + _coff_x,
+                            y=_af_frag["y"] + _coff_y,
+                            width=min(config.crop_size, _af_frag["width"]),
+                            height=min(config.crop_size, _af_frag["height"]),
+                            avg_distortion=0.0,
+                        )
 
-                        # Key by tile value (tv) rather than format so that multiple
-                        # tile values sharing the same format (e.g. different JXL
-                        # effort levels) each get their own entry.
-                        interpolated_qualities[tv] = quality
-                        rounded_q = round(quality)
+                        # Distortion maps are now fragment-sized (all 200×200)
+                        # so they CAN be aggregated for the std-dev visualisation.
+                        _crop_aniso_maps: list[np.ndarray] = []
+                        for _tv_val, variants in per_value_data.items():
+                            _vp = [(arr, m) for _, m, arr in variants if arr is not None]
+                            if len(_vp) >= 2:  # noqa: PLR2004
+                                _crop_aniso_maps.append(_anisotropic_std_map(_vp, []))
+                        if not _crop_aniso_maps:
+                            _all_p = [
+                                (arr, m)
+                                for variants in per_value_data.values()
+                                for _, m, arr in variants
+                                if arr is not None
+                            ]
+                            if len(_all_p) >= 2:  # noqa: PLR2004
+                                _crop_aniso_maps = [_anisotropic_std_map(_all_p, [])]
+                        if _crop_aniso_maps:
+                            aggregate_map = np.stack(_crop_aniso_maps, axis=0).mean(axis=0)
+                    else:
+                        # Standard path: aggregate distortion maps for fragment
+                        # selection.
+                        per_value_aniso_maps: list[np.ndarray] = []
+                        for _target_value, variants in per_value_data.items():
+                            variant_pairs = [(arr, m) for _, m, arr in variants if arr is not None]
+                            if len(variant_pairs) >= 2:  # noqa: PLR2004
+                                aniso = _anisotropic_std_map(variant_pairs, [])
+                                per_value_aniso_maps.append(aniso)
 
-                        enc_measurement: dict = {
-                            "format": fmt,
-                            "quality": rounded_q,
-                            "source_image": selected_image,
-                        }
-                        for param in ("speed", "effort", "method", "chroma_subsampling"):
-                            if example.get(param) is not None:
-                                enc_measurement[param] = example[param]
-                        if resolution is not None:
-                            enc_measurement["resolution"] = resolution
+                        if not per_value_aniso_maps:
+                            all_pairs = [
+                                (arr, m)
+                                for variants in per_value_data.values()
+                                for _, m, arr in variants
+                                if arr is not None
+                            ]
+                            if len(all_pairs) >= 2:  # noqa: PLR2004
+                                per_value_aniso_maps = [_anisotropic_std_map(all_pairs, [])]
 
-                        encoded_dir = work / "encoded" / target_label
-                        encoded_dir.mkdir(parents=True, exist_ok=True)
-                        enc_path = encode_image(source_path, enc_measurement, encoded_dir)
-                        if enc_path is None:
+                        if not per_value_aniso_maps:
+                            print(f"  [{group_label}] No distortion maps available, skipping")
                             continue
 
-                        print(
-                            f"    {fmt} ({tile_param}={tv}): "
-                            f"q={rounded_q} (interpolated from {quality:.1f})"
+                        aggregate_map = np.stack(per_value_aniso_maps, axis=0).mean(axis=0)
+                        region = find_worst_region_in_array(
+                            aggregate_map, crop_size=config.crop_size
                         )
 
-                        enc_measurement["file_size"] = enc_path.stat().st_size
-                        with Image.open(source_path) as _img:
-                            enc_measurement["width"] = _img.width
-                            enc_measurement["height"] = _img.height
+                    print(
+                        f"  [{group_label}] Shared region: ({region.x}, {region.y}) "
+                        f"{region.width}x{region.height} "
+                        f"score={region.avg_distortion:.4f}"
+                    )
 
-                        # Measure quality metrics and generate the distortion map
-                        # directly from the encoded file.  The encoded file already
-                        # exists on disk, so using actual measurements is both more
-                        # accurate and simpler than interpolating from the pipeline
-                        # data — interpolation was only an approximation that also
-                        # produced circular labels when the metric target matched the
-                        # interpolated value exactly.
-                        pfm_path = (
-                            work
-                            / "pfms"
-                            / target_label
-                            / f"distmap_{fmt}_{tile_param}-{tv}_q{rounded_q}.pfm"
-                        )
-                        pfm_path.parent.mkdir(parents=True, exist_ok=True)
-                        measurer = QualityMeasurer()
-                        dm_arr: np.ndarray | None = None
-                        try:
-                            metrics = measurer.measure_all(
-                                source_path, enc_path, distmap_path=pfm_path
+                    # Determine the group output directory
+                    if level_prefix:
+                        group_dir = output_dir / level_prefix / target_metric
+                    else:
+                        group_dir = output_dir / target_metric
+                    group_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Save supplementary figures (once per group)
+                    if aggregate_map is not None:
+                        # For crop-tile studies the aggregate map is in
+                        # fragment-local coordinates (200×200), so translate
+                        # the region accordingly for the overlay annotation.
+                        _vis_region = region
+                        if tile_param == "crop" and _af_frag is not None:
+                            _vis_region = WorstRegion(
+                                x=region.x - _af_frag["x"],
+                                y=region.y - _af_frag["y"],
+                                width=region.width,
+                                height=region.height,
+                                avg_distortion=region.avg_distortion,
                             )
-                            if metrics.ssimulacra2 is not None:
-                                enc_measurement["ssimulacra2"] = metrics.ssimulacra2
-                            if metrics.butteraugli is not None:
-                                enc_measurement["butteraugli"] = metrics.butteraugli
-                            if metrics.psnr is not None:
-                                enc_measurement["psnr"] = metrics.psnr
-                            if metrics.ssim is not None:
-                                enc_measurement["ssim"] = metrics.ssim
-                            if pfm_path.exists():
-                                dm_arr = read_pfm(pfm_path)
-                        except (RuntimeError, ValueError, OSError) as exc:
-                            print(
-                                f"    Warning: measurement for {fmt} ({tile_param}={tv}) failed: {exc}"
-                            )
-
-                        encoded_variants.append((enc_path, enc_measurement, dm_arr))
-
-                    per_value_data[target_value] = encoded_variants
-                    per_value_qualities[target_value] = interpolated_qualities
-
-                # ----------------------------------------------------------
-                # Phase 2: Compute single shared fragment for the group
-                # ----------------------------------------------------------
-                # Collect per-value anisotropic std maps, then average
-                per_value_aniso_maps: list[np.ndarray] = []
-                for _target_value, variants in per_value_data.items():
-                    variant_pairs = [(arr, m) for _, m, arr in variants if arr is not None]
-                    if len(variant_pairs) >= 2:  # noqa: PLR2004
-                        aniso = _anisotropic_std_map(variant_pairs, [])
-                        per_value_aniso_maps.append(aniso)
-
-                if not per_value_aniso_maps:
-                    # Fallback: try pooling all variants across all values
-                    all_pairs = [
-                        (arr, m)
-                        for variants in per_value_data.values()
-                        for _, m, arr in variants
-                        if arr is not None
-                    ]
-                    if len(all_pairs) >= 2:  # noqa: PLR2004
-                        per_value_aniso_maps = [_anisotropic_std_map(all_pairs, [])]
-
-                if not per_value_aniso_maps:
-                    print(f"  [{group_label}] No distortion maps available, skipping")
-                    continue
-
-                aggregate_map = np.stack(per_value_aniso_maps, axis=0).mean(axis=0)
-                region = find_worst_region_in_array(aggregate_map, crop_size=config.crop_size)
-
-                print(
-                    f"  [{group_label}] Shared region: ({region.x}, {region.y}) "
-                    f"{region.width}x{region.height} "
-                    f"score={region.avg_distortion:.4f}"
-                )
-
-                # Determine the group output directory
-                if res_label:
-                    group_dir = output_dir / res_label / target_metric
-                else:
-                    group_dir = output_dir / target_metric
-                group_dir.mkdir(parents=True, exist_ok=True)
-
-                # Save supplementary figures (once per group)
-                _visualize_distortion_map(
-                    aggregate_map,
-                    region,
-                    group_dir / "distortion_map_anisotropic.webp",
-                    dash_color="cyan",
-                )
-                _save_annotated_original(
-                    source_path,
-                    region,
-                    group_dir / "original_annotated.webp",
-                )
-
-                # ----------------------------------------------------------
-                # Phase 3: Crop and assemble grids per target value
-                # ----------------------------------------------------------
-                for target_value in target_values:
-                    encoded_variants = per_value_data[target_value]
-                    interpolated_qualities = per_value_qualities[target_value]
-
-                    if not encoded_variants:
-                        print(
-                            f"  [{group_label}/{target_value}] "
-                            f"No variants could be encoded, skipping"
+                        _visualize_distortion_map(
+                            aggregate_map,
+                            _vis_region,
+                            group_dir / "distortion_map_anisotropic.webp",
+                            dash_color="cyan",
                         )
-                        continue
-
-                    target_label = f"{target_metric}_{target_value}"
-                    crops_dir = work / "crops" / target_label
-                    crops_dir.mkdir(parents=True, exist_ok=True)
-
-                    original_crop = crops_dir / "original.png"
-                    crop_and_zoom(
+                    _save_annotated_original(
                         source_path,
                         region,
-                        zoom_factor=config.zoom_factor,
-                        output_path=original_crop,
+                        group_dir / "original_annotated.webp",
                     )
 
-                    crop_entries: list[tuple[Path, str, str]] = [
-                        (original_crop, "Original", "Reference"),
-                    ]
-                    variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
+                    # ----------------------------------------------------------
+                    # Phase 3: Crop and assemble grids per target value
+                    # ----------------------------------------------------------
+                    for target_value in target_values:
+                        encoded_variants = per_value_data[target_value]
+                        interpolated_qualities = per_value_qualities[target_value]
 
-                    for enc_path, m, dm_arr in encoded_variants:
-                        label = _build_label(m, intra_res_varying)
-                        metric_label = _build_metric_label(m)
-                        safe_name = label.replace(" ", "_").replace("=", "-")
-                        crop_path = crops_dir / f"{safe_name}.png"
+                        if not encoded_variants:
+                            print(
+                                f"  [{group_label}/{target_value}] "
+                                f"No variants could be encoded, skipping"
+                            )
+                            continue
 
+                        target_label = f"{target_metric}_{target_value}"
+                        crops_dir = work / "crops" / target_label
+                        crops_dir.mkdir(parents=True, exist_ok=True)
+
+                        original_crop = crops_dir / "original.png"
                         crop_and_zoom(
-                            enc_path,
+                            source_path,
                             region,
                             zoom_factor=config.zoom_factor,
-                            output_path=crop_path,
+                            output_path=original_crop,
                         )
-                        crop_entries.append((crop_path, label, metric_label))
 
-                        if dm_arr is not None:
-                            variant_distmap_entries.append((dm_arr, label, metric_label))
-
-                    # Fragment comparison grid
-                    value_suffix = str(target_value)
-                    grid_path = group_dir / f"comparison_{value_suffix}.webp"
-                    assemble_comparison_grid(
-                        crop_entries,
-                        grid_path,
-                        max_columns=config.max_columns,
-                        label_font_size=config.label_font_size,
-                    )
-                    output_images: list[Path] = [grid_path]
-                    print(f"  [{group_label}/{target_value}] Generated: {grid_path}")
-
-                    # Distortion map comparison grid
-                    if variant_distmap_entries:
-                        distmap_thumbs_dir = work / "distmap_thumbs" / target_label
-                        distmap_thumbs_dir.mkdir(parents=True)
-                        target_side = config.crop_size * config.zoom_factor
-
-                        orig_thumb = distmap_thumbs_dir / "original.png"
-                        with Image.open(source_path) as _src:
-                            _src.convert("RGB").resize(
-                                (target_side, target_side),
-                                Image.Resampling.LANCZOS,
-                            ).save(orig_thumb)
-
-                        distmap_crop_entries: list[tuple[Path, str, str]] = [
-                            (orig_thumb, "Original", "Reference image"),
+                        crop_entries: list[tuple[Path, str, str]] = [
+                            (original_crop, "Original", "Reference"),
                         ]
-                        for idx, (dm_arr_entry, dm_label, dm_metric) in enumerate(
-                            variant_distmap_entries
-                        ):
-                            safe_dm = dm_label.replace(" ", "_").replace("=", "-")
-                            thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
-                            _render_distmap_thumbnail(
-                                dm_arr_entry,
-                                target_side,
-                                thumb_path,
-                                vmax=config.distmap_vmax,
-                            )
-                            distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
+                        variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
 
-                        dm_grid_path = group_dir / f"distortion_map_comparison_{value_suffix}.webp"
+                        for enc_path, m, dm_arr in encoded_variants:
+                            label = _build_label(m, intra_res_varying)
+                            metric_label = _build_metric_label(m)
+                            safe_name = label.replace(" ", "_").replace("=", "-")
+                            crop_path = crops_dir / f"{safe_name}.png"
+
+                            # For crop-tile studies the encoded image is at
+                            # crop dimensions; map the region from original
+                            # image coordinates to crop coordinates.
+                            variant_region = region
+                            if tile_param == "crop" and m.get("crop") is not None:
+                                tile_cr = crop_cache.get(m["crop"])
+                                if tile_cr is not None:
+                                    cr_dict = tile_cr[1]  # crop_region dict
+                                    variant_region = WorstRegion(
+                                        x=region.x - cr_dict["x"],
+                                        y=region.y - cr_dict["y"],
+                                        width=region.width,
+                                        height=region.height,
+                                        avg_distortion=region.avg_distortion,
+                                    )
+
+                            crop_and_zoom(
+                                enc_path,
+                                variant_region,
+                                zoom_factor=config.zoom_factor,
+                                output_path=crop_path,
+                            )
+                            crop_entries.append((crop_path, label, metric_label))
+
+                            if dm_arr is not None:
+                                variant_distmap_entries.append((dm_arr, label, metric_label))
+
+                        # Fragment comparison grid
+                        value_suffix = str(target_value)
+                        grid_path = group_dir / f"comparison_{value_suffix}.webp"
                         assemble_comparison_grid(
-                            distmap_crop_entries,
-                            dm_grid_path,
+                            crop_entries,
+                            grid_path,
                             max_columns=config.max_columns,
                             label_font_size=config.label_font_size,
                         )
-                        output_images.append(dm_grid_path)
-                        print(f"  [{group_label}/{target_value}] Generated: {dm_grid_path}")
+                        output_images: list[Path] = [grid_path]
+                        print(f"  [{group_label}/{target_value}] Generated: {grid_path}")
 
-                    target_results.append(
-                        TargetComparisonResult(
-                            target_metric=target_metric,
-                            target_value=target_value,
-                            source_image=selected_image,
-                            region=region,
-                            interpolated_qualities=interpolated_qualities,
-                            output_images=output_images,
+                        # Distortion map comparison grid
+                        if variant_distmap_entries:
+                            distmap_thumbs_dir = work / "distmap_thumbs" / target_label
+                            distmap_thumbs_dir.mkdir(parents=True, exist_ok=True)
+                            target_side = config.crop_size * config.zoom_factor
+
+                            orig_thumb = distmap_thumbs_dir / "original.png"
+                            with Image.open(source_path) as _src:
+                                # For crop-tile studies the distortion maps cover
+                                # the analysis fragment, not the full image.  Show
+                                # just the fragment in the "Original" thumbnail.
+                                if tile_param == "crop" and _af_frag is not None:
+                                    _ox, _oy = _af_frag["x"], _af_frag["y"]
+                                    _ow, _oh = _af_frag["width"], _af_frag["height"]
+                                    _frag_img = _src.crop(
+                                        (_ox, _oy, _ox + _ow, _oy + _oh)
+                                    )
+                                    _frag_img.convert("RGB").resize(
+                                        (target_side, target_side),
+                                        Image.Resampling.LANCZOS,
+                                    ).save(orig_thumb)
+                                else:
+                                    _src.convert("RGB").resize(
+                                        (target_side, target_side),
+                                        Image.Resampling.LANCZOS,
+                                    ).save(orig_thumb)
+
+                            distmap_crop_entries: list[tuple[Path, str, str]] = [
+                                (orig_thumb, "Original", "Reference image"),
+                            ]
+                            for idx, (dm_arr_entry, dm_label, dm_metric) in enumerate(
+                                variant_distmap_entries
+                            ):
+                                safe_dm = dm_label.replace(" ", "_").replace("=", "-")
+                                thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
+                                _render_distmap_thumbnail(
+                                    dm_arr_entry,
+                                    target_side,
+                                    thumb_path,
+                                    vmax=config.distmap_vmax,
+                                )
+                                distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
+
+                            dm_grid_path = group_dir / f"distortion_map_comparison_{value_suffix}.webp"
+                            assemble_comparison_grid(
+                                distmap_crop_entries,
+                                dm_grid_path,
+                                max_columns=config.max_columns,
+                                label_font_size=config.label_font_size,
+                            )
+                            output_images.append(dm_grid_path)
+                            print(f"  [{group_label}/{target_value}] Generated: {dm_grid_path}")
+
+                        target_results.append(
+                            TargetComparisonResult(
+                                target_metric=target_metric,
+                                target_value=target_value,
+                                source_image=selected_image,
+                                region=region,
+                                interpolated_qualities=interpolated_qualities,
+                                output_images=output_images,
+                            )
                         )
-                    )
 
     print("\nComparison complete!")
     print(f"  Output directory: {output_dir}")

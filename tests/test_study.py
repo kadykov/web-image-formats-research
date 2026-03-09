@@ -388,3 +388,132 @@ class TestStudyConfigComparisonAnalysis:
             assert config.comparison_tile_parameter == "speed"
             assert config.analysis_x_axis == "speed"
             assert config.analysis_group_by == "quality"
+
+
+class TestEncoderConfigCrop:
+    """Tests for crop as a per-encoder sweep parameter."""
+
+    def test_single_integer_crop(self) -> None:
+        """Single crop integer is wrapped in a list."""
+        data = {
+            "id": "crop-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": 75, "crop": 800}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].crop == [800]
+
+    def test_crop_list(self) -> None:
+        """Crop list is preserved."""
+        data = {
+            "id": "crop-list-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [
+                {"format": "avif", "quality": 75, "crop": [2048, 1200, 800, 400]},
+            ],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].crop == [2048, 1200, 800, 400]
+
+    def test_no_crop(self) -> None:
+        """No crop means original images are used."""
+        data = {
+            "id": "no-crop-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": 75}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].crop is None
+
+    def test_per_encoder_crop(self) -> None:
+        """Different encoders can have different crop values."""
+        data = {
+            "id": "per-enc-crop-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [
+                {"format": "avif", "quality": 70, "crop": [800, 400]},
+                {"format": "jxl", "quality": 85, "crop": [1200]},
+                {"format": "webp", "quality": 80},
+            ],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.encoders[0].crop == [800, 400]
+        assert config.encoders[1].crop == [1200]
+        assert config.encoders[2].crop is None
+
+    def test_encoder_config_dataclass_with_crop(self) -> None:
+        """EncoderConfig can be constructed directly with crop."""
+        enc = EncoderConfig(
+            format="avif",
+            quality=[60, 80],
+            crop=[1200, 800, 400],
+            speed=[4],
+        )
+        assert enc.crop == [1200, 800, 400]
+
+    def test_analysis_fragment_size_parsed(self) -> None:
+        """analysis_fragment_size is parsed from config."""
+        data = {
+            "id": "frag-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": 75, "crop": [800]}],
+            "analysis_fragment_size": 256,
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.analysis_fragment_size == 256
+
+    def test_analysis_fragment_size_default(self) -> None:
+        """analysis_fragment_size defaults to None when absent."""
+        data = {
+            "id": "frag-default-test",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": 75}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.analysis_fragment_size is None
+
+    def test_avif_crop_impact_study_config(self) -> None:
+        """avif-crop-impact study config parses correctly."""
+        from pathlib import Path
+
+        config_path = Path("config/studies/avif-crop-impact.json")
+        if config_path.exists():
+            config = StudyConfig.from_file(config_path)
+            assert config.encoders[0].crop == [2048, 1600, 1200, 800, 400]
+            assert config.analysis_fragment_size == 200
+            assert config.analysis_x_axis == "crop"
+            assert config.analysis_group_by == "quality"
+            assert config.crop_too_small_strategy == "skip_image"
+
+
+class TestCropTooSmallStrategy:
+    """Tests for crop_too_small_strategy field."""
+
+    def test_default_is_skip_image(self) -> None:
+        data = {
+            "id": "strat-default",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": 75, "crop": [800]}],
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.crop_too_small_strategy == "skip_image"
+
+    def test_skip_measurement(self) -> None:
+        data = {
+            "id": "strat-skip-measurement",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": 75, "crop": [800]}],
+            "crop_too_small_strategy": "skip_measurement",
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.crop_too_small_strategy == "skip_measurement"
+
+    def test_adjust_aspect_ratio(self) -> None:
+        data = {
+            "id": "strat-adjust",
+            "dataset": {"id": "div2k-valid"},
+            "encoders": [{"format": "avif", "quality": 75, "crop": [800]}],
+            "crop_too_small_strategy": "adjust_aspect_ratio",
+        }
+        config = StudyConfig.from_dict(data)
+        assert config.crop_too_small_strategy == "adjust_aspect_ratio"

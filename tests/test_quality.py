@@ -4,7 +4,10 @@ import json
 import tempfile
 from pathlib import Path
 
-from src.quality import QualityRecord, QualityResults, WorstRegion
+from PIL import Image as PILImage
+
+from src.quality import QualityRecord, QualityResults, WorstRegion, extract_fragment
+from tests.conftest import create_test_image
 
 
 class TestWorstRegion:
@@ -65,6 +68,86 @@ class TestQualityRecord:
         )
         assert record.measurement_error == "Encoding failed"
         assert record.ssimulacra2 is None
+
+    def test_quality_record_with_crop_fields(self):
+        """Test creating a QualityRecord with crop-related fields."""
+        record = QualityRecord(
+            source_image="test.png",
+            original_image="original.png",
+            encoded_path="encoded.avif",
+            format="avif",
+            quality=70,
+            file_size=5000,
+            width=800,
+            height=600,
+            source_file_size=50000,
+            ssimulacra2=72.0,
+            psnr=38.0,
+            ssim=0.94,
+            butteraugli=2.5,
+            crop=800,
+            analysis_fragment={"x": 100, "y": 50, "width": 200, "height": 200},
+            crop_region={"x": 50, "y": 25, "width": 800, "height": 600},
+        )
+        assert record.crop == 800
+        assert record.analysis_fragment["x"] == 100
+        assert record.analysis_fragment["width"] == 200
+        assert record.crop_region["x"] == 50
+        assert record.crop_region["width"] == 800
+
+    def test_quality_record_crop_defaults_none(self):
+        """Test that crop fields default to None."""
+        record = QualityRecord(
+            source_image="test.png",
+            original_image="original.png",
+            encoded_path="encoded.webp",
+            format="webp",
+            quality=80,
+            file_size=1024,
+            width=100,
+            height=100,
+            source_file_size=2048,
+            ssimulacra2=85.0,
+            psnr=40.0,
+            ssim=0.95,
+            butteraugli=0.5,
+        )
+        assert record.crop is None
+        assert record.analysis_fragment is None
+        assert record.crop_region is None
+
+
+class TestExtractFragment:
+    """Tests for the extract_fragment helper."""
+
+    def test_extract_fragment_basic(self, tmp_path: Path) -> None:
+        """Test extracting a fragment from a PNG image."""
+        src = create_test_image(tmp_path / "src.png", size=(200, 200))
+        output = tmp_path / "frag.png"
+
+        result = extract_fragment(
+            src,
+            {"x": 50, "y": 50, "width": 100, "height": 100},
+            output,
+        )
+
+        assert result.exists()
+        with PILImage.open(result) as img:
+            assert img.size == (100, 100)
+
+    def test_extract_fragment_corner(self, tmp_path: Path) -> None:
+        """Test extracting a fragment from the corner of an image."""
+        src = create_test_image(tmp_path / "src.png", size=(300, 300))
+        output = tmp_path / "frag.png"
+
+        result = extract_fragment(
+            src,
+            {"x": 0, "y": 0, "width": 50, "height": 50},
+            output,
+        )
+
+        with PILImage.open(result) as img:
+            assert img.size == (50, 50)
 
 
 class TestComputeSchemaPath:

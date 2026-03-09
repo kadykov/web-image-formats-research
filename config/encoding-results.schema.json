@@ -96,6 +96,10 @@
             "type": "integer",
             "description": "Target resolution (longest edge in pixels) if preprocessing was applied. Absent if original resolution was used."
           },
+          "crop": {
+            "type": "integer",
+            "description": "Target crop size (longest edge in pixels) if crop preprocessing was applied. Absent if no cropping was used."
+          },
           "width": {
             "type": "integer",
             "description": "Width of the encoded image in pixels",

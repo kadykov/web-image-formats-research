@@ -76,6 +76,58 @@ def to_png(image_path: Path, output_path: Path) -> None:
         raise OSError(msg) from e
 
 
+def extract_fragment(
+    image_path: Path,
+    fragment: dict[str, int],
+    output_path: Path,
+) -> Path:
+    """Extract a rectangular fragment from an image.
+
+    The fragment is specified in the image's own coordinate space.
+    The output is always saved as PNG.
+
+    Args:
+        image_path: Path to the source image (any format supported
+            by :func:`to_png` / Pillow).
+        fragment: Region to extract as
+            ``{"x": int, "y": int, "width": int, "height": int}``.
+        output_path: Destination PNG path.
+
+    Returns:
+        ``output_path``.
+    """
+    import tempfile
+
+    # Convert to PNG first if needed (handles JXL, AVIF, etc.)
+    suffix = image_path.suffix.lower()
+    if suffix in (".jxl", ".jpegxl", ".avif"):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            png_path = Path(tmpdir) / "tmp.png"
+            to_png(image_path, png_path)
+            return _crop_fragment_from_png(png_path, fragment, output_path)
+    else:
+        return _crop_fragment_from_png(image_path, fragment, output_path)
+
+
+def _crop_fragment_from_png(
+    image_path: Path,
+    fragment: dict[str, int],
+    output_path: Path,
+) -> Path:
+    """Crop a rectangle from a Pillow-readable image and save as PNG."""
+    from PIL import Image
+
+    x, y = fragment["x"], fragment["y"]
+    w, h = fragment["width"], fragment["height"]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(image_path) as img:
+        cropped = img.crop((x, y, x + w, y + h))
+        if cropped.mode not in ("RGB", "L"):
+            cropped = cropped.convert("RGB")
+        cropped.save(output_path, format="PNG")
+    return output_path
+
+
 def get_measurement_tool_version(tool: str) -> str | None:
     """Get version string for a measurement tool.
 
@@ -614,6 +666,9 @@ class QualityRecord:
     effort: int | None = None
     method: int | None = None
     resolution: int | None = None
+    crop: int | None = None
+    analysis_fragment: dict[str, int] | None = None
+    crop_region: dict[str, int] | None = None
     extra_args: dict[str, str | int | bool] | None = None
     measurement_error: str | None = None
 
@@ -670,6 +725,9 @@ class QualityResults:
                     "effort": rec.effort,
                     "method": rec.method,
                     "resolution": rec.resolution,
+                    "crop": rec.crop,
+                    "analysis_fragment": rec.analysis_fragment,
+                    "crop_region": rec.crop_region,
                     "extra_args": rec.extra_args,
                     "measurement_error": rec.measurement_error,
                 }

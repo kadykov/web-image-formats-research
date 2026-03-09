@@ -160,6 +160,7 @@ def determine_varying_parameters(df: pd.DataFrame) -> list[str]:
         "effort",
         "method",
         "resolution",
+        "crop",
     ]
     varying = []
     for col in candidates:
@@ -296,6 +297,7 @@ def plot_quality_metrics(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
@@ -530,6 +532,7 @@ def plot_efficiency_metrics(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
@@ -639,6 +642,7 @@ def plot_bytes_per_pixel(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]
@@ -787,6 +791,7 @@ def plot_encoding_time_per_pixel(
             "effort",
             "method",
             "resolution",
+            "crop",
         ]
         if col in stats.columns and col != x_param and stats[col].nunique() > 1
     ]

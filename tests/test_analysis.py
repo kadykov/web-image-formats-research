@@ -90,6 +90,20 @@ def test_determine_sweep_parameter_resolution() -> None:
     assert sweep_param == "resolution"
 
 
+def test_determine_sweep_parameter_crop() -> None:
+    """Test sweep parameter detection with crop."""
+    df = pd.DataFrame(
+        {
+            "quality": [50, 50, 50, 50],
+            "crop": [2048, 1200, 800, 400],
+            "format": ["avif", "avif", "avif", "avif"],
+        }
+    )
+
+    sweep_param = determine_sweep_parameter(df)
+    assert sweep_param == "crop"
+
+
 def test_determine_varying_parameters() -> None:
     """Test detection of varying parameters."""
     df = pd.DataFrame(
@@ -98,6 +112,7 @@ def test_determine_varying_parameters() -> None:
             "resolution": [1920, 1920, 1920, 1920],
             "format": ["avif", "avif", "jpeg", "jpeg"],
             "speed": [4, 4, 4, 4],
+            "crop": [None, None, None, None],
         }
     )
 
@@ -106,6 +121,22 @@ def test_determine_varying_parameters() -> None:
     assert "format" in varying
     assert "resolution" not in varying  # Same value for all
     assert "speed" not in varying
+    assert "crop" not in varying  # All None
+
+
+def test_determine_varying_parameters_crop() -> None:
+    """Test crop is detected as varying when it has multiple values."""
+    df = pd.DataFrame(
+        {
+            "quality": [50, 50, 50],
+            "crop": [800, 400, 200],
+            "format": ["avif", "avif", "avif"],
+        }
+    )
+
+    varying = determine_varying_parameters(df)
+    assert "crop" in varying
+    assert "quality" not in varying
 
 
 def test_get_worst_percentile_col() -> None:
