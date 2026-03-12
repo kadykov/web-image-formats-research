@@ -363,28 +363,61 @@ def _build_metric_label(measurement: dict) -> str:
     return " ".join(parts)
 
 
+def _format_figure_title(metric: str, value: float) -> str:
+    """Format a human-readable figure title from a metric name and target value.
+
+    Args:
+        metric: Metric identifier (e.g. ``"ssimulacra2"``, ``"bytes_per_pixel"``).
+        value: Target value for the metric.
+
+    Returns:
+        Title string like ``"Target: SSIMULACRA2 = 75"`` or
+        ``"Target: Bytes per pixel = 0.10"``.
+    """
+    _NAMES = {
+        "ssimulacra2": "SSIMULACRA2",
+        "bytes_per_pixel": "Bytes per pixel",
+        "psnr": "PSNR",
+        "ssim": "SSIM",
+        "butteraugli": "Butteraugli",
+    }
+    name = _NAMES.get(metric, metric.replace("_", " ").title())
+    val_str = f"{value:g}"
+    return f"Target: {name} = {val_str}"
+
+
 def assemble_comparison_grid(
     crops: list[tuple[Path, str, str]],
     output_path: Path,
     max_columns: int = 4,
     label_font_size: int = 22,
+    figure_title: str | None = None,
+    placeholder_indices: frozenset[int] | None = None,
 ) -> Path:
     """Assemble cropped images into a labeled grid using ImageMagick montage.
 
-    Each image is annotated with a title label (encoding parameters) and
-    a subtitle (metric values).
+    Each image is annotated with a label (encoding parameters and metrics)
+    placed **below** the tile.  When *figure_title* is given, a centred
+    title row is prepended above the grid.  Tiles listed in
+    *placeholder_indices* are rendered with white-on-white invisible labels
+    so they appear as blank spacers, preserving the grid layout when some
+    variants are unavailable at a given quality target.
 
     Args:
-        crops: List of (image_path, title_label, metric_label) tuples
-        output_path: Path where the grid image will be saved
-        max_columns: Maximum images per row
-        label_font_size: Font size for labels
+        crops: List of (image_path, title_label, metric_label) tuples.
+        output_path: Path where the grid image will be saved.
+        max_columns: Maximum images per row.
+        label_font_size: Font size for per-tile labels.
+        figure_title: Optional title rendered above the whole grid.
+        placeholder_indices: 0-based indices into *crops* whose tiles
+            should be rendered as invisible spacers (white image, white
+            text labels).
 
     Returns:
-        Path to the generated comparison grid image
+        Path to the generated comparison grid image.
 
     Raises:
-        RuntimeError: If montage command fails
+        RuntimeError: If montage command fails.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -392,21 +425,25 @@ def assemble_comparison_grid(
     n = len(crops)
     cols = min(n, max_columns)
 
+    _placeholder_set = placeholder_indices or frozenset()
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
 
-        # Create labeled tiles using ImageMagick
+        # Create labeled tiles using ImageMagick – labels placed below each tile
         labeled_paths: list[str] = []
         for i, (img_path, title, metrics) in enumerate(crops):
             labeled_path = tmpdir_path / f"labeled_{i:03d}.png"
+            is_placeholder = i in _placeholder_set
+            text_color = "white" if is_placeholder else "black"
 
-            # Use ImageMagick to add labels above and below the image
+            # Place labels at the bottom (South) of each tile
             combined_label = f"{title}\\n{metrics}"
             cmd = [
                 "magick",
                 str(img_path),
                 "-gravity",
-                "North",
+                "South",
                 "-background",
                 "white",
                 "-splice",
@@ -415,8 +452,10 @@ def assemble_comparison_grid(
                 "DejaVu-Sans",
                 "-pointsize",
                 str(label_font_size),
+                "-fill",
+                text_color,
                 "-gravity",
-                "North",
+                "South",
                 "-annotate",
                 "+0+2",
                 combined_label,
@@ -450,6 +489,40 @@ def assemble_comparison_grid(
         if result.returncode != 0:
             msg = f"montage failed: {result.stderr}"
             raise RuntimeError(msg)
+
+    # Prepend a figure title row above the assembled grid
+    if figure_title is not None:
+        title_font_size = label_font_size + 6
+        title_height = title_font_size * 2
+        lossless_title = (
+            ["-define", "webp:lossless=true"] if output_path.suffix.lower() == ".webp" else []
+        )
+        title_cmd = [
+            "magick",
+            str(output_path),
+            "-gravity",
+            "North",
+            "-background",
+            "white",
+            "-splice",
+            f"0x{title_height}",
+            "-font",
+            "DejaVu-Sans",
+            "-pointsize",
+            str(title_font_size),
+            "-fill",
+            "black",
+            "-gravity",
+            "North",
+            "-annotate",
+            f"+0+{(title_height - title_font_size) // 2}",
+            figure_title,
+            *lossless_title,
+            str(output_path),
+        ]
+        title_result = subprocess.run(title_cmd, capture_output=True, text=True)
+        if title_result.returncode != 0:
+            print(f"  Warning: Could not add figure title: {title_result.stderr}")
 
     return output_path
 
@@ -1093,7 +1166,8 @@ def generate_comparison(
                     # Phase 1: Encode all target values, collect distortion maps
                     # ----------------------------------------------------------
                     # per_value_data[target_value] = list of (enc_path, measurement, dm_arr)
-                    per_value_data: dict[float, list[tuple[Path, dict, np.ndarray | None]]] = {}
+                    # enc_path is None for placeholder entries (quality out of range).
+                    per_value_data: dict[float, list[tuple[Path | None, dict, np.ndarray | None]]] = {}
                     per_value_qualities: dict[float, dict[str, float]] = {}
 
                     for target_value in target_values:
@@ -1101,7 +1175,7 @@ def generate_comparison(
 
                         print(f"  [{group_label}/{target_value}] Interpolating quality settings...")
 
-                        encoded_variants: list[tuple[Path, dict, np.ndarray | None]] = []
+                        encoded_variants: list[tuple[Path | None, dict, np.ndarray | None]] = []
                         interpolated_qualities: dict[str, float] = {}
 
                         for tv in tile_values:
@@ -1160,8 +1234,19 @@ def generate_comparison(
                                 print(
                                     f"    {fmt} ({tile_param}={tv}): target "
                                     f"{target_metric}={target_value} "
-                                    f"out of measured range, skipping"
+                                    f"out of measured range, adding placeholder"
                                 )
+                                placeholder_m: dict = {"format": fmt, "_placeholder": True}
+                                if tile_param is not None:
+                                    placeholder_m[tile_param] = example.get(tile_param) or tv
+                                for _pp in ("speed", "effort", "method", "chroma_subsampling"):
+                                    if example.get(_pp) is not None:
+                                        placeholder_m[_pp] = example[_pp]
+                                if resolution is not None:
+                                    placeholder_m["resolution"] = resolution
+                                if crop_level is not None:
+                                    placeholder_m["crop"] = crop_level
+                                encoded_variants.append((None, placeholder_m, None))
                                 continue
 
                             # Key by tile value (tv) rather than format so that multiple
@@ -1436,10 +1521,11 @@ def generate_comparison(
                         encoded_variants = per_value_data[target_value]
                         interpolated_qualities = per_value_qualities[target_value]
 
-                        if not encoded_variants:
+                        # If there are no real encoded images (placeholders only), skip.
+                        if not encoded_variants or all(enc_path is None for enc_path, _, _ in encoded_variants):
                             print(
                                 f"  [{group_label}/{target_value}] "
-                                f"No variants could be encoded, skipping"
+                                f"No valid variants produced (only placeholders), skipping"
                             )
                             continue
 
@@ -1458,7 +1544,8 @@ def generate_comparison(
                         crop_entries: list[tuple[Path, str, str]] = [
                             (original_crop, "Original", "Reference"),
                         ]
-                        variant_distmap_entries: list[tuple[np.ndarray, str, str]] = []
+                        crop_placeholder_indices: set[int] = set()
+                        variant_distmap_entries: list[tuple[np.ndarray | None, str, str]] = []
 
                         # When crop is the tile parameter, include it in the
                         # label so each tile shows its crop resolution.
@@ -1468,8 +1555,21 @@ def generate_comparison(
 
                         for enc_path, m, dm_arr in encoded_variants:
                             label = _build_label(m, label_varying)
-                            metric_label = _build_metric_label(m)
                             safe_name = label.replace(" ", "_").replace("=", "-")
+
+                            if enc_path is None:
+                                # Placeholder: create a white spacer tile to preserve grid position
+                                tile_side = config.crop_size * config.zoom_factor
+                                placeholder_crop_path = crops_dir / f"placeholder_{safe_name}.png"
+                                Image.new(
+                                    "RGB", (tile_side, tile_side), color=(255, 255, 255)
+                                ).save(placeholder_crop_path)
+                                crop_entries.append((placeholder_crop_path, label, ""))
+                                crop_placeholder_indices.add(len(crop_entries) - 1)
+                                variant_distmap_entries.append((None, label, ""))
+                                continue
+
+                            metric_label = _build_metric_label(m)
                             crop_path = crops_dir / f"{safe_name}.png"
 
                             # For crop-tile studies the encoded image is at
@@ -1498,6 +1598,8 @@ def generate_comparison(
 
                             if dm_arr is not None:
                                 variant_distmap_entries.append((dm_arr, label, metric_label))
+                            else:
+                                variant_distmap_entries.append((None, label, metric_label))
 
                         # Fragment comparison grid
                         value_suffix = str(target_value)
@@ -1507,12 +1609,14 @@ def generate_comparison(
                             grid_path,
                             max_columns=config.max_columns,
                             label_font_size=config.label_font_size,
+                            figure_title=_format_figure_title(target_metric, target_value),
+                            placeholder_indices=frozenset(crop_placeholder_indices),
                         )
                         output_images: list[Path] = [grid_path]
                         print(f"  [{group_label}/{target_value}] Generated: {grid_path}")
 
                         # Distortion map comparison grid
-                        if variant_distmap_entries:
+                        if any(arr is not None for arr, _, _ in variant_distmap_entries):
                             distmap_thumbs_dir = work / "distmap_thumbs" / target_label
                             distmap_thumbs_dir.mkdir(parents=True, exist_ok=True)
                             target_side = config.crop_size * config.zoom_factor
@@ -1541,18 +1645,30 @@ def generate_comparison(
                             distmap_crop_entries: list[tuple[Path, str, str]] = [
                                 (orig_thumb, "Original", "Reference image"),
                             ]
+                            distmap_placeholder_indices: set[int] = set()
                             for idx, (dm_arr_entry, dm_label, dm_metric) in enumerate(
                                 variant_distmap_entries
                             ):
                                 safe_dm = dm_label.replace(" ", "_").replace("=", "-")
                                 thumb_path = distmap_thumbs_dir / f"dm_{idx:03d}_{safe_dm}.png"
-                                _render_distmap_thumbnail(
-                                    dm_arr_entry,
-                                    target_side,
-                                    thumb_path,
-                                    vmax=config.distmap_vmax,
-                                )
-                                distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
+                                if dm_arr_entry is None:
+                                    Image.new(
+                                        "RGB",
+                                        (target_side, target_side),
+                                        color=(255, 255, 255),
+                                    ).save(thumb_path)
+                                    distmap_crop_entries.append((thumb_path, dm_label, ""))
+                                    distmap_placeholder_indices.add(
+                                        len(distmap_crop_entries) - 1
+                                    )
+                                else:
+                                    _render_distmap_thumbnail(
+                                        dm_arr_entry,
+                                        target_side,
+                                        thumb_path,
+                                        vmax=config.distmap_vmax,
+                                    )
+                                    distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
 
                             dm_grid_path = group_dir / f"distortion_map_comparison_{value_suffix}.webp"
                             assemble_comparison_grid(
@@ -1560,6 +1676,11 @@ def generate_comparison(
                                 dm_grid_path,
                                 max_columns=config.max_columns,
                                 label_font_size=config.label_font_size,
+                                figure_title=(
+                                    f"Distortion maps \u2013 "
+                                    f"{_format_figure_title(target_metric, target_value)}"
+                                ),
+                                placeholder_indices=frozenset(distmap_placeholder_indices),
                             )
                             output_images.append(dm_grid_path)
                             print(f"  [{group_label}/{target_value}] Generated: {dm_grid_path}")
