@@ -34,14 +34,14 @@ def test_create_analysis_dataframe(sample_quality_data: dict) -> None:
     df = create_analysis_dataframe(sample_quality_data)
 
     assert len(df) == 4
-    assert "bytes_per_pixel" in df.columns
+    assert "bits_per_pixel" in df.columns
     assert "compression_ratio" in df.columns
-    assert "bytes_per_ssimulacra2_per_pixel" in df.columns
+    assert "bits_per_ssimulacra2_per_pixel" in df.columns
 
-    # Check bytes_per_pixel calculation
+    # Check bits_per_pixel calculation
     # Image is 1920 * 1080 = 2,073,600 pixels
-    expected_bpp_first = 100000 / (1920 * 1080)
-    assert abs(df.iloc[0]["bytes_per_pixel"] - expected_bpp_first) < 0.0001
+    expected_bpp_first = 8 * 100000 / (1920 * 1080)
+    assert abs(df.iloc[0]["bits_per_pixel"] - expected_bpp_first) < 0.0001
 
     # Check compression ratio
     expected_ratio = 1000000 / 100000
@@ -148,8 +148,8 @@ def test_get_worst_percentile_col() -> None:
 
     # Lower is better metrics use p95 (highest 5%)
     assert get_worst_percentile_col("butteraugli") == "p95"
-    assert get_worst_percentile_col("bytes_per_pixel") == "p95"
-    assert get_worst_percentile_col("bytes_per_ssimulacra2_per_pixel") == "p95"
+    assert get_worst_percentile_col("bits_per_pixel") == "p95"
+    assert get_worst_percentile_col("bits_per_ssimulacra2_per_pixel") == "p95"
 
 
 def test_metric_directions() -> None:
@@ -161,8 +161,8 @@ def test_metric_directions() -> None:
 
     # Lower is better
     assert METRIC_DIRECTIONS["butteraugli"] is False
-    assert METRIC_DIRECTIONS["bytes_per_pixel"] is False
-    assert METRIC_DIRECTIONS["bytes_per_butteraugli_per_pixel"] is False
+    assert METRIC_DIRECTIONS["bits_per_pixel"] is False
+    assert METRIC_DIRECTIONS["bits_per_butteraugli_per_pixel"] is False
 
 
 def test_analyze_study_integration(tmp_path: Path, sample_quality_data: dict) -> None:
@@ -197,18 +197,18 @@ def test_efficiency_metric_calculation(sample_quality_data: dict) -> None:
     """Test encoder efficiency metric calculations."""
     df = create_analysis_dataframe(sample_quality_data)
 
-    # bytes_per_ssimulacra2_per_pixel should be lower for better efficiency
+    # bits_per_ssimulacra2_per_pixel should be lower for better efficiency
     first = df.iloc[0]
-    assert first["bytes_per_ssimulacra2_per_pixel"] > 0
+    assert first["bits_per_ssimulacra2_per_pixel"] > 0
 
     # Calculate manually for higher-is-better metric
-    expected = first["bytes_per_pixel"] / first["ssimulacra2"]
-    assert abs(first["bytes_per_ssimulacra2_per_pixel"] - expected) < 0.0001
+    expected = first["bits_per_pixel"] / first["ssimulacra2"]
+    assert abs(first["bits_per_ssimulacra2_per_pixel"] - expected) < 0.0001
 
-    # For butteraugli (lower is better), efficiency is bytes * metric
-    assert "bytes_per_butteraugli_per_pixel" in df.columns
-    expected_butteraugli = first["bytes_per_pixel"] * first["butteraugli"]
-    assert abs(first["bytes_per_butteraugli_per_pixel"] - expected_butteraugli) < 0.0001
+    # For butteraugli (lower is better), efficiency is bits * metric
+    assert "bits_per_butteraugli_per_pixel" in df.columns
+    expected_butteraugli = first["bits_per_pixel"] * first["butteraugli"]
+    assert abs(first["bits_per_butteraugli_per_pixel"] - expected_butteraugli) < 0.0001
 
 
 def test_handles_null_metrics(sample_quality_data: dict) -> None:
@@ -241,7 +241,7 @@ def test_handles_null_metrics(sample_quality_data: dict) -> None:
 
     # Should not crash and should have NaN for efficiency metrics
     assert len(df) == 5
-    assert pd.isna(df.iloc[-1]["bytes_per_ssimulacra2_per_pixel"])
+    assert pd.isna(df.iloc[-1]["bits_per_ssimulacra2_per_pixel"])
 
 
 # ---------------------------------------------------------------------------

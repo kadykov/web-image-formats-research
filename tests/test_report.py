@@ -116,9 +116,9 @@ class TestReportGeneration:
         assert "SSIMULACRA2" in title
         assert "Quality" in title
 
-        title = _figure_key_to_title("test_psnr_vs_bytes_per_pixel", "test")
+        title = _figure_key_to_title("test_psnr_vs_bits_per_pixel", "test")
         assert "PSNR" in title
-        assert "Bytes Per Pixel" in title
+        assert "BPP" in title
 
     def test_generate_report_creates_files(
         self,

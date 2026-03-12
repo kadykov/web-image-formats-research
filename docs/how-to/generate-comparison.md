@@ -21,7 +21,7 @@ The generator works through the following steps:
 
 1. **Image selection** — for each target group defined in the study config,
    selects the source image with the highest cross-format coefficient of
-   variation (CV = std / mean) of the output metric (e.g. `bytes_per_pixel`
+   variation (CV = std / mean) of the output metric (e.g. `bits_per_pixel`
    when targeting a quality score).  This maximises the *relative* spread
    of visible differences across encoding variants.
 2. **Quality interpolation** — for every target value (e.g. SSIMULACRA2 = 70),
@@ -41,7 +41,7 @@ For each target group the generator produces two kinds of figure:
 | Figure type | Target metric | Purpose |
 |-------------|---------------|---------|
 | **Matched visual quality** | `ssimulacra2`, `psnr`, `ssim`, `butteraugli` | Show artifact character at equal perceived quality |
-| **Matched file size** | `bytes_per_pixel` | Show quality differences under equal file-weight constraints |
+| **Matched file size** | `bits_per_pixel` | Show quality differences under equal file-weight constraints |
 
 A single study run can yield both figure types simultaneously when the study
 config lists target groups of both kinds.
@@ -98,7 +98,7 @@ figures are produced:
 {
   "comparison_targets": [
     { "metric": "ssimulacra2", "values": [60, 75, 90] },
-    { "metric": "bytes_per_pixel", "values": [0.1, 0.3, 0.5] }
+    { "metric": "bits_per_pixel", "values": [0.5, 1.0, 1.5] }
   ],
   "comparison_tile_parameter": "format",
   "comparison_exclude_images": ["problematic_image.png"]
@@ -106,7 +106,7 @@ figures are produced:
 ```
 
 When no targets are configured, the generator defaults to
-`ssimulacra2 = [60, 70, 80]`.
+`ssimulacra2 = [60, 70, 80]` and `bits_per_pixel = [0.5, 1.0, 1.5]`.
 
 ## See also
 

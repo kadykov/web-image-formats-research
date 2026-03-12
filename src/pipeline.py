@@ -467,7 +467,7 @@ def _encode_and_measure(
     When *analysis_fragment* is provided (crop-impact mode), quality
     metrics are measured only on the extracted fragment while
     ``width`` / ``height`` reflect the full cropped image dimensions
-    (for correct bytes-per-pixel calculation).
+    (for correct bits-per-pixel calculation).
 
     Args:
         source_image: Absolute path to the image to encode (may be

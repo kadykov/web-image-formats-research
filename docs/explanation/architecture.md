@@ -138,8 +138,7 @@ This separation has several benefits:
   longer needs to save encoded artefacts to disk.
 - **Richer figure types** — because quality settings are interpolated on the fly,
   the comparison can produce figures at *arbitrary* target metric values (e.g.,
-  SSIMULACRA2 = 60, 75, 90) or file-size targets (e.g., bytes_per_pixel = 0.1,
-  0.3, 0.5) regardless of which quality levels the pipeline swept.
+  SSIMULACRA2 = 60, 75, 90) or file-size targets (e.g., bits_per_pixel = 0.5, 1.0, 1.5) regardless of which quality levels the pipeline swept.
 
 ### Image and fragment selection
 

@@ -431,13 +431,13 @@ In `src/pipeline.py`:
 In `src/analysis.py`:
 
 - Add `"mymetric"` to the `metrics` list in `compute_statistics()`.
-- Add `"bytes_per_mymetric_per_pixel"` computation in
+- Add `"bits_per_mymetric_per_pixel"` computation in
   `create_analysis_dataframe()`, following the pattern for existing metrics.
 - Add direction entry in `METRIC_DIRECTIONS`:
 
   ```python
   "mymetric": "higher",  # or "lower" if lower is better
-  "bytes_per_mymetric_per_pixel": "lower",
+  "bits_per_mymetric_per_pixel": "lower",
   ```
 
 In `src/interactive.py`, add human-readable labels:
@@ -446,7 +446,7 @@ In `src/interactive.py`, add human-readable labels:
 METRIC_LABELS: dict[str, str] = {
     # ... existing entries ...
     "mymetric": "MyMetric",
-    "bytes_per_mymetric_per_pixel": "Bytes per MyMetric per Pixel",
+    "bits_per_mymetric_per_pixel": "Bits per MyMetric per Pixel",
 }
 ```
 

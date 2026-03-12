@@ -18,6 +18,9 @@ import numpy as np
 import pandas as pd
 
 
+BITS_PER_BYTE = 8
+
+
 def load_quality_results(quality_json_path: Path) -> dict[str, Any]:
     """Load quality measurement results from JSON file.
 
@@ -57,7 +60,7 @@ def create_analysis_dataframe(quality_results: dict[str, Any]) -> pd.DataFrame:
     df = pd.DataFrame(quality_results["measurements"])
 
     # Calculate derived metrics
-    df["bytes_per_pixel"] = df["file_size"] / (df["width"] * df["height"])
+    df["bits_per_pixel"] = BITS_PER_BYTE * df["file_size"] / (df["width"] * df["height"])
     df["compression_ratio"] = df["source_file_size"] / df["file_size"]
     df["size_reduction_pct"] = (
         (df["source_file_size"] - df["file_size"]) / df["source_file_size"]
@@ -67,22 +70,22 @@ def create_analysis_dataframe(quality_results: dict[str, Any]) -> pd.DataFrame:
     if "encoding_time" in df.columns:
         df["encoding_time_per_pixel"] = df["encoding_time"] / (df["width"] * df["height"])
 
-    # Encoder efficiency metrics (bytes per quality score per pixel)
-    # Lower is better - fewer bytes needed per pixel to achieve quality
+    # Encoder efficiency metrics (bits per quality score per pixel)
+    # Lower is better - fewer bits needed per pixel to achieve quality
     for metric in ["ssimulacra2", "psnr", "ssim", "butteraugli"]:
         if metric in df.columns:
             # Avoid division by zero or null values
-            # For butteraugli (lower is better), we invert: bytes * metric
+            # For butteraugli (lower is better), we invert: bits * metric
             if metric == "butteraugli":
-                df[f"bytes_per_{metric}_per_pixel"] = np.where(
+                df[f"bits_per_{metric}_per_pixel"] = np.where(
                     df[metric].notna() & (df[metric] > 0),
-                    df["bytes_per_pixel"] * df[metric],
+                    df["bits_per_pixel"] * df[metric],
                     np.nan,
                 )
             else:
-                df[f"bytes_per_{metric}_per_pixel"] = np.where(
+                df[f"bits_per_{metric}_per_pixel"] = np.where(
                     df[metric].notna() & (df[metric] > 0),
-                    df["bytes_per_pixel"] / df[metric],
+                    df["bits_per_pixel"] / df[metric],
                     np.nan,
                 )
 
@@ -106,14 +109,14 @@ def compute_statistics(df: pd.DataFrame, group_by: list[str]) -> pd.DataFrame:
         "ssim",
         "butteraugli",
         "file_size",
-        "bytes_per_pixel",
+        "bits_per_pixel",
         "encoding_time",
         "encoding_time_per_pixel",
         "compression_ratio",
-        "bytes_per_ssimulacra2_per_pixel",
-        "bytes_per_psnr_per_pixel",
-        "bytes_per_ssim_per_pixel",
-        "bytes_per_butteraugli_per_pixel",
+        "bits_per_ssimulacra2_per_pixel",
+        "bits_per_psnr_per_pixel",
+        "bits_per_ssim_per_pixel",
+        "bits_per_butteraugli_per_pixel",
     ]
 
     # Filter to only existing columns
@@ -320,14 +323,14 @@ METRIC_DIRECTIONS = {
     "ssim": True,
     "butteraugli": False,
     "file_size": False,
-    "bytes_per_pixel": False,
+    "bits_per_pixel": False,
     "encoding_time": False,
     "encoding_time_per_pixel": False,
     "compression_ratio": True,
-    "bytes_per_ssimulacra2_per_pixel": False,
-    "bytes_per_psnr_per_pixel": False,
-    "bytes_per_ssim_per_pixel": False,
-    "bytes_per_butteraugli_per_pixel": False,
+    "bits_per_ssimulacra2_per_pixel": False,
+    "bits_per_psnr_per_pixel": False,
+    "bits_per_ssim_per_pixel": False,
+    "bits_per_butteraugli_per_pixel": False,
 }
 
 # Marker styles to cycle through
@@ -487,7 +490,7 @@ def plot_rate_distortion(
     title: str | None = None,
     primary_param: str | None = None,
 ) -> None:
-    """Plot quality metric vs bytes_per_pixel (rate-distortion curve).
+    """Plot quality metric vs bits_per_pixel (rate-distortion curve).
 
     Args:
         stats: Statistics DataFrame
@@ -497,12 +500,12 @@ def plot_rate_distortion(
         title: Optional custom title
         primary_param: Primary sweep parameter to sort points by (e.g., 'quality', 'speed').
             When provided, points within each group are connected in the order of this
-            parameter rather than by bytes_per_pixel, giving a meaningful line for
+            parameter rather than by bits_per_pixel, giving a meaningful line for
             non-monotonic sweeps such as speed or effort settings.
     """
     mean_col = f"{metric}_mean"
     worst_col = f"{metric}_{get_worst_percentile_col(metric)}"
-    bpp_col = "bytes_per_pixel_mean"
+    bpp_col = "bits_per_pixel_mean"
 
     if (
         mean_col not in stats.columns
@@ -526,7 +529,7 @@ def plot_rate_distortion(
             label = str(name) if name is not None else "default"
 
             # Sort by primary parameter (if given) so points are connected in the
-            # logical sweep order; fall back to bytes_per_pixel.
+            # logical sweep order; fall back to bits_per_pixel.
             sort_col = (
                 primary_param if (primary_param and primary_param in group.columns) else bpp_col
             )
@@ -580,9 +583,9 @@ def plot_rate_distortion(
             markersize=7,
         )
 
-    ax.set_xlabel("Bytes per Pixel (lower is better)", fontsize=11)
+    ax.set_xlabel("Bits per Pixel (BPP, lower is better)", fontsize=11)
     ax.set_ylabel(f"{metric.upper()} ({direction_label})", fontsize=11)
-    ax.set_title(title or f"{metric.upper()} vs Bytes per Pixel", fontsize=12)
+    ax.set_title(title or f"{metric.upper()} vs Bits per Pixel", fontsize=12)
     ax.legend(fontsize=8, ncol=2)
     ax.grid(True, alpha=0.3)
 
@@ -598,12 +601,12 @@ def plot_efficiency_metrics(
     output_path: Path,
     title: str | None = None,
 ) -> None:
-    """Plot encoder efficiency metrics (bytes per quality per pixel).
+    """Plot encoder efficiency metrics (bits per quality per pixel).
 
     Args:
         stats: Statistics DataFrame
         x_param: Parameter to use as x-axis
-        efficiency_metric: Efficiency metric (e.g., 'bytes_per_ssimulacra2_per_pixel')
+        efficiency_metric: Efficiency metric (e.g., 'bits_per_ssimulacra2_per_pixel')
         output_path: Path to save plot (WebP format)
         title: Optional custom title
     """
@@ -702,13 +705,13 @@ def plot_efficiency_metrics(
     plt.close()
 
 
-def plot_bytes_per_pixel(
+def plot_bits_per_pixel(
     stats: pd.DataFrame,
     x_param: str,
     output_path: Path,
     title: str | None = None,
 ) -> None:
-    """Plot bytes per pixel with mean, 5th and 95th percentiles.
+    """Plot bits per pixel with mean, 5th and 95th percentiles.
 
     Args:
         stats: Statistics DataFrame
@@ -716,9 +719,9 @@ def plot_bytes_per_pixel(
         output_path: Path to save plot (WebP format)
         title: Optional custom title
     """
-    mean_col = "bytes_per_pixel_mean"
-    p05_col = "bytes_per_pixel_p05"
-    p95_col = "bytes_per_pixel_p95"
+    mean_col = "bits_per_pixel_mean"
+    p05_col = "bits_per_pixel_p05"
+    p95_col = "bits_per_pixel_p95"
 
     if mean_col not in stats.columns:
         return
@@ -819,9 +822,9 @@ def plot_bytes_per_pixel(
             )
 
     ax.set_xlabel(x_param.replace("_", " ").title(), fontsize=11)
-    ax.set_ylabel("Bytes per Pixel (lower is better)", fontsize=11)
+    ax.set_ylabel("Bits per Pixel (BPP, lower is better)", fontsize=11)
     ax.set_title(
-        title or f"Bytes per Pixel vs {x_param.replace('_', ' ').title()}",
+        title or f"Bits per Pixel vs {x_param.replace('_', ' ').title()}",
         fontsize=12,
     )
     ax.legend(fontsize=8, ncol=2)
@@ -1000,8 +1003,8 @@ def analyze_study(
     Generates:
     - CSV with statistics
     - Quality metric plots vs sweep parameter (mean + 5% worst)
-    - Quality metric plots vs bytes_per_pixel (rate-distortion curves)
-    - Bytes per pixel plots (mean + 5% smallest + 95% largest)
+    - Quality metric plots vs bits_per_pixel (rate-distortion curves)
+    - Bits per pixel plots (mean + 5% smallest + 95% largest)
     - Encoding time per pixel plots (mean + 5% fastest + 95% slowest)
     - Efficiency metric plots vs sweep parameter (mean + 5% worst)
 
@@ -1065,21 +1068,21 @@ def analyze_study(
             plot_quality_metrics(stats, x_param, metric, plot_path)
             print(f"Quality plot saved: {plot_path}")
 
-    # Generate quality metric plots vs bytes_per_pixel (rate-distortion)
-    if "bytes_per_pixel_mean" in stats.columns:
+    # Generate quality metric plots vs bits_per_pixel (rate-distortion)
+    if "bits_per_pixel_mean" in stats.columns:
         for metric in quality_metrics:
             if f"{metric}_mean" in stats.columns:
-                plot_path = output_dir / f"{study_id}_{metric}_vs_bytes_per_pixel.svg"
+                plot_path = output_dir / f"{study_id}_{metric}_vs_bits_per_pixel.svg"
                 plot_rate_distortion(
                     stats, metric, secondary_param, plot_path, primary_param=x_param
                 )
                 print(f"Rate-distortion plot saved: {plot_path}")
 
-    # Generate bytes per pixel plot (with p05 and p95)
-    if "bytes_per_pixel_mean" in stats.columns:
-        plot_path = output_dir / f"{study_id}_bytes_per_pixel_vs_{x_param}.svg"
-        plot_bytes_per_pixel(stats, x_param, plot_path)
-        print(f"Bytes per pixel plot saved: {plot_path}")
+    # Generate bits per pixel plot (with p05 and p95)
+    if "bits_per_pixel_mean" in stats.columns:
+        plot_path = output_dir / f"{study_id}_bits_per_pixel_vs_{x_param}.svg"
+        plot_bits_per_pixel(stats, x_param, plot_path)
+        print(f"Bits per pixel plot saved: {plot_path}")
 
     # Generate encoding time per pixel plot (with p05 and p95)
     if "encoding_time_per_pixel_mean" in stats.columns:
@@ -1089,10 +1092,10 @@ def analyze_study(
 
     # Generate efficiency metric plots vs sweep parameter
     efficiency_metrics = [
-        "bytes_per_ssimulacra2_per_pixel",
-        "bytes_per_psnr_per_pixel",
-        "bytes_per_ssim_per_pixel",
-        "bytes_per_butteraugli_per_pixel",
+        "bits_per_ssimulacra2_per_pixel",
+        "bits_per_psnr_per_pixel",
+        "bits_per_ssim_per_pixel",
+        "bits_per_butteraugli_per_pixel",
     ]
     for metric in efficiency_metrics:
         if f"{metric}_mean" in stats.columns:

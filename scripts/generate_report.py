@@ -170,6 +170,10 @@ def _figure_key_to_title(key: str, study_id: str) -> str:
     if len(parts) == 2:
         y_part = parts[0].replace("_", " ").upper()
         x_part = parts[1].replace("_", " ").title()
+        if y_part == "BITS PER PIXEL":
+            y_part = "BPP"
+        if x_part == "Bits Per Pixel":
+            x_part = "BPP"
         return f"{y_part} vs {x_part}"
 
     return name.replace("_", " ").title()
