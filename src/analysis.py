@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
 BITS_PER_BYTE = 8
 
 
@@ -309,9 +308,7 @@ def resolve_axis_parameters(
                 )
             secondary_param = determine_secondary_sweep_parameter(df, x_param)
         elif not quiet:
-            print(
-                f"Using '{secondary_param}' as secondary axis for rate-distortion plots"
-            )
+            print(f"Using '{secondary_param}' as secondary axis for rate-distortion plots")
 
     return x_param, secondary_param
 

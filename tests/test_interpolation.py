@@ -276,18 +276,14 @@ class TestComputeCrossFormatCV:
 
     def test_returns_positive_cv(self) -> None:
         ms = self._two_format_measurements()
-        cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
-        )
+        cv = compute_cross_format_cv(ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel")
         assert cv is not None
         assert cv > 0.0
 
     def test_cv_is_std_over_mean(self) -> None:
         """Verify the CV arithmetic manually."""
         ms = self._two_format_measurements()
-        cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
-        )
+        cv = compute_cross_format_cv(ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel")
         # At ssim=70 (midpoint between 60 and 80) → quality=65
         # jpeg bpp at q=65: lerp(0.8,1.6) = 1.2
         # avif bpp at q=65: lerp(2.4,4.8) = 3.6
@@ -297,16 +293,12 @@ class TestComputeCrossFormatCV:
 
     def test_returns_none_when_only_one_format(self) -> None:
         ms = [_make_m("jpeg", 50, 60.0, 1000), _make_m("jpeg", 80, 80.0, 2000)]
-        cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
-        )
+        cv = compute_cross_format_cv(ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel")
         assert cv is None
 
     def test_returns_none_when_target_out_of_range(self) -> None:
         ms = self._two_format_measurements()
-        cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 99.0, "bits_per_pixel"
-        )
+        cv = compute_cross_format_cv(ms, "img.png", "format", "ssimulacra2", 99.0, "bits_per_pixel")
         assert cv is None
 
     def test_returns_none_when_all_outputs_are_zero(self) -> None:
@@ -318,9 +310,7 @@ class TestComputeCrossFormatCV:
             _make_m("avif", 80, 80.0, 0),
         ]
         # bits_per_pixel will be 0 → mean=0 → CV undefined → None
-        cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
-        )
+        cv = compute_cross_format_cv(ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel")
         assert cv is None
 
     def test_higher_spread_gives_higher_cv(self) -> None:

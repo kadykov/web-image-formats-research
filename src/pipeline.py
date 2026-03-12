@@ -197,7 +197,8 @@ def _process_image(
     from src.preprocessing import CropResult, ImagePreprocessor
     from src.quality import (
         QualityMeasurer as _QM,
-        extract_fragment as _extract_frag,
+    )
+    from src.quality import (
         find_worst_region_in_array,
         read_pfm,
     )
@@ -207,9 +208,7 @@ def _process_image(
     project_root = Path(project_root_str)
     study_id = config_dict["id"]
     analysis_fragment_size: int = config_dict.get("analysis_fragment_size") or 200
-    crop_too_small_strategy: str = config_dict.get(
-        "crop_too_small_strategy", "skip_image"
-    )
+    crop_too_small_strategy: str = config_dict.get("crop_too_small_strategy", "skip_image")
 
     # Reconstruct encoder configs
     encoders = [EncoderConfig(**enc_dict) for enc_dict in config_dict["encoders"]]
@@ -229,7 +228,7 @@ def _process_image(
 
     # In-worker preprocessing caches
     preprocessed_cache: dict[int, Path] = {}  # resolution → resized path
-    crop_cache: dict[int, CropResult] = {}    # crop_level → CropResult
+    crop_cache: dict[int, CropResult] = {}  # crop_level → CropResult
 
     with tempfile.TemporaryDirectory() as prep_tmpdir:
 
@@ -266,9 +265,7 @@ def _process_image(
                 fragment=fragment,
                 target_longest_edge=crop_level,
                 output_name=output_name,
-                adjust_aspect_ratio=(
-                    crop_too_small_strategy == "adjust_aspect_ratio"
-                ),
+                adjust_aspect_ratio=(crop_too_small_strategy == "adjust_aspect_ratio"),
             )
             crop_cache[crop_level] = result
             return result
@@ -293,9 +290,9 @@ def _process_image(
             from src.encoder import ImageEncoder as _IE
 
             _enc0 = _IE(frag_dir)
-            _speed0 = (min(first_crop_enc.speed) if first_crop_enc.speed else None)
-            _effort0 = (min(first_crop_enc.effort) if first_crop_enc.effort else None)
-            _method0 = (min(first_crop_enc.method) if first_crop_enc.method else None)
+            _speed0 = min(first_crop_enc.speed) if first_crop_enc.speed else None
+            _effort0 = min(first_crop_enc.effort) if first_crop_enc.effort else None
+            _method0 = min(first_crop_enc.method) if first_crop_enc.method else None
 
             try:
                 if fmt0 == "jpeg":
@@ -307,19 +304,15 @@ def _process_image(
                 elif fmt0 == "jxl":
                     _r0 = _enc0.encode_jxl(image_path, lowest_q, effort=_effort0 or 7)
                 else:
-                    _r0 = None  # type: ignore[assignment]
+                    _r0 = None
 
                 if _r0 is not None and _r0.success and _r0.output_path is not None:
                     pfm_path = frag_dir / "distmap.pfm"
                     _meas = _QM()
-                    _meas.measure_butteraugli_with_distmap(
-                        image_path, _r0.output_path, pfm_path
-                    )
+                    _meas.measure_butteraugli_with_distmap(image_path, _r0.output_path, pfm_path)
                     if pfm_path.exists():
                         dm = read_pfm(pfm_path)
-                        region = find_worst_region_in_array(
-                            dm, crop_size=analysis_fragment_size
-                        )
+                        region = find_worst_region_in_array(dm, crop_size=analysis_fragment_size)
                         analysis_fragment = {
                             "x": region.x,
                             "y": region.y,
@@ -333,6 +326,7 @@ def _process_image(
             if analysis_fragment is None:
                 # Fallback: use top-left corner
                 from PIL import Image as _PILImage
+
                 with _PILImage.open(image_path) as _im:
                     _iw, _ih = _im.size
                 analysis_fragment = {
@@ -345,36 +339,35 @@ def _process_image(
         # ------------------------------------------------------------------
         # skip_image pre-check: verify all crop levels fit the fragment
         # ------------------------------------------------------------------
-        if uses_crop and analysis_fragment is not None:
-            if crop_too_small_strategy == "skip_image":
-                from PIL import Image as _PILImg
+        if uses_crop and analysis_fragment is not None and crop_too_small_strategy == "skip_image":
+            from PIL import Image as _PILImg
 
-                with _PILImg.open(image_path) as _chk:
-                    _cw, _ch = _chk.size
-                _longest = max(_cw, _ch)
-                fw = analysis_fragment["width"]
-                fh = analysis_fragment["height"]
-                all_crop_levels: set[int] = set()
-                for enc in encoders:
-                    if enc.crop:
-                        all_crop_levels.update(enc.crop)
-                for cl in all_crop_levels:
-                    if cl >= _longest:
-                        continue
-                    sc = cl / _longest
-                    cw_check = max(1, round(_cw * sc))
-                    ch_check = max(1, round(_ch * sc))
-                    if fw > cw_check or fh > ch_check:
-                        import warnings
+            with _PILImg.open(image_path) as _chk:
+                _cw, _ch = _chk.size
+            _longest = max(_cw, _ch)
+            fw = analysis_fragment["width"]
+            fh = analysis_fragment["height"]
+            all_crop_levels: set[int] = set()
+            for enc in encoders:
+                if enc.crop:
+                    all_crop_levels.update(enc.crop)
+            for cl in all_crop_levels:
+                if cl >= _longest:
+                    continue
+                sc = cl / _longest
+                cw_check = max(1, round(_cw * sc))
+                ch_check = max(1, round(_ch * sc))
+                if fw > cw_check or fh > ch_check:
+                    import warnings
 
-                        warnings.warn(
-                            f"Skipping {image_path.name}: crop level "
-                            f"{cl} produces {cw_check}x{ch_check} "
-                            f"which cannot fit analysis fragment "
-                            f"{fw}x{fh}",
-                            stacklevel=1,
-                        )
-                        return all_records  # empty
+                    warnings.warn(
+                        f"Skipping {image_path.name}: crop level "
+                        f"{cl} produces {cw_check}x{ch_check} "
+                        f"which cannot fit analysis fragment "
+                        f"{fw}x{fh}",
+                        stacklevel=1,
+                    )
+                    return all_records  # empty
 
         # ------------------------------------------------------------------
         # Main encoding loop
@@ -398,9 +391,7 @@ def _process_image(
                 if crop_level is not None and analysis_fragment is not None:
                     # Crop-impact mode: crop the original image around the fragment
                     try:
-                        crop_result = _get_cropped_source(
-                            crop_level, analysis_fragment
-                        )
+                        crop_result = _get_cropped_source(crop_level, analysis_fragment)
                     except ValueError:
                         if crop_too_small_strategy == "skip_measurement":
                             import warnings
@@ -626,9 +617,7 @@ def _encode_and_measure(
 
                 frag_dir = Path(tmpdir) / "fragments"
                 frag_dir.mkdir(exist_ok=True)
-                src_frag = _extract_frag(
-                    source_path, analysis_fragment, frag_dir / "src_frag.png"
-                )
+                src_frag = _extract_frag(source_path, analysis_fragment, frag_dir / "src_frag.png")
                 enc_frag = _extract_frag(
                     result.output_path, analysis_fragment, frag_dir / "enc_frag.png"
                 )
@@ -815,9 +804,7 @@ def _expand_encoder_tasks(
                     f"data/preprocessed/{study_id}/r{resolution}/{source_image.stem}_r{resolution}.png"
                 )
             elif crop_level is not None:
-                source_image_label = (
-                    f"data/preprocessed/{study_id}/c{crop_level}/{source_image.stem}_c{crop_level}.png"
-                )
+                source_image_label = f"data/preprocessed/{study_id}/c{crop_level}/{source_image.stem}_c{crop_level}.png"
             else:
                 source_image_label = None
 

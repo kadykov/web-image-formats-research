@@ -1343,12 +1343,7 @@ class TestResolveSourceForCrop:
         from tests.conftest import create_test_image
 
         # Create two images with different aspect ratios
-        landscape = create_test_image(
-            tmp_path / "landscape.png", size=(2000, 1000)
-        )
-        portrait = create_test_image(
-            tmp_path / "portrait.png", size=(1000, 2000)
-        )
+        portrait = create_test_image(tmp_path / "portrait.png", size=(1000, 2000))
 
         # Measurements from both images at crop level 800
         measurements = [
@@ -1387,9 +1382,7 @@ class TestResolveSourceForCrop:
         """Without selected_image filter, may pick wrong image's region."""
         from tests.conftest import create_test_image
 
-        portrait = create_test_image(
-            tmp_path / "portrait.png", size=(1000, 2000)
-        )
+        portrait = create_test_image(tmp_path / "portrait.png", size=(1000, 2000))
 
         # Landscape measurement listed first
         measurements = [
@@ -1426,9 +1419,7 @@ class TestResolveSourceForCrop:
         """Falls back to preprocessing when no measurement matches."""
         from tests.conftest import create_test_image
 
-        img = create_test_image(
-            tmp_path / "img.png", size=(2000, 1000)
-        )
+        img = create_test_image(tmp_path / "img.png", size=(2000, 1000))
 
         cache: dict[int, tuple[Path, dict, dict | None]] = {}
 
@@ -1452,9 +1443,7 @@ class TestResolveSourceForCrop:
         """Crop region from stored data must preserve aspect ratio."""
         from tests.conftest import create_test_image
 
-        img = create_test_image(
-            tmp_path / "img.png", size=(2040, 1356)
-        )
+        img = create_test_image(tmp_path / "img.png", size=(2040, 1356))
 
         # Simulate pipeline-produced measurements for multiple crop levels
         orig_w, orig_h = 2040, 1356
@@ -1612,12 +1601,10 @@ class TestCropAspectRatioPreservation:
         crop_levels: list[int],
     ) -> None:
         """Aspect ratio is preserved within rounding tolerance."""
-        from tests.conftest import create_test_image
         from src.preprocessing import ImagePreprocessor
+        from tests.conftest import create_test_image
 
-        img_path = create_test_image(
-            tmp_path / "src.png", size=orig_size
-        )
+        img_path = create_test_image(tmp_path / "src.png", size=orig_size)
         orig_w, orig_h = orig_size
         orig_longest = max(orig_w, orig_h)
         orig_ar = orig_w / orig_h
@@ -1640,9 +1627,7 @@ class TestCropAspectRatioPreservation:
             if fragment["width"] > cw or fragment["height"] > ch:
                 continue
 
-            preprocessor = ImagePreprocessor(
-                tmp_path / f"out_{crop_level}"
-            )
+            preprocessor = ImagePreprocessor(tmp_path / f"out_{crop_level}")
             result = preprocessor.crop_image_around_fragment(
                 img_path,
                 fragment=fragment,
@@ -1671,12 +1656,12 @@ class TestCropAspectRatioPreservation:
     @pytest.mark.parametrize(
         "orig_size,frag_pos",
         [
-            ((2000, 3000), (500, 500)),   # top-left region
-            ((2000, 3000), (1700, 2700)), # bottom-right region
-            ((2000, 3000), (0, 0)),       # top-left corner
-            ((2000, 3000), (1800, 2800)), # near bottom-right corner
-            ((3000, 2000), (100, 100)),   # landscape, top-left
-            ((3000, 2000), (2700, 1700)), # landscape, bottom-right
+            ((2000, 3000), (500, 500)),  # top-left region
+            ((2000, 3000), (1700, 2700)),  # bottom-right region
+            ((2000, 3000), (0, 0)),  # top-left corner
+            ((2000, 3000), (1800, 2800)),  # near bottom-right corner
+            ((3000, 2000), (100, 100)),  # landscape, top-left
+            ((3000, 2000), (2700, 1700)),  # landscape, bottom-right
         ],
     )
     def test_crop_stays_within_bounds_edge_fragments(
@@ -1686,8 +1671,8 @@ class TestCropAspectRatioPreservation:
         frag_pos: tuple[int, int],
     ) -> None:
         """Crop regions never extend outside image boundaries."""
-        from tests.conftest import create_test_image
         from src.preprocessing import ImagePreprocessor
+        from tests.conftest import create_test_image
 
         orig_w, orig_h = orig_size
         fx, fy = frag_pos
@@ -1695,9 +1680,7 @@ class TestCropAspectRatioPreservation:
         frag_h = min(200, orig_h - fy)
         fragment = {"x": fx, "y": fy, "width": frag_w, "height": frag_h}
 
-        img_path = create_test_image(
-            tmp_path / "src.png", size=orig_size
-        )
+        img_path = create_test_image(tmp_path / "src.png", size=orig_size)
 
         orig_longest = max(orig_w, orig_h)
         for crop_level in [1500, 1000, 500]:
@@ -1709,9 +1692,7 @@ class TestCropAspectRatioPreservation:
             if frag_w > cw or frag_h > ch:
                 continue
 
-            preprocessor = ImagePreprocessor(
-                tmp_path / f"out_{frag_pos}_{crop_level}"
-            )
+            preprocessor = ImagePreprocessor(tmp_path / f"out_{frag_pos}_{crop_level}")
             result = preprocessor.crop_image_around_fragment(
                 img_path,
                 fragment=fragment,
