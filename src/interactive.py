@@ -35,14 +35,14 @@ METRIC_LABELS: dict[str, str] = {
     "ssim": "SSIM",
     "butteraugli": "Butteraugli",
     "file_size": "File Size (bytes)",
-    "bytes_per_pixel": "Bytes per Pixel",
+    "bits_per_pixel": "Bits per Pixel (BPP)",
     "encoding_time": "Encoding Time (seconds)",
     "encoding_time_per_pixel": "Encoding Time per Pixel (seconds)",
     "compression_ratio": "Compression Ratio",
-    "bytes_per_ssimulacra2_per_pixel": "Bytes per SSIMULACRA2 per Pixel",
-    "bytes_per_psnr_per_pixel": "Bytes per PSNR per Pixel",
-    "bytes_per_ssim_per_pixel": "Bytes per SSIM per Pixel",
-    "bytes_per_butteraugli_per_pixel": "Bytes per Butteraugli per Pixel",
+    "bits_per_ssimulacra2_per_pixel": "Bits per SSIMULACRA2 per Pixel",
+    "bits_per_psnr_per_pixel": "Bits per PSNR per Pixel",
+    "bits_per_ssim_per_pixel": "Bits per SSIM per Pixel",
+    "bits_per_butteraugli_per_pixel": "Bits per Butteraugli per Pixel",
 }
 
 # Marker symbols to cycle through (Plotly marker names)
@@ -156,8 +156,8 @@ def _build_hover_text(
         parts.append(f"{y_label} ({stat_suffix}): {row[y_col]:.4g}")
 
         # Show additional useful stats if available
-        if "bytes_per_pixel_mean" in group.columns and x_param != "bytes_per_pixel_mean":
-            parts.append(f"Bytes/Pixel (mean): {row['bytes_per_pixel_mean']:.4g}")
+        if "bits_per_pixel_mean" in group.columns and x_param != "bits_per_pixel_mean":
+            parts.append(f"BPP (mean): {row['bits_per_pixel_mean']:.4g}")
         if "file_size_mean" in group.columns:
             size_kb = row["file_size_mean"] / 1024
             parts.append(f"File Size (mean): {size_kb:.1f} KB")
@@ -348,7 +348,7 @@ def plot_rate_distortion(
     title: str | None = None,
     primary_param: str | None = None,
 ) -> go.Figure:
-    """Create interactive rate-distortion plot (quality vs bytes per pixel).
+    """Create interactive rate-distortion plot (quality vs bits per pixel).
 
     Args:
         stats: Statistics DataFrame from compute_statistics
@@ -357,7 +357,7 @@ def plot_rate_distortion(
         title: Optional custom title
         primary_param: Primary sweep parameter to sort points by (e.g., 'quality', 'speed').
             When provided, points within each group are connected in the order of this
-            parameter rather than by bytes_per_pixel, giving a meaningful line for
+            parameter rather than by bits_per_pixel, giving a meaningful line for
             non-monotonic sweeps such as speed or effort settings.
 
     Returns:
@@ -365,16 +365,16 @@ def plot_rate_distortion(
     """
     mean_col = f"{metric}_mean"
     worst_col = f"{metric}_{get_worst_percentile_col(metric)}"
-    bpp_col = "bytes_per_pixel_mean"
+    bpp_col = "bits_per_pixel_mean"
 
     if mean_col not in stats.columns or worst_col not in stats.columns:
         return go.Figure()
     if bpp_col not in stats.columns:
         return go.Figure()
 
-    x_label = "Bytes per Pixel (lower is better)"
+    x_label = "Bits per Pixel (BPP, lower is better)"
     y_label = _axis_label(metric)
-    fig_title = title or f"{_metric_label(metric)} vs Bytes per Pixel"
+    fig_title = title or f"{_metric_label(metric)} vs Bits per Pixel"
     fig = go.Figure(layout=_create_figure_layout(fig_title, x_label, y_label))
 
     worst_suffix = get_worst_percentile_col(metric)
@@ -449,12 +449,12 @@ def plot_rate_distortion(
     return fig
 
 
-def plot_bytes_per_pixel(
+def plot_bits_per_pixel(
     stats: pd.DataFrame,
     x_param: str,
     title: str | None = None,
 ) -> go.Figure:
-    """Create interactive bytes per pixel plot with percentile bands.
+    """Create interactive bits per pixel plot with percentile bands.
 
     Args:
         stats: Statistics DataFrame
@@ -464,16 +464,16 @@ def plot_bytes_per_pixel(
     Returns:
         Plotly Figure object
     """
-    mean_col = "bytes_per_pixel_mean"
-    p05_col = "bytes_per_pixel_p05"
-    p95_col = "bytes_per_pixel_p95"
+    mean_col = "bits_per_pixel_mean"
+    p05_col = "bits_per_pixel_p05"
+    p95_col = "bits_per_pixel_p95"
 
     if mean_col not in stats.columns:
         return go.Figure()
 
     x_label = x_param.replace("_", " ").title()
-    y_label = "Bytes per Pixel (lower is better)"
-    fig_title = title or f"Bytes per Pixel vs {x_label}"
+    y_label = "Bits per Pixel (BPP, lower is better)"
+    fig_title = title or f"Bits per Pixel vs {x_label}"
     fig = go.Figure(layout=_create_figure_layout(fig_title, x_label, y_label))
 
     group_cols = [
@@ -513,7 +513,7 @@ def plot_bytes_per_pixel(
                     name=f"{label} (mean)",
                     marker={"symbol": marker, "size": 8, "color": color},
                     line={"color": color, "width": 2},
-                    hovertext=_build_hover_text(group, x_param, "bytes_per_pixel", "mean"),
+                    hovertext=_build_hover_text(group, x_param, "bits_per_pixel", "mean"),
                     hoverinfo="text",
                 )
             )
@@ -530,7 +530,7 @@ def plot_bytes_per_pixel(
                             "color": color,
                         },
                         line={"color": color, "width": 1, "dash": "dash"},
-                        hovertext=_build_hover_text(group, x_param, "bytes_per_pixel", "p05"),
+                        hovertext=_build_hover_text(group, x_param, "bits_per_pixel", "p05"),
                         hoverinfo="text",
                     )
                 )
@@ -547,7 +547,7 @@ def plot_bytes_per_pixel(
                             "color": color,
                         },
                         line={"color": color, "width": 1, "dash": "dot"},
-                        hovertext=_build_hover_text(group, x_param, "bytes_per_pixel", "p95"),
+                        hovertext=_build_hover_text(group, x_param, "bits_per_pixel", "p95"),
                         hoverinfo="text",
                     )
                 )
@@ -561,7 +561,7 @@ def plot_bytes_per_pixel(
                 name="Mean",
                 marker={"symbol": "circle", "size": 8},
                 line={"width": 2},
-                hovertext=_build_hover_text(stats_sorted, x_param, "bytes_per_pixel", "mean"),
+                hovertext=_build_hover_text(stats_sorted, x_param, "bits_per_pixel", "mean"),
                 hoverinfo="text",
             )
         )
@@ -574,7 +574,7 @@ def plot_bytes_per_pixel(
                     name="5% smallest",
                     marker={"symbol": "circle-open", "size": 8},
                     line={"width": 1, "dash": "dash"},
-                    hovertext=_build_hover_text(stats_sorted, x_param, "bytes_per_pixel", "p05"),
+                    hovertext=_build_hover_text(stats_sorted, x_param, "bits_per_pixel", "p05"),
                     hoverinfo="text",
                 )
             )
@@ -587,7 +587,7 @@ def plot_bytes_per_pixel(
                     name="95% largest",
                     marker={"symbol": "circle-open", "size": 8},
                     line={"width": 1, "dash": "dot"},
-                    hovertext=_build_hover_text(stats_sorted, x_param, "bytes_per_pixel", "p95"),
+                    hovertext=_build_hover_text(stats_sorted, x_param, "bits_per_pixel", "p95"),
                     hoverinfo="text",
                 )
             )
@@ -997,11 +997,11 @@ def generate_study_figures(
     # Priority order: perceptual metrics first (SSIMULACRA2, Butteraugli), then traditional
     quality_metrics = ["ssimulacra2", "butteraugli", "psnr", "ssim"]
 
-    # 1. Rate-distortion plots (quality vs bytes_per_pixel) - MOST INFORMATIVE
-    if "bytes_per_pixel_mean" in stats.columns:
+    # 1. Rate-distortion plots (quality vs bits_per_pixel) - MOST INFORMATIVE
+    if "bits_per_pixel_mean" in stats.columns:
         for metric in quality_metrics:
             if f"{metric}_mean" in stats.columns:
-                key = f"{study_id}_{metric}_vs_bytes_per_pixel"
+                key = f"{study_id}_{metric}_vs_bits_per_pixel"
                 figures[key] = plot_rate_distortion(
                     stats, metric, secondary_param, primary_param=x_param
                 )
@@ -1014,20 +1014,20 @@ def generate_study_figures(
 
     # 3. Efficiency metric plots (perceptual metrics prioritized)
     efficiency_metrics = [
-        "bytes_per_ssimulacra2_per_pixel",
-        "bytes_per_butteraugli_per_pixel",
-        "bytes_per_psnr_per_pixel",
-        "bytes_per_ssim_per_pixel",
+        "bits_per_ssimulacra2_per_pixel",
+        "bits_per_butteraugli_per_pixel",
+        "bits_per_psnr_per_pixel",
+        "bits_per_ssim_per_pixel",
     ]
     for metric in efficiency_metrics:
         if f"{metric}_mean" in stats.columns:
             key = f"{study_id}_{metric}_vs_{x_param}"
             figures[key] = plot_efficiency(stats, x_param, metric)
 
-    # 4. Bytes per pixel plot
-    if "bytes_per_pixel_mean" in stats.columns:
-        key = f"{study_id}_bytes_per_pixel_vs_{x_param}"
-        figures[key] = plot_bytes_per_pixel(stats, x_param)
+    # 4. Bits per pixel plot
+    if "bits_per_pixel_mean" in stats.columns:
+        key = f"{study_id}_bits_per_pixel_vs_{x_param}"
+        figures[key] = plot_bits_per_pixel(stats, x_param)
 
     # 5. Encoding time per pixel plot
     if "encoding_time_per_pixel_mean" in stats.columns:

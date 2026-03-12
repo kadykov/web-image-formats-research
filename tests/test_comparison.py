@@ -499,11 +499,17 @@ def test_build_label_format_only() -> None:
 
 def test_build_metric_label() -> None:
     """Test building a metric label."""
-    m = {"ssimulacra2": 75.5, "butteraugli": 2.5, "file_size": 51200}
+    m = {
+        "ssimulacra2": 75.5,
+        "butteraugli": 2.5,
+        "file_size": 51200,
+        "width": 320,
+        "height": 200,
+    }
     label = _build_metric_label(m)
     assert "SSIM2:75.5" in label
     assert "BA:2.50" in label
-    assert "50KB" in label
+    assert "BPP:6.4" in label
 
 
 def test_build_metric_label_missing() -> None:
@@ -646,8 +652,8 @@ def test_format_figure_title_ssimulacra2() -> None:
     assert _format_figure_title("ssimulacra2", 75) == "Target: SSIMULACRA2 = 75"
 
 
-def test_format_figure_title_bytes_per_pixel() -> None:
-    assert _format_figure_title("bytes_per_pixel", 0.1) == "Target: Bytes per pixel = 0.1"
+def test_format_figure_title_bits_per_pixel() -> None:
+    assert _format_figure_title("bits_per_pixel", 0.8) == "Target: BPP = 0.8"
 
 
 def test_format_figure_title_psnr() -> None:
@@ -826,14 +832,14 @@ def test_target_comparison_result() -> None:
     """TargetComparisonResult records all per-target fields."""
     region = WorstRegion(x=0, y=0, width=64, height=64, avg_distortion=1.0)
     tr = TargetComparisonResult(
-        target_metric="bytes_per_pixel",
-        target_value=0.3,
+        target_metric="bits_per_pixel",
+        target_value=2.4,
         source_image="img.png",
         region=region,
         interpolated_qualities={"avif": 55.2},
     )
-    assert tr.target_metric == "bytes_per_pixel"
-    assert tr.target_value == 0.3
+    assert tr.target_metric == "bits_per_pixel"
+    assert tr.target_value == 2.4
     assert tr.interpolated_qualities["avif"] == 55.2
     assert tr.output_images == []
 

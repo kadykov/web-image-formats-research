@@ -13,7 +13,7 @@ from src.interactive import (
     PLOTLY_MARKERS,
     figure_to_html_fragment,
     generate_study_figures,
-    plot_bytes_per_pixel,
+    plot_bits_per_pixel,
     plot_efficiency,
     plot_quality_vs_param,
     plot_rate_distortion,
@@ -87,9 +87,9 @@ class TestPlotRateDistortion:
         fig = plot_rate_distortion(single_quality_stats, "nonexistent_metric", None)
         assert len(fig.data) == 0
 
-    def test_x_axis_is_bytes_per_pixel(self, single_quality_stats):
+    def test_x_axis_is_bits_per_pixel(self, single_quality_stats):
         fig = plot_rate_distortion(single_quality_stats, "ssimulacra2", None)
-        assert "Bytes per Pixel" in fig.layout.xaxis.title.text
+        assert "Bits per Pixel" in fig.layout.xaxis.title.text
 
     def test_hover_text_contains_quality(self, multi_format_stats):
         fig = plot_rate_distortion(multi_format_stats, "ssimulacra2", "format")
@@ -99,15 +99,15 @@ class TestPlotRateDistortion:
                 assert "Quality" in trace.hovertext[0]
 
 
-class TestPlotBytesPerPixel:
-    """Tests for plot_bytes_per_pixel."""
+class TestPlotBitsPerPixel:
+    """Tests for plot_bits_per_pixel."""
 
     def test_returns_figure(self, single_quality_stats):
-        fig = plot_bytes_per_pixel(single_quality_stats, "quality")
+        fig = plot_bits_per_pixel(single_quality_stats, "quality")
         assert isinstance(fig, go.Figure)
 
     def test_has_mean_and_percentile_traces(self, single_quality_stats):
-        fig = plot_bytes_per_pixel(single_quality_stats, "quality")
+        fig = plot_bits_per_pixel(single_quality_stats, "quality")
         # At minimum: mean, p05, p95
         assert len(fig.data) >= 3
 
@@ -115,7 +115,7 @@ class TestPlotBytesPerPixel:
         import pandas as pd
 
         empty_stats = pd.DataFrame({"quality": [50, 70]})
-        fig = plot_bytes_per_pixel(empty_stats, "quality")
+        fig = plot_bits_per_pixel(empty_stats, "quality")
         assert len(fig.data) == 0
 
 
@@ -123,11 +123,11 @@ class TestPlotEfficiency:
     """Tests for plot_efficiency."""
 
     def test_returns_figure(self, single_quality_stats):
-        fig = plot_efficiency(single_quality_stats, "quality", "bytes_per_ssimulacra2_per_pixel")
+        fig = plot_efficiency(single_quality_stats, "quality", "bits_per_ssimulacra2_per_pixel")
         assert isinstance(fig, go.Figure)
 
     def test_has_traces(self, single_quality_stats):
-        fig = plot_efficiency(single_quality_stats, "quality", "bytes_per_ssimulacra2_per_pixel")
+        fig = plot_efficiency(single_quality_stats, "quality", "bits_per_ssimulacra2_per_pixel")
         assert len(fig.data) >= 2  # mean + worst
 
     def test_missing_metric_returns_empty(self, single_quality_stats):
@@ -181,7 +181,7 @@ class TestGenerateStudyFigures:
 
     def test_includes_rate_distortion(self, quality_json_file: Path):
         figures = generate_study_figures(quality_json_file)
-        bpp_keys = [k for k in figures if "bytes_per_pixel" in k]
+        bpp_keys = [k for k in figures if "bits_per_pixel" in k]
         assert len(bpp_keys) > 0
 
     def test_includes_quality_metrics(self, quality_json_file: Path):
@@ -200,7 +200,7 @@ class TestGenerateStudyFigures:
         # Rate-distortion should have grouped traces
         # With 3 formats and 2 qualities: x_param=format (3 unique),
         # secondary=quality (2 unique). Groups by quality: 2 groups × 2 traces = 4
-        rd_keys = [k for k in figures if "ssimulacra2_vs_bytes_per_pixel" in k]
+        rd_keys = [k for k in figures if "ssimulacra2_vs_bits_per_pixel" in k]
         if rd_keys:
             fig = figures[rd_keys[0]]
             assert len(fig.data) == 4

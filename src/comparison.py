@@ -350,16 +350,22 @@ def _build_metric_label(measurement: dict) -> str:
         measurement: Measurement dictionary
 
     Returns:
-        Label string like "SSIM2: 75.5 | Butteraugli: 2.5"
+        Label string like "SSIM2:75.5 BA:2.5 BPP:0.80"
     """
     parts = []
     if measurement.get("ssimulacra2") is not None:
         parts.append(f"SSIM2:{measurement['ssimulacra2']:.1f}")
     if measurement.get("butteraugli") is not None:
         parts.append(f"BA:{measurement['butteraugli']:.2f}")
-    if measurement.get("file_size") is not None:
-        size_kb = measurement["file_size"] / 1024
-        parts.append(f"{size_kb:.0f}KB")
+    bits_per_pixel = measurement.get("bits_per_pixel")
+    if bits_per_pixel is None:
+        file_size = measurement.get("file_size")
+        width = measurement.get("width")
+        height = measurement.get("height")
+        if file_size is not None and width and height:
+            bits_per_pixel = 8 * file_size / (width * height)
+    if bits_per_pixel is not None:
+        parts.append(f"BPP:{bits_per_pixel:.3g}")
     return " ".join(parts)
 
 
@@ -367,16 +373,16 @@ def _format_figure_title(metric: str, value: float) -> str:
     """Format a human-readable figure title from a metric name and target value.
 
     Args:
-        metric: Metric identifier (e.g. ``"ssimulacra2"``, ``"bytes_per_pixel"``).
+        metric: Metric identifier (e.g. ``"ssimulacra2"``, ``"bits_per_pixel"``).
         value: Target value for the metric.
 
     Returns:
         Title string like ``"Target: SSIMULACRA2 = 75"`` or
-        ``"Target: Bytes per pixel = 0.10"``.
+        ``"Target: BPP = 0.10"``.
     """
     _NAMES = {
         "ssimulacra2": "SSIMULACRA2",
-        "bytes_per_pixel": "Bytes per pixel",
+        "bits_per_pixel": "BPP",
         "psnr": "PSNR",
         "ssim": "SSIM",
         "butteraugli": "Butteraugli",
@@ -932,7 +938,7 @@ def generate_comparison(
     """Generate visual comparison images using interpolation-based matching.
 
     For each target group defined in the study configuration (e.g.
-    ``ssimulacra2=[60,70,80]`` or ``bytes_per_pixel=[0.1,0.3,0.5]``),
+    ``ssimulacra2=[60,70,80]`` or ``bits_per_pixel=[0.8,2.4,4.0]``),
     this function:
 
     1. Selects the source image with highest cross-format coefficient of
@@ -1053,12 +1059,13 @@ def generate_comparison(
             # group may select a different source image.
             preprocess_cache: dict[int, Path] = {}
             crop_cache: dict[int, tuple[Path, dict, dict | None]] = {}
+            _af_frag: dict[str, int] | None = None
             target_metric: str = target_group["metric"]
             target_values: list[float] = target_group["values"]
 
             # Output metric for image selection (the "other" metric)
             if target_metric in ("ssimulacra2", "psnr", "ssim", "butteraugli"):
-                output_metric = "bytes_per_pixel"
+                output_metric = "bits_per_pixel"
             else:
                 output_metric = "ssimulacra2"
 
@@ -1304,6 +1311,10 @@ def generate_comparison(
                             with Image.open(tile_ref_path) as _img:
                                 enc_measurement["width"] = _img.width
                                 enc_measurement["height"] = _img.height
+                            enc_measurement["bits_per_pixel"] = (
+                                8 * enc_measurement["file_size"]
+                                / (enc_measurement["width"] * enc_measurement["height"])
+                            )
 
                             # Measure quality metrics and generate the distortion map
                             # directly from the encoded file.  The encoded file already
@@ -1455,9 +1466,9 @@ def generate_comparison(
                             continue
 
                         aggregate_map = np.stack(per_value_aniso_maps, axis=0).mean(axis=0)
-                        region = find_worst_region_in_array(
-                            aggregate_map, crop_size=config.crop_size
-                        )
+                        if aggregate_map is None:
+                            continue
+                        region = find_worst_region_in_array(aggregate_map, crop_size=config.crop_size)
 
                     print(
                         f"  [{group_label}] Shared region: ({region.x}, {region.y}) "

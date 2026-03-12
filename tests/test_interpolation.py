@@ -78,12 +78,12 @@ class TestCollectQualityMetricPairs:
         pairs = _collect_quality_metric_pairs([m], "jpeg", "ssimulacra2")
         assert pairs == []
 
-    def test_bytes_per_pixel(self) -> None:
-        # 100×100 image, file_size=1000 → bpp = 0.1
+    def test_bits_per_pixel(self) -> None:
+        # 100×100 image, file_size=1000 → bpp = 0.8
         ms = [_make_m("jpeg", 50, 55.0, 1000), _make_m("jpeg", 80, 75.0, 2000)]
-        pairs = _collect_quality_metric_pairs(ms, "jpeg", "bytes_per_pixel")
-        assert pairs[0][1] == pytest.approx(0.1)
-        assert pairs[1][1] == pytest.approx(0.2)
+        pairs = _collect_quality_metric_pairs(ms, "jpeg", "bits_per_pixel")
+        assert pairs[0][1] == pytest.approx(0.8)
+        assert pairs[1][1] == pytest.approx(1.6)
 
     def test_averages_duplicate_quality_levels(self) -> None:
         ms = [
@@ -128,10 +128,10 @@ class TestInterpolateTarget:
         assert _interpolate_target(points, 110.0) is None
 
     def test_descending_metric(self) -> None:
-        # bytes-per-pixel decreases as quality setting increases (unusual but valid)
-        points = [(30.0, 0.5), (80.0, 0.1)]
-        # target 0.3 is between 0.5 and 0.1 → quality ~55
-        result = _interpolate_target(points, 0.3)
+        # bits-per-pixel decreases as quality setting increases (unusual but valid)
+        points = [(30.0, 4.0), (80.0, 0.8)]
+        # target 2.4 is between 4.0 and 0.8 → quality ~55
+        result = _interpolate_target(points, 2.4)
         assert result is not None
         assert 30.0 < result < 80.0
 
@@ -263,21 +263,21 @@ class TestComputeCrossFormatCV:
     """Tests for compute_cross_format_cv (coefficient-of-variation image selector)."""
 
     def _two_format_measurements(self) -> list[dict]:
-        """jpeg bpp=0.1 and avif bpp=0.3 at ssimulacra2=70."""
+        """jpeg bpp=0.8 and avif bpp=2.4 at ssimulacra2=70."""
         # At q=50, ssim=60; at q=80, ssim=80 → target 70 → quality≈65
-        # jpeg: file_size gives bpp=0.1 at q=50, bpp=0.2 at q=80
-        # avif: file_size gives bpp=0.3 at q=50, bpp=0.6 at q=80
+        # jpeg: file_size gives bpp=0.8 at q=50, bpp=1.6 at q=80
+        # avif: file_size gives bpp=2.4 at q=50, bpp=4.8 at q=80
         return [
-            _make_m("jpeg", 50, 60.0, 1000),  # bpp=0.10
-            _make_m("jpeg", 80, 80.0, 2000),  # bpp=0.20
-            _make_m("avif", 50, 60.0, 3000),  # bpp=0.30
-            _make_m("avif", 80, 80.0, 6000),  # bpp=0.60
+            _make_m("jpeg", 50, 60.0, 1000),  # bpp=0.8
+            _make_m("jpeg", 80, 80.0, 2000),  # bpp=1.6
+            _make_m("avif", 50, 60.0, 3000),  # bpp=2.4
+            _make_m("avif", 80, 80.0, 6000),  # bpp=4.8
         ]
 
     def test_returns_positive_cv(self) -> None:
         ms = self._two_format_measurements()
         cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bytes_per_pixel"
+            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
         )
         assert cv is not None
         assert cv > 0.0
@@ -286,26 +286,26 @@ class TestComputeCrossFormatCV:
         """Verify the CV arithmetic manually."""
         ms = self._two_format_measurements()
         cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bytes_per_pixel"
+            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
         )
         # At ssim=70 (midpoint between 60 and 80) → quality=65
-        # jpeg bpp at q=65: lerp(0.1,0.2) = 0.15
-        # avif bpp at q=65: lerp(0.3,0.6) = 0.45
-        # mean = 0.3, std = sqrt(((0.15-0.3)^2+(0.45-0.3)^2)/2) = 0.15
-        # CV = 0.15/0.3 = 0.5
+        # jpeg bpp at q=65: lerp(0.8,1.6) = 1.2
+        # avif bpp at q=65: lerp(2.4,4.8) = 3.6
+        # mean = 2.4, std = sqrt(((1.2-2.4)^2+(3.6-2.4)^2)/2) = 1.2
+        # CV = 1.2/2.4 = 0.5
         assert cv == pytest.approx(0.5, rel=1e-4)
 
     def test_returns_none_when_only_one_format(self) -> None:
         ms = [_make_m("jpeg", 50, 60.0, 1000), _make_m("jpeg", 80, 80.0, 2000)]
         cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bytes_per_pixel"
+            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
         )
         assert cv is None
 
     def test_returns_none_when_target_out_of_range(self) -> None:
         ms = self._two_format_measurements()
         cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 99.0, "bytes_per_pixel"
+            ms, "img.png", "format", "ssimulacra2", 99.0, "bits_per_pixel"
         )
         assert cv is None
 
@@ -317,22 +317,22 @@ class TestComputeCrossFormatCV:
             _make_m("avif", 50, 60.0, 0),
             _make_m("avif", 80, 80.0, 0),
         ]
-        # bytes_per_pixel will be 0 → mean=0 → CV undefined → None
+        # bits_per_pixel will be 0 → mean=0 → CV undefined → None
         cv = compute_cross_format_cv(
-            ms, "img.png", "format", "ssimulacra2", 70.0, "bytes_per_pixel"
+            ms, "img.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
         )
         assert cv is None
 
     def test_higher_spread_gives_higher_cv(self) -> None:
         """Image with more format-spread produces higher CV than one with less spread."""
-        # Low-spread image: jpeg ~0.2 bpp, avif ~0.22 bpp at target ssim
+        # Low-spread image: jpeg ~1.6 bpp, avif ~1.76 bpp at target ssim
         low = [
             _make_m("jpeg", 50, 60.0, 2000, "low.png"),
             _make_m("jpeg", 80, 80.0, 4000, "low.png"),
             _make_m("avif", 50, 60.0, 2200, "low.png"),
             _make_m("avif", 80, 80.0, 4400, "low.png"),
         ]
-        # High-spread image: jpeg ~0.1 bpp, avif ~0.5 bpp at target ssim
+        # High-spread image: jpeg ~0.8 bpp, avif ~4.0 bpp at target ssim
         high = [
             _make_m("jpeg", 50, 60.0, 1000, "high.png"),
             _make_m("jpeg", 80, 80.0, 2000, "high.png"),
@@ -340,10 +340,10 @@ class TestComputeCrossFormatCV:
             _make_m("avif", 80, 80.0, 10000, "high.png"),
         ]
         cv_low = compute_cross_format_cv(
-            low, "low.png", "format", "ssimulacra2", 70.0, "bytes_per_pixel"
+            low, "low.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
         )
         cv_high = compute_cross_format_cv(
-            high, "high.png", "format", "ssimulacra2", 70.0, "bytes_per_pixel"
+            high, "high.png", "format", "ssimulacra2", 70.0, "bits_per_pixel"
         )
         assert cv_low is not None
         assert cv_high is not None
@@ -358,8 +358,8 @@ class TestComputeCrossFormatCV:
 class TestSelectBestImage:
     def test_selects_image_with_higher_cv(self) -> None:
         """Image with greater cross-format spread (relative to mean) is selected."""
-        # low-spread image1: jpeg bpp≈0.2, avif bpp≈0.22
-        # high-spread image2: jpeg bpp≈0.1, avif bpp≈0.5
+        # low-spread image1: jpeg bpp≈1.6, avif bpp≈1.76
+        # high-spread image2: jpeg bpp≈0.8, avif bpp≈4.0
         ms = [
             _make_m("jpeg", 50, 60.0, 2000, "img1.png"),
             _make_m("jpeg", 80, 80.0, 4000, "img1.png"),
@@ -370,11 +370,11 @@ class TestSelectBestImage:
             _make_m("avif", 50, 60.0, 5000, "img2.png"),
             _make_m("avif", 80, 80.0, 10000, "img2.png"),
         ]
-        result = select_best_image(ms, "format", "ssimulacra2", [70.0], "bytes_per_pixel")
+        result = select_best_image(ms, "format", "ssimulacra2", [70.0], "bits_per_pixel")
         assert result == "img2.png"
 
     def test_returns_none_when_no_valid_measurements(self) -> None:
-        result = select_best_image([], "format", "ssimulacra2", [70.0], "bytes_per_pixel")
+        result = select_best_image([], "format", "ssimulacra2", [70.0], "bits_per_pixel")
         assert result is None
 
     def test_excludes_images_by_basename(self) -> None:
@@ -389,7 +389,7 @@ class TestSelectBestImage:
             _make_m("avif", 80, 80.0, 4400, "img2.png"),
         ]
         result = select_best_image(
-            ms, "format", "ssimulacra2", [70.0], "bytes_per_pixel", exclude_images=["img1.png"]
+            ms, "format", "ssimulacra2", [70.0], "bits_per_pixel", exclude_images=["img1.png"]
         )
         assert result == "img2.png"
 
@@ -399,6 +399,6 @@ class TestSelectBestImage:
             _make_m("jpeg", 80, 80.0, 2000, "img1.png"),
         ]
         result = select_best_image(
-            ms, "format", "ssimulacra2", [70.0], "bytes_per_pixel", exclude_images=["img1.png"]
+            ms, "format", "ssimulacra2", [70.0], "bits_per_pixel", exclude_images=["img1.png"]
         )
         assert result is None

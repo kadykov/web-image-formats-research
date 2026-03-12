@@ -21,10 +21,10 @@ and writes outputs to `data/analysis/format-comparison/`.
   and sweep parameters
 - **Quality plots (SVG)** — SSIMULACRA2, PSNR, SSIM, Butteraugli vs the
   sweep parameter, showing mean and 5th-percentile (worst case)
-- **Rate-distortion plots (SVG)** — quality metrics vs bytes per pixel,
+- **Rate-distortion plots (SVG)** — quality metrics vs bits per pixel,
   grouped by format
-- **Efficiency plots (SVG)** — bytes per quality unit per pixel
-- **Bytes-per-pixel plots (SVG)** — file size distribution with percentile bands
+- **Efficiency plots (SVG)** — bits per quality unit per pixel
+- **Bits-per-pixel plots (SVG)** — file size distribution with percentile bands
 
 All plots are SVG vector graphics, suitable for papers and presentations.
 

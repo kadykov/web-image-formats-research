@@ -21,12 +21,12 @@ with a focus on AVIF and comparative analysis against JPEG, WebP, and JPEG XL.
 **SSIMULACRA2** — AVIF and JPEG XL deliver comparable perceptual quality at
 significantly lower file sizes than WebP and JPEG:
 
-![Format comparison — SSIMULACRA2 vs bytes per pixel](https://github.kadykov.com/web-image-formats-research/report/data/format-comparison/format-comparison_ssimulacra2_vs_bytes_per_pixel.svg)
+![Format comparison — SSIMULACRA2 vs bits per pixel](https://github.kadykov.com/web-image-formats-research/report/data/format-comparison/format-comparison_ssimulacra2_vs_bits_per_pixel.svg)
 
 **Butteraugli** — under this distortion model JPEG XL consistently edges ahead
 of AVIF, highlighting how metric choice affects codec rankings:
 
-![Format comparison — Butteraugli vs bytes per pixel](https://github.kadykov.com/web-image-formats-research/report/data/format-comparison/format-comparison_butteraugli_vs_bytes_per_pixel.svg)
+![Format comparison — Butteraugli vs bits per pixel](https://github.kadykov.com/web-image-formats-research/report/data/format-comparison/format-comparison_butteraugli_vs_bits_per_pixel.svg)
 
 See the [full interactive report](https://github.kadykov.com/web-image-formats-research/report/)
 for all studies and metrics.

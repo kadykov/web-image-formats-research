@@ -49,7 +49,7 @@ class StudyConfig:
 
     Each entry is a dict with ``"metric"`` (str) and ``"values"`` (list[float]).
     Supported metrics: ``ssimulacra2``, ``psnr``, ``ssim``, ``butteraugli``,
-    ``bytes_per_pixel``.
+    ``bits_per_pixel``.
 
     The comparison script interpolates encoder quality settings to produce
     figures at each target value.

@@ -66,7 +66,7 @@ Runs encode + measure for each image with time-budget control.
 Computes statistics and generates static matplotlib plots.
 
 - `load_quality_results()` — load quality.json
-- `create_analysis_dataframe()` — build DataFrame with derived metrics (bytes_per_pixel, compression_ratio, efficiency)
+- `create_analysis_dataframe()` — build DataFrame with derived metrics (bits_per_pixel, compression_ratio, efficiency)
 - `compute_statistics()` — mean, min, max, percentiles (5/25/50/75/95)
 - `determine_sweep_parameter()`, `determine_secondary_sweep_parameter()` — auto-detect what varies
 - `plot_quality_metrics()`, `plot_rate_distortion()` — SVG output with mean + worst-case lines

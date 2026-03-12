@@ -38,7 +38,7 @@
         },
         "targets": {
           "type": "array",
-          "description": "Target metric values for comparison figure generation. Each entry specifies a metric and a list of target values at which comparison figures should be produced. For quality metrics (ssimulacra2, psnr, ssim, butteraugli), the comparison script interpolates encoder quality settings to match each target. For bytes_per_pixel, it interpolates to match target file size ratios.",
+          "description": "Target metric values for comparison figure generation. Each entry specifies a metric and a list of target values at which comparison figures should be produced. For quality metrics (ssimulacra2, psnr, ssim, butteraugli), the comparison script interpolates encoder quality settings to match each target. For bits_per_pixel, it interpolates to match target bit-rate ratios.",
           "items": {
             "type": "object",
             "required": ["metric", "values"],
@@ -46,7 +46,7 @@
               "metric": {
                 "type": "string",
                 "description": "The metric to target.",
-                "enum": ["ssimulacra2", "psnr", "ssim", "butteraugli", "bytes_per_pixel"]
+                "enum": ["ssimulacra2", "psnr", "ssim", "butteraugli", "bits_per_pixel"]
               },
               "values": {
                 "type": "array",
@@ -256,7 +256,7 @@
             ]
           },
           "crop": {
-            "description": "Target crop sizes (longest edge in pixels) to sweep. Each value produces a cropped copy of the source image centered on the most distorted analysis fragment. Quality metrics are measured only on the fixed-size analysis fragment while bytes-per-pixel uses the full cropped image dimensions. Cannot be combined with 'resolution' on the same encoder.",
+            "description": "Target crop sizes (longest edge in pixels) to sweep. Each value produces a cropped copy of the source image centered on the most distorted analysis fragment. Quality metrics are measured only on the fixed-size analysis fragment while bits-per-pixel uses the full cropped image dimensions. Cannot be combined with 'resolution' on the same encoder.",
             "oneOf": [
               {
                 "type": "integer",

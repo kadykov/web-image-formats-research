@@ -2,7 +2,7 @@
 
 This module provides functions to estimate encoder quality settings that
 produce a desired output metric value (e.g., SSIMULACRA2 = 70 or
-bytes_per_pixel = 0.3) using linear interpolation between measured data
+bits_per_pixel = 0.3) using linear interpolation between measured data
 points from the pipeline.
 
 The typical workflow is:
@@ -68,8 +68,8 @@ def interpolate_quality_for_metric(
     other encoder parameters), builds sorted ``(quality, metric_value)``
     pairs, and linearly interpolates.
 
-    For ``bytes_per_pixel`` the metric value is computed from
-    ``file_size / (width * height)``.
+    For ``bits_per_pixel`` the metric value is computed from
+    ``8 * file_size / (width * height)``.
 
     Args:
         measurements: List of measurement dicts (from ``quality.json``).
@@ -212,7 +212,7 @@ def compute_cross_format_cv(
         tile_param: Parameter that varies within comparison tiles (e.g. "format").
         target_metric: Metric being targeted (e.g. "ssimulacra2").
         target_value: Target value of target_metric.
-        output_metric: Metric whose CV we compute (e.g. "bytes_per_pixel").
+        output_metric: Metric whose CV we compute (e.g. "bits_per_pixel").
 
     Returns:
         CV (std / mean) of output_metric across tile-param values, or
@@ -392,12 +392,12 @@ def _collect_quality_metric_pairs(
             continue
 
         # Compute metric value
-        if metric == "bytes_per_pixel":
+        if metric == "bits_per_pixel":
             w = m.get("width", 0)
             h = m.get("height", 0)
             fs = m.get("file_size", 0)
             if w > 0 and h > 0 and fs > 0:
-                val = fs / (w * h)
+                val = 8 * fs / (w * h)
             else:
                 continue
         else:

@@ -78,7 +78,7 @@ class ComparisonImageSet:
     """All optimised images for one target metric group.
 
     Each set corresponds to one metric subdirectory (e.g.
-    ``ssimulacra2/`` or ``bytes_per_pixel/``).  Within that directory
+    ``ssimulacra2/`` or ``bits_per_pixel/``).  Within that directory
     there is one annotated original and one aggregate distortion map,
     plus one fragment grid and one distmap grid per target value.
 
@@ -458,7 +458,7 @@ def discover_and_optimise(
     The expected directory layout is::
 
         comparison/
-            <metric>/               # e.g. ssimulacra2/, bytes_per_pixel/
+            <metric>/               # e.g. ssimulacra2/, bits_per_pixel/
                 comparison_60.webp
                 distortion_map_comparison_60.webp
                 distortion_map_anisotropic.webp
