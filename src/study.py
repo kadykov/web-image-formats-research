@@ -150,9 +150,7 @@ class StudyConfig:
             analysis_group_by=analysis.get("group_by"),
             comparison_exclude_images=comparison.get("exclude_images"),
             analysis_fragment_size=data.get("analysis_fragment_size"),
-            crop_too_small_strategy=data.get(
-                "crop_too_small_strategy", "skip_image"
-            ),
+            crop_too_small_strategy=data.get("crop_too_small_strategy", "skip_image"),
         )
 
 

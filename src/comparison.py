@@ -53,7 +53,14 @@ from src.interpolation import (
     interpolate_quality_for_metric,
     select_best_image,
 )
-from src.quality import QualityMeasurer, WorstRegion, extract_fragment, find_worst_region_in_array, read_pfm, to_png
+from src.quality import (
+    QualityMeasurer,
+    WorstRegion,
+    extract_fragment,
+    find_worst_region_in_array,
+    read_pfm,
+    to_png,
+)
 
 
 @dataclass
@@ -726,7 +733,8 @@ def _resolve_source_for_crop(
     def _matches_image(m: dict) -> bool:
         if selected_image is None:
             return True
-        return m.get("original_image", m.get("source_image", "")) == selected_image
+        img_path: str = m.get("original_image", m.get("source_image", ""))
+        return img_path == selected_image
 
     example = next(
         (
@@ -765,8 +773,8 @@ def _resolve_source_for_crop(
         cache[crop_level] = (result.path, result.crop_region, analysis_fragment)
         return cache[crop_level]
 
-    crop_region = example["crop_region"]
-    analysis_fragment = example.get("analysis_fragment")
+    crop_region: dict[str, int] = example["crop_region"]
+    source_analysis_fragment: dict[str, int] | None = example.get("analysis_fragment")
 
     from PIL import Image as _PILImg
 
@@ -782,7 +790,7 @@ def _resolve_source_for_crop(
             cropped = _im.crop((cx, cy, cx + cw, cy + ch))
             cropped.save(crop_path)
 
-    cache[crop_level] = (crop_path, crop_region, analysis_fragment)
+    cache[crop_level] = (crop_path, crop_region, source_analysis_fragment)
     return cache[crop_level]
 
 
@@ -810,13 +818,15 @@ def _analysis_fragment_in_original(
     """
     # Try crop_cache entries (crop_region is in original coords,
     # analysis_fragment is in crop coords).
-    for _crop_level, (_, cr, af) in crop_cache.items():
+    for _crop_level, (_path, cr, af) in crop_cache.items():
         if cr is not None and af is not None:
+            cr_dict: dict[str, int] = cr
+            af_dict: dict[str, int] = af
             return {
-                "x": cr["x"] + af["x"],
-                "y": cr["y"] + af["y"],
-                "width": af["width"],
-                "height": af["height"],
+                "x": cr_dict["x"] + af_dict["x"],
+                "y": cr_dict["y"] + af_dict["y"],
+                "width": af_dict["width"],
+                "height": af_dict["height"],
             }
 
     # Fallback: scan measurements for crop_region + analysis_fragment,
@@ -826,14 +836,14 @@ def _analysis_fragment_in_original(
             img = m.get("original_image", m.get("source_image", ""))
             if img != selected_image:
                 continue
-        cr = m.get("crop_region")
-        af = m.get("analysis_fragment")
-        if cr is not None and af is not None:
+        crop_region_m: dict[str, int] | None = m.get("crop_region")
+        analysis_fragment_m: dict[str, int] | None = m.get("analysis_fragment")
+        if crop_region_m is not None and analysis_fragment_m is not None:
             return {
-                "x": cr["x"] + af["x"],
-                "y": cr["y"] + af["y"],
-                "width": af["width"],
-                "height": af["height"],
+                "x": crop_region_m["x"] + analysis_fragment_m["x"],
+                "y": crop_region_m["y"] + analysis_fragment_m["y"],
+                "width": analysis_fragment_m["width"],
+                "height": analysis_fragment_m["height"],
             }
 
     return None
@@ -1039,15 +1049,15 @@ def generate_comparison(
     crop_varies = "crop" in varying
     unique_crops: list[int | None]
     if crop_varies and tile_param != "crop":
-        unique_crops = sorted(
-            {m.get("crop") for m in measurements if m.get("crop") is not None}
-        )
+        unique_crops = sorted({m.get("crop") for m in measurements if m.get("crop") is not None})
     else:
         unique_crops = [None]
 
-    intra_res_varying = [
-        p for p in varying if p not in ("resolution", "crop")
-    ] if (resolution_varies or crop_varies) else varying
+    intra_res_varying = (
+        [p for p in varying if p not in ("resolution", "crop")]
+        if (resolution_varies or crop_varies)
+        else varying
+    )
 
     target_results: list[TargetComparisonResult] = []
 
@@ -1152,13 +1162,11 @@ def generate_comparison(
                     level_measurements = measurements
                     if resolution is not None:
                         level_measurements = [
-                            m for m in level_measurements
-                            if m.get("resolution") == resolution
+                            m for m in level_measurements if m.get("resolution") == resolution
                         ]
                     if crop_level is not None:
                         level_measurements = [
-                            m for m in level_measurements
-                            if m.get("crop") == crop_level
+                            m for m in level_measurements if m.get("crop") == crop_level
                         ]
 
                     # Build group label
@@ -1174,7 +1182,9 @@ def generate_comparison(
                     # ----------------------------------------------------------
                     # per_value_data[target_value] = list of (enc_path, measurement, dm_arr)
                     # enc_path is None for placeholder entries (quality out of range).
-                    per_value_data: dict[float, list[tuple[Path | None, dict, np.ndarray | None]]] = {}
+                    per_value_data: dict[
+                        float, list[tuple[Path | None, dict, np.ndarray | None]]
+                    ] = {}
                     per_value_qualities: dict[float, dict[str, float]] = {}
 
                     for target_value in target_values:
@@ -1312,7 +1322,8 @@ def generate_comparison(
                                 enc_measurement["width"] = _img.width
                                 enc_measurement["height"] = _img.height
                             enc_measurement["bits_per_pixel"] = (
-                                8 * enc_measurement["file_size"]
+                                8
+                                * enc_measurement["file_size"]
                                 / (enc_measurement["width"] * enc_measurement["height"])
                             )
 
@@ -1334,23 +1345,17 @@ def generate_comparison(
                             if tile_param == "crop":
                                 _tile_cache_entry = crop_cache.get(int(tv))
                                 _af = (
-                                    _tile_cache_entry[2]
-                                    if _tile_cache_entry is not None
-                                    else None
+                                    _tile_cache_entry[2] if _tile_cache_entry is not None else None
                                 )
                                 if _af is not None:
-                                    _frag_dir = (
-                                        work / "fragments" / target_label / f"crop-{tv}"
-                                    )
+                                    _frag_dir = work / "fragments" / target_label / f"crop-{tv}"
                                     _frag_dir.mkdir(parents=True, exist_ok=True)
                                     _fx, _fy = _af["x"], _af["y"]
                                     _fw, _fh = _af["width"], _af["height"]
 
                                     _frag_ref = _frag_dir / f"ref_q{rounded_q}.png"
                                     with Image.open(tile_ref_path) as _rim:
-                                        _rim.crop(
-                                            (_fx, _fy, _fx + _fw, _fy + _fh)
-                                        ).save(_frag_ref)
+                                        _rim.crop((_fx, _fy, _fx + _fw, _fy + _fh)).save(_frag_ref)
                                     measure_ref_path = _frag_ref
 
                                     _frag_enc = _frag_dir / f"enc_{fmt}_q{rounded_q}.png"
@@ -1403,13 +1408,13 @@ def generate_comparison(
                         # image so that crop-and-zoom works across different
                         # crop levels.
                         _af_frag = _analysis_fragment_in_original(
-                            crop_cache, measurements,
+                            crop_cache,
+                            measurements,
                             selected_image=selected_image,
                         )
                         if _af_frag is None:
                             print(
-                                f"  [{group_label}] No analysis fragment info "
-                                f"available, skipping"
+                                f"  [{group_label}] No analysis fragment info available, skipping"
                             )
                             continue
                         # Center the comparison crop within the analysis fragment
@@ -1468,7 +1473,9 @@ def generate_comparison(
                         aggregate_map = np.stack(per_value_aniso_maps, axis=0).mean(axis=0)
                         if aggregate_map is None:
                             continue
-                        region = find_worst_region_in_array(aggregate_map, crop_size=config.crop_size)
+                        region = find_worst_region_in_array(
+                            aggregate_map, crop_size=config.crop_size
+                        )
 
                     print(
                         f"  [{group_label}] Shared region: ({region.x}, {region.y}) "
@@ -1508,9 +1515,7 @@ def generate_comparison(
                     _annot_af: dict[str, int] | None = None
                     _annot_crop_regions: dict[int, dict] | None = None
                     if tile_param == "crop":
-                        _annot_af = (
-                            _af_frag if _af_frag is not None else None  # type: ignore[possibly-undefined]
-                        )
+                        _annot_af = _af_frag if _af_frag is not None else None
                         _annot_crop_regions = {
                             lvl: entry[1]
                             for lvl, entry in crop_cache.items()
@@ -1533,7 +1538,9 @@ def generate_comparison(
                         interpolated_qualities = per_value_qualities[target_value]
 
                         # If there are no real encoded images (placeholders only), skip.
-                        if not encoded_variants or all(enc_path is None for enc_path, _, _ in encoded_variants):
+                        if not encoded_variants or all(
+                            enc_path is None for enc_path, _, _ in encoded_variants
+                        ):
                             print(
                                 f"  [{group_label}/{target_value}] "
                                 f"No valid variants produced (only placeholders), skipping"
@@ -1588,9 +1595,11 @@ def generate_comparison(
                             # image coordinates to crop coordinates.
                             variant_region = region
                             if tile_param == "crop" and m.get("crop") is not None:
-                                tile_cr = crop_cache.get(m["crop"])
-                                if tile_cr is not None:
-                                    cr_dict = tile_cr[1]  # crop_region dict
+                                tile_cr_entry: tuple[Path, dict, dict | None] | None = (
+                                    crop_cache.get(m["crop"])
+                                )
+                                if tile_cr_entry is not None:
+                                    cr_dict: dict = tile_cr_entry[1]  # crop_region dict
                                     variant_region = WorstRegion(
                                         x=region.x - cr_dict["x"],
                                         y=region.y - cr_dict["y"],
@@ -1640,9 +1649,7 @@ def generate_comparison(
                                 if tile_param == "crop" and _af_frag is not None:
                                     _ox, _oy = _af_frag["x"], _af_frag["y"]
                                     _ow, _oh = _af_frag["width"], _af_frag["height"]
-                                    _frag_img = _src.crop(
-                                        (_ox, _oy, _ox + _ow, _oy + _oh)
-                                    )
+                                    _frag_img = _src.crop((_ox, _oy, _ox + _ow, _oy + _oh))
                                     _frag_img.convert("RGB").resize(
                                         (target_side, target_side),
                                         Image.Resampling.LANCZOS,
@@ -1669,9 +1676,7 @@ def generate_comparison(
                                         color=(255, 255, 255),
                                     ).save(thumb_path)
                                     distmap_crop_entries.append((thumb_path, dm_label, ""))
-                                    distmap_placeholder_indices.add(
-                                        len(distmap_crop_entries) - 1
-                                    )
+                                    distmap_placeholder_indices.add(len(distmap_crop_entries) - 1)
                                 else:
                                     _render_distmap_thumbnail(
                                         dm_arr_entry,
@@ -1681,7 +1686,9 @@ def generate_comparison(
                                     )
                                     distmap_crop_entries.append((thumb_path, dm_label, dm_metric))
 
-                            dm_grid_path = group_dir / f"distortion_map_comparison_{value_suffix}.webp"
+                            dm_grid_path = (
+                                group_dir / f"distortion_map_comparison_{value_suffix}.webp"
+                            )
                             assemble_comparison_grid(
                                 distmap_crop_entries,
                                 dm_grid_path,

@@ -154,9 +154,7 @@ class TestCropImageAroundFragment:
         fragment = {"x": 10, "y": 10, "width": 80, "height": 80}
 
         with pytest.raises(ValueError, match="does not fit"):
-            preprocessor.crop_image_around_fragment(
-                src, fragment=fragment, target_longest_edge=100
-            )
+            preprocessor.crop_image_around_fragment(src, fragment=fragment, target_longest_edge=100)
 
     def test_adjust_aspect_ratio_expands_crop(self, tmp_path: Path) -> None:
         """adjust_aspect_ratio=True expands crop to fit fragment."""
@@ -167,7 +165,9 @@ class TestCropImageAroundFragment:
         fragment = {"x": 10, "y": 10, "width": 80, "height": 80}
 
         result = preprocessor.crop_image_around_fragment(
-            src, fragment=fragment, target_longest_edge=100,
+            src,
+            fragment=fragment,
+            target_longest_edge=100,
             adjust_aspect_ratio=True,
         )
 
