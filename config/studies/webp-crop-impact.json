@@ -12,7 +12,7 @@
     "targets": [
       { "metric": "ssimulacra2", "values": [65, 70, 75, 80, 85, 90] },
       { "metric": "butteraugli", "values": [2.0, 2.5, 3.0, 3.5] },
-      { "metric": "bits_per_pixel", "values": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0] }
+      { "metric": "bits_per_pixel", "values": [0.3, 0.35, 0.4, 0.5, 0.6, 0.8, 1.0, 1.4, 1.6, 2.4, 3.2, 4.8, 6.4] }
     ],
     "exclude_images": ["0828.png"]
   },
