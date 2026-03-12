@@ -612,6 +612,8 @@ def _resolve_source_for_crop(
     measurements: list[dict],
     cache: dict[int, tuple[Path, dict, dict | None]],
     tmpdir: Path,
+    *,
+    selected_image: str | None = None,
 ) -> tuple[Path, dict | None, dict | None]:
     """Get the correct source image for a given crop level.
 
@@ -625,6 +627,11 @@ def _resolve_source_for_crop(
         measurements: Measurement dicts from the quality results.
         cache: Mutable dict mapping crop level to (path, crop_region, analysis_fragment).
         tmpdir: Temporary directory for cropped copies.
+        selected_image: When provided, only measurements whose
+            ``original_image`` (or ``source_image``) matches this value
+            are considered.  This prevents using crop regions computed
+            for a different image (which would have wrong coordinates
+            and a different aspect ratio).
 
     Returns:
         Tuple of (source_path, crop_region_dict, analysis_fragment_dict).
@@ -634,12 +641,21 @@ def _resolve_source_for_crop(
     if crop_level in cache:
         return cache[crop_level]
 
-    # Find a measurement with this crop level that has crop_region info
+    # Find a measurement with this crop level that has crop_region info,
+    # restricted to the selected image so we don't pick up coordinates
+    # from a different image with a different aspect ratio.
+    def _matches_image(m: dict) -> bool:
+        if selected_image is None:
+            return True
+        return m.get("original_image", m.get("source_image", "")) == selected_image
+
     example = next(
         (
             m
             for m in measurements
-            if m.get("crop") == crop_level and m.get("crop_region") is not None
+            if m.get("crop") == crop_level
+            and m.get("crop_region") is not None
+            and _matches_image(m)
         ),
         None,
     )
@@ -694,11 +710,20 @@ def _resolve_source_for_crop(
 def _analysis_fragment_in_original(
     crop_cache: dict[int, tuple[Path, dict, dict | None]],
     measurements: list[dict],
+    *,
+    selected_image: str | None = None,
 ) -> dict[str, int] | None:
     """Return the analysis fragment rectangle in original image coordinates.
 
     Checks the crop_cache first (populated by ``_resolve_source_for_crop``),
     then falls back to scanning measurements.
+
+    Args:
+        crop_cache: Crop level → (path, crop_region, analysis_fragment).
+        measurements: Measurement dicts from the quality results.
+        selected_image: When provided, only measurements whose
+            ``original_image`` (or ``source_image``) matches this value
+            are considered in the fallback scan.
 
     Returns:
         ``{"x", "y", "width", "height"}`` in original-image coordinates,
@@ -715,8 +740,13 @@ def _analysis_fragment_in_original(
                 "height": af["height"],
             }
 
-    # Fallback: scan measurements for crop_region + analysis_fragment.
+    # Fallback: scan measurements for crop_region + analysis_fragment,
+    # restricted to the selected image.
     for m in measurements:
+        if selected_image is not None:
+            img = m.get("original_image", m.get("source_image", ""))
+            if img != selected_image:
+                continue
         cr = m.get("crop_region")
         af = m.get("analysis_fragment")
         if cr is not None and af is not None:
@@ -1031,6 +1061,7 @@ def generate_comparison(
                             measurements,
                             crop_cache,
                             work / "prep",
+                            selected_image=selected_image,
                         )
                     else:
                         crop_source_path = res_source_path
@@ -1163,6 +1194,7 @@ def generate_comparison(
                                     measurements,
                                     crop_cache,
                                     work / "prep",
+                                    selected_image=selected_image,
                                 )
                                 # Do NOT set crop_region in enc_measurement:
                                 # tile_ref_path is already cropped and
@@ -1275,7 +1307,8 @@ def generate_comparison(
                         # image so that crop-and-zoom works across different
                         # crop levels.
                         _af_frag = _analysis_fragment_in_original(
-                            crop_cache, measurements
+                            crop_cache, measurements,
+                            selected_image=selected_image,
                         )
                         if _af_frag is None:
                             print(
