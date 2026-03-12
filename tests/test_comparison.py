@@ -14,11 +14,13 @@ from src.comparison import (
     ComparisonResult,
     TargetComparisonResult,
     WorstRegion,
+    _analysis_fragment_in_original,
     _anisotropic_std_map,
     _build_label,
     _build_metric_label,
     _default_tile_parameter,
     _render_distmap_thumbnail,
+    _resolve_source_for_crop,
     assemble_comparison_grid,
     crop_and_zoom,
     determine_varying_parameters,
@@ -1205,3 +1207,432 @@ class TestEffortSweepInterpolation:
         assert interpolated_qualities["1"] != interpolated_qualities["7"], (
             "Different efforts must produce different interpolated qualities"
         )
+
+
+# ---------------------------------------------------------------------------
+# _resolve_source_for_crop tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSourceForCrop:
+    """Tests for _resolve_source_for_crop image-filtering logic."""
+
+    def _make_crop_measurement(
+        self,
+        *,
+        original_image: str,
+        crop: int,
+        crop_region: dict[str, int],
+        analysis_fragment: dict[str, int] | None = None,
+    ) -> dict:
+        """Build a minimal measurement dict with crop_region info."""
+        return {
+            "source_image": original_image,
+            "original_image": original_image,
+            "format": "jpeg",
+            "quality": 50,
+            "file_size": 50000,
+            "width": crop_region["width"],
+            "height": crop_region["height"],
+            "source_file_size": 200000,
+            "ssimulacra2": 70.0,
+            "butteraugli": 3.0,
+            "crop": crop,
+            "crop_region": crop_region,
+            "analysis_fragment": analysis_fragment,
+            "measurement_error": None,
+        }
+
+    def test_filters_by_selected_image(self, tmp_path: Path) -> None:
+        """Must use crop_region from the selected image, not others."""
+        from tests.conftest import create_test_image
+
+        # Create two images with different aspect ratios
+        landscape = create_test_image(
+            tmp_path / "landscape.png", size=(2000, 1000)
+        )
+        portrait = create_test_image(
+            tmp_path / "portrait.png", size=(1000, 2000)
+        )
+
+        # Measurements from both images at crop level 800
+        measurements = [
+            self._make_crop_measurement(
+                original_image="data/datasets/test/landscape.png",
+                crop=800,
+                crop_region={"x": 100, "y": 0, "width": 800, "height": 400},
+                analysis_fragment={"x": 200, "y": 100, "width": 200, "height": 200},
+            ),
+            self._make_crop_measurement(
+                original_image="data/datasets/test/portrait.png",
+                crop=800,
+                crop_region={"x": 0, "y": 100, "width": 400, "height": 800},
+                analysis_fragment={"x": 100, "y": 200, "width": 200, "height": 200},
+            ),
+        ]
+
+        cache: dict[int, tuple[Path, dict, dict | None]] = {}
+
+        # Select portrait image — should use portrait's crop_region
+        _, crop_region, _ = _resolve_source_for_crop(
+            portrait,
+            800,
+            measurements,
+            cache,
+            tmp_path / "work",
+            selected_image="data/datasets/test/portrait.png",
+        )
+
+        assert crop_region is not None
+        # Portrait crop: width < height (400x800)
+        assert crop_region["width"] == 400
+        assert crop_region["height"] == 800
+
+    def test_wrong_image_without_filter(self, tmp_path: Path) -> None:
+        """Without selected_image filter, may pick wrong image's region."""
+        from tests.conftest import create_test_image
+
+        portrait = create_test_image(
+            tmp_path / "portrait.png", size=(1000, 2000)
+        )
+
+        # Landscape measurement listed first
+        measurements = [
+            self._make_crop_measurement(
+                original_image="data/datasets/test/landscape.png",
+                crop=800,
+                crop_region={"x": 100, "y": 0, "width": 800, "height": 400},
+            ),
+            self._make_crop_measurement(
+                original_image="data/datasets/test/portrait.png",
+                crop=800,
+                crop_region={"x": 0, "y": 100, "width": 400, "height": 800},
+            ),
+        ]
+
+        cache: dict[int, tuple[Path, dict, dict | None]] = {}
+
+        # Without filter — picks first match (landscape region, wrong for portrait)
+        _, crop_region, _ = _resolve_source_for_crop(
+            portrait,
+            800,
+            measurements,
+            cache,
+            tmp_path / "work",
+            # No selected_image
+        )
+
+        assert crop_region is not None
+        # Gets landscape's region (width > height), wrong for portrait
+        assert crop_region["width"] == 800
+        assert crop_region["height"] == 400
+
+    def test_fallback_when_no_stored_region(self, tmp_path: Path) -> None:
+        """Falls back to preprocessing when no measurement matches."""
+        from tests.conftest import create_test_image
+
+        img = create_test_image(
+            tmp_path / "img.png", size=(2000, 1000)
+        )
+
+        cache: dict[int, tuple[Path, dict, dict | None]] = {}
+
+        # No measurements at all
+        _, crop_region, _ = _resolve_source_for_crop(
+            img,
+            800,
+            [],
+            cache,
+            tmp_path / "work",
+            selected_image="data/datasets/test/img.png",
+        )
+
+        assert crop_region is not None
+        # 2000x1000, longest=2000, scale=800/2000=0.4
+        # crop_w = round(2000*0.4) = 800, crop_h = round(1000*0.4) = 400
+        assert crop_region["width"] == 800
+        assert crop_region["height"] == 400
+
+    def test_crop_preserves_aspect_ratio(self, tmp_path: Path) -> None:
+        """Crop region from stored data must preserve aspect ratio."""
+        from tests.conftest import create_test_image
+
+        img = create_test_image(
+            tmp_path / "img.png", size=(2040, 1356)
+        )
+
+        # Simulate pipeline-produced measurements for multiple crop levels
+        orig_w, orig_h = 2040, 1356
+        orig_longest = 2040
+        orig_ar = orig_w / orig_h
+        fragment = {"x": 500, "y": 400, "width": 200, "height": 200}
+
+        measurements = []
+        for crop_level in [1600, 1200, 800, 400]:
+            scale = crop_level / orig_longest
+            cw = max(1, round(orig_w * scale))
+            ch = max(1, round(orig_h * scale))
+            # Center fragment
+            frag_cx = fragment["x"] + fragment["width"] / 2
+            frag_cy = fragment["y"] + fragment["height"] / 2
+            cx = max(0, min(int(round(frag_cx - cw / 2)), orig_w - cw))
+            cy = max(0, min(int(round(frag_cy - ch / 2)), orig_h - ch))
+            measurements.append(
+                self._make_crop_measurement(
+                    original_image="data/test/img.png",
+                    crop=crop_level,
+                    crop_region={"x": cx, "y": cy, "width": cw, "height": ch},
+                    analysis_fragment={
+                        "x": fragment["x"] - cx,
+                        "y": fragment["y"] - cy,
+                        "width": 200,
+                        "height": 200,
+                    },
+                )
+            )
+
+        for crop_level in [1600, 1200, 800, 400]:
+            cache: dict[int, tuple[Path, dict, dict | None]] = {}
+            _, crop_region, _ = _resolve_source_for_crop(
+                img,
+                crop_level,
+                measurements,
+                cache,
+                tmp_path / f"work_{crop_level}",
+                selected_image="data/test/img.png",
+            )
+            assert crop_region is not None
+            crop_ar = crop_region["width"] / crop_region["height"]
+            assert abs(crop_ar - orig_ar) < 0.01, (
+                f"Crop level {crop_level}: aspect ratio {crop_ar:.4f} "
+                f"doesn't match original {orig_ar:.4f}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# _analysis_fragment_in_original tests
+# ---------------------------------------------------------------------------
+
+
+class TestAnalysisFragmentInOriginal:
+    """Tests for _analysis_fragment_in_original image-filtering logic."""
+
+    def test_uses_crop_cache_first(self) -> None:
+        """Should use crop_cache before falling back to measurements."""
+        crop_cache: dict[int, tuple[Path, dict, dict | None]] = {
+            800: (
+                Path("/tmp/crop.png"),
+                {"x": 100, "y": 50, "width": 800, "height": 400},
+                {"x": 200, "y": 150, "width": 200, "height": 200},
+            )
+        }
+        result = _analysis_fragment_in_original(
+            crop_cache,
+            [],
+            selected_image="data/test/img.png",
+        )
+        assert result is not None
+        # x = crop_x + frag_x = 100 + 200 = 300
+        assert result["x"] == 300
+        # y = crop_y + frag_y = 50 + 150 = 200
+        assert result["y"] == 200
+        assert result["width"] == 200
+        assert result["height"] == 200
+
+    def test_fallback_filters_by_selected_image(self) -> None:
+        """Fallback scan must only use measurements for the selected image."""
+        measurements = [
+            {
+                "original_image": "data/test/other.png",
+                "crop": 800,
+                "crop_region": {"x": 999, "y": 999, "width": 100, "height": 100},
+                "analysis_fragment": {"x": 10, "y": 10, "width": 200, "height": 200},
+            },
+            {
+                "original_image": "data/test/selected.png",
+                "crop": 800,
+                "crop_region": {"x": 50, "y": 30, "width": 800, "height": 400},
+                "analysis_fragment": {"x": 100, "y": 70, "width": 200, "height": 200},
+            },
+        ]
+
+        # Empty crop_cache forces fallback
+        result = _analysis_fragment_in_original(
+            {},
+            measurements,
+            selected_image="data/test/selected.png",
+        )
+        assert result is not None
+        # Should use selected.png's data: x=50+100=150, y=30+70=100
+        assert result["x"] == 150
+        assert result["y"] == 100
+
+    def test_fallback_without_filter_picks_first(self) -> None:
+        """Without selected_image, fallback picks first match."""
+        measurements = [
+            {
+                "original_image": "data/test/other.png",
+                "crop_region": {"x": 999, "y": 999, "width": 100, "height": 100},
+                "analysis_fragment": {"x": 10, "y": 10, "width": 200, "height": 200},
+            },
+            {
+                "original_image": "data/test/selected.png",
+                "crop_region": {"x": 50, "y": 30, "width": 800, "height": 400},
+                "analysis_fragment": {"x": 100, "y": 70, "width": 200, "height": 200},
+            },
+        ]
+
+        result = _analysis_fragment_in_original(
+            {},
+            measurements,
+            # No selected_image — picks first
+        )
+        assert result is not None
+        # Gets other.png's data: x=999+10=1009
+        assert result["x"] == 1009
+
+
+# ---------------------------------------------------------------------------
+# Preprocessing aspect-ratio tests (crop_image_around_fragment)
+# ---------------------------------------------------------------------------
+
+
+class TestCropAspectRatioPreservation:
+    """Verify that crop_image_around_fragment preserves the original AR."""
+
+    @pytest.mark.parametrize(
+        "orig_size,crop_levels",
+        [
+            ((2040, 1356), [1600, 1200, 800, 400]),
+            ((1356, 2040), [1600, 1200, 800, 400]),
+            ((2000, 2000), [1600, 1200, 800, 400]),
+            ((3000, 2000), [2048, 1500, 1000, 500]),
+            ((1920, 1080), [1600, 1200, 800, 400]),
+        ],
+    )
+    def test_aspect_ratio_preserved_for_various_sizes(
+        self,
+        tmp_path: Path,
+        orig_size: tuple[int, int],
+        crop_levels: list[int],
+    ) -> None:
+        """Aspect ratio is preserved within rounding tolerance."""
+        from tests.conftest import create_test_image
+        from src.preprocessing import ImagePreprocessor
+
+        img_path = create_test_image(
+            tmp_path / "src.png", size=orig_size
+        )
+        orig_w, orig_h = orig_size
+        orig_longest = max(orig_w, orig_h)
+        orig_ar = orig_w / orig_h
+
+        # Place fragment at center
+        fragment = {
+            "x": orig_w // 2 - 100,
+            "y": orig_h // 2 - 100,
+            "width": 200,
+            "height": 200,
+        }
+
+        for crop_level in crop_levels:
+            if crop_level >= orig_longest:
+                continue
+            # Check if fragment fits
+            scale = crop_level / orig_longest
+            cw = max(1, round(orig_w * scale))
+            ch = max(1, round(orig_h * scale))
+            if fragment["width"] > cw or fragment["height"] > ch:
+                continue
+
+            preprocessor = ImagePreprocessor(
+                tmp_path / f"out_{crop_level}"
+            )
+            result = preprocessor.crop_image_around_fragment(
+                img_path,
+                fragment=fragment,
+                target_longest_edge=crop_level,
+            )
+
+            cr = result.crop_region
+            crop_ar = cr["width"] / cr["height"]
+            assert abs(crop_ar - orig_ar) < 0.01, (
+                f"Image {orig_w}x{orig_h}, crop {crop_level}: "
+                f"AR {crop_ar:.4f} != original {orig_ar:.4f}"
+            )
+
+            # Verify crop stays within image bounds
+            assert cr["x"] >= 0
+            assert cr["y"] >= 0
+            assert cr["x"] + cr["width"] <= orig_w
+            assert cr["y"] + cr["height"] <= orig_h
+
+            # Verify fragment is contained
+            assert cr["x"] <= fragment["x"]
+            assert cr["y"] <= fragment["y"]
+            assert cr["x"] + cr["width"] >= fragment["x"] + fragment["width"]
+            assert cr["y"] + cr["height"] >= fragment["y"] + fragment["height"]
+
+    @pytest.mark.parametrize(
+        "orig_size,frag_pos",
+        [
+            ((2000, 3000), (500, 500)),   # top-left region
+            ((2000, 3000), (1700, 2700)), # bottom-right region
+            ((2000, 3000), (0, 0)),       # top-left corner
+            ((2000, 3000), (1800, 2800)), # near bottom-right corner
+            ((3000, 2000), (100, 100)),   # landscape, top-left
+            ((3000, 2000), (2700, 1700)), # landscape, bottom-right
+        ],
+    )
+    def test_crop_stays_within_bounds_edge_fragments(
+        self,
+        tmp_path: Path,
+        orig_size: tuple[int, int],
+        frag_pos: tuple[int, int],
+    ) -> None:
+        """Crop regions never extend outside image boundaries."""
+        from tests.conftest import create_test_image
+        from src.preprocessing import ImagePreprocessor
+
+        orig_w, orig_h = orig_size
+        fx, fy = frag_pos
+        frag_w = min(200, orig_w - fx)
+        frag_h = min(200, orig_h - fy)
+        fragment = {"x": fx, "y": fy, "width": frag_w, "height": frag_h}
+
+        img_path = create_test_image(
+            tmp_path / "src.png", size=orig_size
+        )
+
+        orig_longest = max(orig_w, orig_h)
+        for crop_level in [1500, 1000, 500]:
+            if crop_level >= orig_longest:
+                continue
+            scale = crop_level / orig_longest
+            cw = max(1, round(orig_w * scale))
+            ch = max(1, round(orig_h * scale))
+            if frag_w > cw or frag_h > ch:
+                continue
+
+            preprocessor = ImagePreprocessor(
+                tmp_path / f"out_{frag_pos}_{crop_level}"
+            )
+            result = preprocessor.crop_image_around_fragment(
+                img_path,
+                fragment=fragment,
+                target_longest_edge=crop_level,
+            )
+
+            cr = result.crop_region
+            assert cr["x"] >= 0, f"crop_x={cr['x']} < 0"
+            assert cr["y"] >= 0, f"crop_y={cr['y']} < 0"
+            assert cr["x"] + cr["width"] <= orig_w, (
+                f"crop extends to x={cr['x'] + cr['width']} > image width {orig_w}"
+            )
+            assert cr["y"] + cr["height"] <= orig_h, (
+                f"crop extends to y={cr['y'] + cr['height']} > image height {orig_h}"
+            )
+
+            # Verify actual image dimensions match crop_region
+            with Image.open(result.path) as img:
+                assert img.size == (cr["width"], cr["height"])
