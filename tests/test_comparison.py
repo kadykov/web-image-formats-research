@@ -19,6 +19,7 @@ from src.comparison import (
     _build_label,
     _build_metric_label,
     _default_tile_parameter,
+    _format_figure_title,
     _render_distmap_thumbnail,
     _resolve_source_for_crop,
     assemble_comparison_grid,
@@ -569,6 +570,94 @@ def test_assemble_comparison_grid_wraps_rows(
     output_path = tmp_output / "wide_grid.png"
     result = assemble_comparison_grid(crops, output_path, max_columns=4)
     assert result.exists()
+
+
+@pytest.mark.skipif(
+    not shutil.which("montage"),
+    reason="ImageMagick montage not available",
+)
+def test_assemble_comparison_grid_figure_title(
+    crop_images: list[tuple[Path, str, str]],
+    tmp_output: Path,
+) -> None:
+    """Grid with figure_title should be taller than one without."""
+    without_title = tmp_output / "grid_no_title.png"
+    with_title = tmp_output / "grid_with_title.png"
+
+    assemble_comparison_grid(crop_images, without_title, max_columns=4)
+    assemble_comparison_grid(
+        crop_images,
+        with_title,
+        max_columns=4,
+        figure_title="Target: SSIMULACRA2 = 75",
+    )
+
+    assert with_title.exists()
+    with Image.open(without_title) as no_t, Image.open(with_title) as with_t:
+        assert with_t.height > no_t.height
+        assert with_t.width == no_t.width
+
+
+@pytest.mark.skipif(
+    not shutil.which("montage"),
+    reason="ImageMagick montage not available",
+)
+def test_assemble_comparison_grid_placeholder_indices(
+    tmp_path: Path,
+    tmp_output: Path,
+) -> None:
+    """Placeholder tiles should occupy the same space as normal tiles."""
+    normal_crops = []
+    for i in range(4):
+        img = Image.new("RGB", (64, 64), color=(i * 60, 100, 100))
+        path = tmp_path / f"normal_{i}.png"
+        img.save(path)
+        normal_crops.append((path, f"Format {i}", f"Score: {i}"))
+
+    placeholder_path = tmp_path / "placeholder.png"
+    Image.new("RGB", (64, 64), color=(255, 255, 255)).save(placeholder_path)
+    crops_with_placeholder = list(normal_crops)
+    crops_with_placeholder[2] = (placeholder_path, "Skipped", "")
+
+    out_full = tmp_output / "grid_full.png"
+    out_placeholder = tmp_output / "grid_placeholder.png"
+
+    assemble_comparison_grid(normal_crops, out_full, max_columns=4)
+    assemble_comparison_grid(
+        crops_with_placeholder,
+        out_placeholder,
+        max_columns=4,
+        placeholder_indices=frozenset({2}),
+    )
+
+    assert out_placeholder.exists()
+    with Image.open(out_full) as full, Image.open(out_placeholder) as ph:
+        # Grids with same number of tiles should have the same dimensions
+        assert full.width == ph.width
+        assert full.height == ph.height
+
+
+# ---------------------------------------------------------------------------
+# Tests: _format_figure_title
+# ---------------------------------------------------------------------------
+
+
+def test_format_figure_title_ssimulacra2() -> None:
+    assert _format_figure_title("ssimulacra2", 75) == "Target: SSIMULACRA2 = 75"
+
+
+def test_format_figure_title_bytes_per_pixel() -> None:
+    assert _format_figure_title("bytes_per_pixel", 0.1) == "Target: Bytes per pixel = 0.1"
+
+
+def test_format_figure_title_psnr() -> None:
+    assert _format_figure_title("psnr", 40.0) == "Target: PSNR = 40"
+
+
+def test_format_figure_title_unknown_metric() -> None:
+    title = _format_figure_title("some_custom_metric", 5)
+    assert "5" in title
+    assert "Some Custom Metric" in title
 
 
 # ---------------------------------------------------------------------------
