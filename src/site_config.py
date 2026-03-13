@@ -10,7 +10,6 @@ from typing import Any
 
 import minify_html
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SITE_CONFIG_PATH = PROJECT_ROOT / "config" / "site.json"
 SITE_ASSETS_DIR = PROJECT_ROOT / "pages" / "assets"
