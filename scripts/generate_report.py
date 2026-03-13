@@ -23,7 +23,13 @@ from src.report_images import (
     optimise_svg,
     picture_html,
 )
-from src.site_config import asset_paths, canonical_url, copy_deployable_assets, get_site_config, minify_html_document
+from src.site_config import (
+    asset_paths,
+    canonical_url,
+    copy_deployable_assets,
+    get_site_config,
+    minify_html_document,
+)
 
 # Paths relative to project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
