@@ -168,8 +168,16 @@ class ImagePreprocessor:
 
             # Verify fragment is fully contained (should always hold
             # after clamping if fragment fits in crop dimensions)
-            assert crop_x <= fx and crop_y <= fy
-            assert crop_x + crop_w >= fx + fw and crop_y + crop_h >= fy + fh
+            if not (crop_x <= fx and crop_y <= fy):
+                raise ValueError(
+                    f"Crop origin ({crop_x}, {crop_y}) is not ≤ fragment origin "
+                    f"({fx}, {fy}) after clamping"
+                )
+            if not (crop_x + crop_w >= fx + fw and crop_y + crop_h >= fy + fh):
+                raise ValueError(
+                    f"Crop window ({crop_x}+{crop_w}, {crop_y}+{crop_h}) does not "
+                    f"fully contain fragment ({fx}+{fw}, {fy}+{fh}) after clamping"
+                )
 
             cropped = img.crop((crop_x, crop_y, crop_x + crop_w, crop_y + crop_h))
             cropped.save(output_path)

@@ -319,9 +319,15 @@ def _process_image(
                             "width": region.width,
                             "height": region.height,
                         }
-            except Exception:
-                # If fragment selection fails, fall back to top-left corner
-                pass
+            except Exception as _exc:
+                import warnings
+
+                warnings.warn(
+                    f"Fragment selection failed for {image_path.name} "
+                    f"({type(_exc).__name__}: {_exc}); "
+                    f"falling back to top-left corner",
+                    stacklevel=1,
+                )
 
             if analysis_fragment is None:
                 # Fallback: use top-left corner
