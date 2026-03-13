@@ -852,3 +852,55 @@ class TestPipelineRunnerIntegration:
         runner = PipelineRunner(project)
         with pytest.raises(FileNotFoundError, match="Fetch it first"):
             runner.run(config)
+
+
+# ---------------------------------------------------------------------------
+# _process_image – fragment selection failure
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImageFragmentSelectionFallback:
+    """Tests for the fragment-selection failure handling in _process_image."""
+
+    def test_fragment_selection_failure_warns_and_continues(
+        self, tmp_path: Path
+    ) -> None:
+        """When fragment selection raises, a warning is emitted and the
+        top-left fallback is used, allowing the pipeline to continue."""
+        from unittest.mock import patch
+
+        from PIL import Image as _PILImage
+
+        from src.pipeline import _process_image
+
+        # Create a 100×100 test image
+        img_path = tmp_path / "test.png"
+        _PILImage.new("RGB", (100, 100), "red").save(img_path)
+
+        config_dict = {
+            "id": "frag-fail-test",
+            "analysis_fragment_size": 50,
+            "crop_too_small_strategy": "skip_image",
+            "encoders": [{"format": "jpeg", "quality": [75], "crop": [80]}],
+        }
+
+        # Patch encode_jpeg to raise, triggering the fragment-selection
+        # failure path.  _encode_and_measure also catches encoder exceptions
+        # and returns an error record, so _process_image won't crash.
+        with patch(
+            "src.encoder.ImageEncoder.encode_jpeg",
+            side_effect=RuntimeError("simulated tool failure"),
+        ):
+            with pytest.warns(
+                UserWarning,
+                match=r"Fragment selection failed.*RuntimeError.*simulated tool failure",
+            ):
+                records = _process_image(
+                    image_path_str=str(img_path),
+                    config_dict=config_dict,
+                    project_root_str=str(tmp_path),
+                    save_artifacts=False,
+                )
+
+        # Pipeline should complete (records may be error records, but no crash)
+        assert isinstance(records, list)
