@@ -15,6 +15,11 @@ just pipeline format-comparison 30m
 This processes images one at a time — encoding all configured format variants and
 measuring quality metrics for each — until the time budget runs out.
 
+For crop-impact studies, the pipeline first selects a fixed worst-case analysis
+fragment in the original image, then generates crop windows of different sizes
+around that fragment and measures quality only inside the fragment. This keeps
+the compared content identical across crop levels.
+
 Results are saved to `data/metrics/<study-id>/quality.json`.
 
 ## Time budget format
@@ -39,6 +44,10 @@ These study configurations ship in `config/studies/`:
 | `jxl-effort-sweep` | JPEG XL effort level comparison |
 | `webp-method-sweep` | WebP method parameter sweep |
 | `resolution-impact` | Impact of image resolution on quality |
+| `jpeg-crop-impact` | JPEG crop-impact study |
+| `webp-crop-impact` | WebP crop-impact study |
+| `avif-crop-impact` | AVIF crop-impact study |
+| `jxl-crop-impact` | JPEG XL crop-impact study |
 
 ## Prerequisites
 
@@ -63,12 +72,28 @@ python3 scripts/run_pipeline.py format-comparison --time-budget 1h --save-artifa
 python3 scripts/run_pipeline.py format-comparison --time-budget 30m --workers 8
 ```
 
+## Resolution vs crop studies
+
+- `resolution` sweeps downscale the entire image before encoding. They are useful
+  when you want to study true lower-resolution inputs, but the measured content
+  and the behaviour of quality metrics both change with resolution.
+- `crop` sweeps keep the selected analysis fragment at full resolution and only
+  reduce the surrounding image area. They are useful when you want to isolate the
+  impact of image area and bit allocation without introducing resampling effects.
+- Crop-impact studies store two extra metadata fields per measurement:
+  `analysis_fragment` for the measured fragment coordinates inside the encoded
+  source, and `crop_region` for the crop window in original-image coordinates.
+
 ## Output structure
 
 ```text
 data/metrics/<study-id>/
 └── quality.json        # All quality measurements
 ```
+
+When the study uses preprocessing, the pipeline also records source-image labels
+such as `data/preprocessed/<study-id>/r1280/...` for resized inputs or
+`data/preprocessed/<study-id>/c800/...` for cropped inputs.
 
 With `--save-artifacts`, encoded images are also saved:
 
@@ -104,6 +129,8 @@ just compare format-comparison          # 4. Visual comparisons
 just report                             # 5. Interactive report
 just serve-report                       # 6. View in browser
 ```
+
+For a crop-impact study, swap in one of the `*-crop-impact` study IDs.
 
 ## See also
 

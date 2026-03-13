@@ -15,6 +15,10 @@ The comparison generator independently re-encodes the selected source image
 (no encoded artifacts from the pipeline are needed) and assembles labeled
 side-by-side grids together with Butteraugli distortion maps.
 
+For crop-impact studies, it reconstructs the crop windows around the stored
+analysis fragment so every tile compares the same content at the same pixel
+resolution even though the full encoded image area changes.
+
 ## What the comparison generator does
 
 The generator works through the following steps:
@@ -32,7 +36,9 @@ The generator works through the following steps:
    values in the group, and uses it to pick the single most informative
    crop region for the whole group.
 4. **Figure assembly** — assembles labeled comparison grids using ImageMagick
-   `montage`, plus distortion-map grids and an annotated original for each group.
+  `montage`, plus distortion-map grids and an annotated original for each group.
+  Missing variants are rendered as fixed-position placeholders so tile order
+  stays stable across figures in the same set.
 
 ## Two types of comparison figures
 
@@ -41,7 +47,7 @@ For each target group the generator produces two kinds of figure:
 | Figure type | Target metric | Purpose |
 |-------------|---------------|---------|
 | **Matched visual quality** | `ssimulacra2`, `psnr`, `ssim`, `butteraugli` | Show artifact character at equal perceived quality |
-| **Matched file size** | `bits_per_pixel` | Show quality differences under equal file-weight constraints |
+| **Matched file size** | `bits_per_pixel` | Show quality differences under equal relative bit-budget constraints |
 
 A single study run can yield both figure types simultaneously when the study
 config lists target groups of both kinds.
@@ -52,9 +58,14 @@ Output goes to `data/analysis/<study-id>/comparison/`.
 
 For each target group a set of figures is created:
 
-- **`comparison_<metric>_<value>.png`** — crop grid at the target value
-- **`distmap_<metric>_<value>.png`** — Butteraugli distortion-map grid at the target value
-- **`original_annotated_<metric>.png`** — source image with the selected fragment highlighted
+- **`<metric>/comparison_<value>.webp`** — crop grid at the target value
+- **`<metric>/distortion_map_comparison_<value>.webp`** — distortion-map grid at the target value
+- **`<metric>/distortion_map_anisotropic.webp`** — aggregate anisotropic std map used for fragment selection
+- **`<metric>/original_annotated.webp`** — source image with the selected fragment highlighted
+
+Resolution- or crop-split studies may add intermediate subdirectories such as
+`r720/` or `c800/` above the metric directory when those parameters produce
+separate figure groups.
 
 ## Prerequisites
 
@@ -82,6 +93,9 @@ python3 scripts/generate_comparison.py format-comparison --tile-parameter format
 # Pin to a specific source image instead of auto-selection
 python3 scripts/generate_comparison.py format-comparison --source-image data/preprocessed/0801.png
 
+# Generate crop-impact comparisons
+python3 scripts/generate_comparison.py avif-crop-impact
+
 # Custom output directory
 python3 scripts/generate_comparison.py format-comparison --output data/analysis/custom-dir
 
@@ -91,22 +105,27 @@ python3 scripts/generate_comparison.py --list
 
 ## Configuring comparison targets in the study file
 
-Add a `comparison_targets` section to the study JSON to control which
+Add a `comparison` section to the study JSON to control which
 figures are produced:
 
 ```json
 {
-  "comparison_targets": [
-    { "metric": "ssimulacra2", "values": [60, 75, 90] },
-    { "metric": "bits_per_pixel", "values": [0.5, 1.0, 1.5] }
-  ],
-  "comparison_tile_parameter": "format",
-  "comparison_exclude_images": ["problematic_image.png"]
+  "comparison": {
+    "targets": [
+      { "metric": "ssimulacra2", "values": [60, 75, 90] },
+      { "metric": "bits_per_pixel", "values": [0.5, 1.0, 1.5] }
+    ],
+    "tile_parameter": "format",
+    "exclude_images": ["problematic_image.png"]
+  }
 }
 ```
 
 When no targets are configured, the generator defaults to
 `ssimulacra2 = [60, 70, 80]` and `bits_per_pixel = [0.5, 1.0, 1.5]`.
+
+Tile labels use `BPP` instead of absolute file size so comparisons remain valid
+across different crop sizes and resolutions.
 
 ## See also
 

@@ -9,12 +9,18 @@
 Research project for determining optimal modern image formats for the web,
 with a focus on AVIF and comparative analysis against JPEG, WebP, and JPEG XL.
 
+The project now supports both classic resolution-impact studies and
+crop-impact studies. Crop-impact studies keep the measured analysis fragment
+at full resolution while varying the surrounding image area, which avoids the
+metric and comparability problems introduced by downscaling.
+
 ## Goals
 
 - Identify optimal quality settings for AVIF encoding
 - Determine when to use chroma subsampling based on quality targets
 - Compare AVIF effectiveness against JPEG, WebP, and JPEG XL
 - Analyze compression efficiency using perceptual quality metrics
+- Measure how input area affects encoder behaviour without resampling confounds
 
 ## Key Findings
 
@@ -50,7 +56,7 @@ See the [Getting Started tutorial](docs/tutorials/getting-started) for detailed 
 ├── src/                     # Source code modules
 │   ├── study.py             # Study configuration loading
 │   ├── dataset.py           # Dataset fetching and management
-│   ├── preprocessing.py     # Image preprocessing (resize, convert)
+│   ├── preprocessing.py     # Image preprocessing (resize, crop, convert)
 │   ├── encoder.py           # Format encoding (JPEG, WebP, AVIF, JXL)
 │   ├── quality.py           # Quality measurement (SSIMULACRA2, PSNR, SSIM, Butteraugli)
 │   ├── pipeline.py          # Unified pipeline with time-budget control
@@ -63,7 +69,7 @@ See the [Getting Started tutorial](docs/tutorials/getting-started) for detailed 
 │   └── studies/             # Per-study JSON configurations
 ├── data/                    # All research data (git-ignored)
 │   ├── datasets/            # Raw image datasets
-│   ├── preprocessed/        # Preprocessed images
+│   ├── preprocessed/        # Preprocessed images (resized or cropped)
 │   ├── encoded/             # Encoded images (JPEG, WebP, AVIF, JXL)
 │   ├── metrics/             # Quality measurements (JSON)
 │   ├── analysis/            # Analysis outputs (CSV, SVG plots)
@@ -95,6 +101,11 @@ just analyze <study-id>              # Analyze results and generate plots
 just compare <study-id>              # Generate visual comparison images
 just report                          # Generate interactive HTML report for all studies
 just serve-report [port]             # Serve report locally (default: http://localhost:8000)
+
+# Example crop-impact workflow
+just pipeline avif-crop-impact 30m
+just analyze avif-crop-impact
+just compare avif-crop-impact
 
 # Release
 just release-notes                   # Generate release notes from study results

@@ -67,6 +67,10 @@ Validated by `config/study.schema.json`.
 | `jxl-effort-sweep.json` | `jxl-effort-sweep` | JPEG XL effort level comparison |
 | `webp-method-sweep.json` | `webp-method-sweep` | WebP method parameter sweep |
 | `resolution-impact.json` | `resolution-impact` | Impact of resolution on quality |
+| `jpeg-crop-impact.json` | `jpeg-crop-impact` | JPEG crop-impact study |
+| `webp-crop-impact.json` | `webp-crop-impact` | WebP crop-impact study |
+| `avif-crop-impact.json` | `avif-crop-impact` | AVIF crop-impact study |
+| `jxl-crop-impact.json` | `jxl-crop-impact` | JPEG XL crop-impact study |
 
 ### Fields
 
@@ -78,6 +82,13 @@ Validated by `config/study.schema.json`.
 | `time_budget` | number | No | Default time budget in seconds. Overridden by CLI. |
 | `dataset.id` | string | Yes | Dataset identifier from `datasets.json`. |
 | `dataset.max_images` | integer | No | Limit images from dataset. |
+| `analysis.x_axis` | string | No | Override the primary plot x-axis. |
+| `analysis.group_by` | string | No | Override the line-grouping parameter for plots. |
+| `comparison.tile_parameter` | string | No | Parameter that varies within each comparison figure. |
+| `comparison.targets` | array | No | Comparison target groups, each with `metric` and `values`. |
+| `comparison.exclude_images` | string[] | No | Basenames to exclude from automatic comparison source-image selection. |
+| `analysis_fragment_size` | integer | No | Side length of the measured fragment for crop-impact studies. Defaults to `200`. |
+| `crop_too_small_strategy` | string | No | Handling strategy when a crop level cannot contain the fragment. |
 | `encoders` | array | Yes | List of encoder configurations. |
 
 ### Encoder fields
@@ -91,7 +102,11 @@ Validated by `config/study.schema.json`.
 | `effort` | int/int[] | No | JXL effort setting(s) (1–10). |
 | `method` | int/int[] | No | WebP method setting(s) (0–6). |
 | `resolution` | int/int[] | No | Target resolution(s) in pixels (longest edge). |
+| `crop` | int/int[] | No | Target crop longest-edge value(s) in pixels for crop-impact studies. |
 | `extra_args` | object | No | Encoder-specific CLI arguments. |
+
+The `crop` and `resolution` parameters model different preprocessing modes and
+should not be combined on the same encoder entry.
 
 ### Quality specification formats
 
@@ -136,6 +151,37 @@ Validated by `config/study.schema.json`.
 }
 ```
 
+### Example: crop-impact study
+
+```json
+{
+  "id": "avif-crop-impact",
+  "name": "AVIF Crop Impact Study",
+  "dataset": { "id": "div2k-valid", "max_images": 100 },
+  "analysis_fragment_size": 200,
+  "crop_too_small_strategy": "skip_image",
+  "analysis": {
+    "x_axis": "crop",
+    "group_by": "quality"
+  },
+  "comparison": {
+    "tile_parameter": "crop",
+    "targets": [
+      { "metric": "ssimulacra2", "values": [65, 70, 75, 80, 85, 90] },
+      { "metric": "bits_per_pixel", "values": [0.3, 0.4, 0.8, 1.6, 3.2] }
+    ]
+  },
+  "encoders": [
+    {
+      "format": "avif",
+      "quality": [30, 40, 50, 60, 70, 80, 90, 100],
+      "speed": 4,
+      "crop": [2048, 1600, 1200, 800, 400]
+    }
+  ]
+}
+```
+
 ## Quality results schema
 
 Pipeline output is saved as `data/metrics/<study-id>/quality.json`,
@@ -149,6 +195,10 @@ Key fields per measurement:
 | `original_image` | Path to original dataset image |
 | `format` | Encoding format |
 | `quality` | Quality setting used |
+| `resolution` | Resolution sweep value |
+| `crop` | Crop longest-edge sweep value |
+| `analysis_fragment` | Measured fragment rectangle in source-image coordinates |
+| `crop_region` | Crop window rectangle in original-image coordinates |
 | `file_size` | Encoded file size in bytes |
 | `width`, `height` | Image dimensions |
 | `ssimulacra2` | SSIMULACRA2 score (or null on error) |

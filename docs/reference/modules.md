@@ -16,8 +16,8 @@ StudyConfig → PipelineRunner → Analysis → Comparison → Report
 
 Loads and validates study JSON configs from `config/studies/`.
 
-- `StudyConfig` — dataclass with id, name, dataset_id, encoders, time_budget, description
-- `EncoderConfig` — per-format settings: quality, chroma_subsampling, speed, effort, method, resolution
+- `StudyConfig` — dataclass with study metadata plus analysis/comparison settings and crop-impact options
+- `EncoderConfig` — per-format settings: quality, chroma_subsampling, speed, effort, method, resolution, crop
 
 ## `src/dataset.py` — Dataset fetching
 
@@ -29,9 +29,10 @@ Downloads and manages image datasets using `config/datasets.json`.
 
 ## `src/preprocessing.py` — Image preprocessing
 
-Resizes images for resolution-impact studies.
+Resizes and crops images for preprocessing-driven studies.
 
-- `ImagePreprocessor` — `resize_image()` with configurable target size and aspect ratio
+- `ImagePreprocessor` — `resize_image()` and `crop_image_around_fragment()`
+- `CropResult` — cropped image path plus the crop rectangle in original-image coordinates
 
 ## `src/encoder.py` — Image encoding
 
@@ -48,7 +49,7 @@ Measures perceptual and traditional quality metrics.
 
 - `QualityMeasurer` — `measure_ssimulacra2()`, `measure_psnr()`, `measure_ssim()`, `measure_butteraugli()`, `measure_butteraugli_with_distmap()`, `measure_all()`
 - `QualityMetrics` — dataclass: ssimulacra2, psnr, ssim, butteraugli
-- `QualityRecord`, `QualityResults` — structured containers for pipeline output, with `save()` to JSON
+- `QualityRecord`, `QualityResults` — structured containers for pipeline output, including crop metadata, with `save()` to JSON
 - `to_png()` — converts AVIF/JXL/WebP to PNG for measurement tools
 - `read_pfm()` — reads Butteraugli PFM distortion maps
 - `find_worst_region_in_array()` — sliding-window worst-region detection using integral images
@@ -60,6 +61,7 @@ Runs encode + measure for each image with time-budget control.
 - `PipelineRunner` — main class: `run(config, time_budget, save_artifacts, save_worst_image, num_workers)`
 - `parse_time_budget()` — parses "30m", "1h", "90s" format strings
 - Worker-per-image architecture using `ProcessPoolExecutor`
+- Supports resolution sweeps and crop-impact studies with fragment-only metric measurement
 
 ## `src/analysis.py` — Statistical analysis
 
@@ -102,7 +104,7 @@ settings interpolated from `quality.json`.
 - `generate_distortion_map()` — create raw Butteraugli PFM distortion maps
 - `find_worst_region()` — sliding-window worst-region search on a PFM map
 - `crop_and_zoom()` — crop a fragment and scale with nearest-neighbour interpolation
-- `assemble_comparison_grid()` — assemble labeled tiles with ImageMagick 7 `montage`
+- `assemble_comparison_grid()` — assemble labeled tiles with ImageMagick 7 `montage`, including fixed-position placeholders for missing variants
 - `encode_image()` — re-encode a source image using measurement-record parameters
 - `_anisotropic_std_map()` — compute aggregate per-pixel std map across distortion maps
 
