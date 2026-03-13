@@ -26,6 +26,10 @@ and writes outputs to `data/analysis/format-comparison/`.
 - **Efficiency plots (SVG)** — bits per quality unit per pixel
 - **Bits-per-pixel plots (SVG)** — file size distribution with percentile bands
 
+For crop-impact studies, analysis uses the `crop` parameter as the natural x-axis
+and reports `bits_per_pixel` rather than absolute file size, which makes values
+comparable across different crop areas.
+
 All plots are SVG vector graphics, suitable for papers and presentations.
 
 ## List studies with available results

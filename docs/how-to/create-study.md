@@ -97,6 +97,48 @@ Test how resolution affects encoding efficiency:
 }
 ```
 
+### Crop-impact example
+
+Study how encoded image area affects one format without changing the measured
+content or fragment resolution:
+
+```json
+{
+  "$schema": "../study.schema.json",
+  "id": "webp-crop-impact-custom",
+  "name": "WebP Crop Impact Custom",
+  "description": "Measure WebP on different crop sizes around a fixed fragment.",
+  "dataset": {
+    "id": "div2k-valid",
+    "max_images": 20
+  },
+  "analysis_fragment_size": 200,
+  "crop_too_small_strategy": "skip_image",
+  "analysis": {
+    "x_axis": "crop",
+    "group_by": "quality"
+  },
+  "comparison": {
+    "tile_parameter": "crop",
+    "targets": [
+      { "metric": "ssimulacra2", "values": [70, 80, 90] },
+      { "metric": "bits_per_pixel", "values": [0.4, 0.8, 1.6] }
+    ]
+  },
+  "encoders": [
+    {
+      "format": "webp",
+      "quality": [40, 60, 80, 100],
+      "method": 6,
+      "crop": [2048, 1600, 1200, 800, 400]
+    }
+  ]
+}
+```
+
+Unlike a `resolution` study, this keeps the analysis fragment at full resolution
+and only changes how much surrounding context is encoded.
+
 ## Study configuration fields
 
 ### Top-level fields
@@ -109,6 +151,10 @@ Test how resolution affects encoding efficiency:
 | `time_budget` | number | No | Default time budget in seconds. Overridden by CLI `--time-budget`. |
 | `dataset.id` | string | Yes | Dataset identifier from `config/datasets.json`. |
 | `dataset.max_images` | integer | No | Limit images used from the dataset. |
+| `analysis_fragment_size` | integer | No | Square fragment size measured in crop-impact studies. Defaults to `200`. |
+| `crop_too_small_strategy` | string | No | What to do if a crop level cannot contain the fragment: `skip_image`, `skip_measurement`, or `adjust_aspect_ratio`. |
+| `analysis` | object | No | Plot configuration overrides such as `x_axis` and `group_by`. |
+| `comparison` | object | No | Comparison-figure configuration such as `tile_parameter`, `targets`, and `exclude_images`. |
 | `encoders` | array | Yes | List of encoder configurations (at least one). |
 
 ### Encoder fields
@@ -122,7 +168,41 @@ Test how resolution affects encoding efficiency:
 | `method` | int/int[] | No | WebP method (0–6). Higher = slower/better. |
 | `chroma_subsampling` | string[] | No | Modes: `"444"`, `"422"`, `"420"`, `"400"`. |
 | `resolution` | int/int[] | No | Target resolution(s) in pixels (longest edge). |
+| `crop` | int/int[] | No | Target crop longest-edge values in pixels for crop-impact studies. |
 | `extra_args` | object | No | Additional CLI arguments as key-value pairs. |
+
+Do not combine `resolution` and `crop` on the same encoder entry. They model two
+different study types.
+
+### `analysis` section
+
+Use this to override the automatically chosen plot axes:
+
+```json
+{
+  "analysis": {
+    "x_axis": "crop",
+    "group_by": "quality"
+  }
+}
+```
+
+### `comparison` section
+
+Use this to control comparison figure generation directly from the study config:
+
+```json
+{
+  "comparison": {
+    "tile_parameter": "crop",
+    "targets": [
+      { "metric": "ssimulacra2", "values": [70, 80, 90] },
+      { "metric": "bits_per_pixel", "values": [0.4, 0.8, 1.6] }
+    ],
+    "exclude_images": ["0828.png"]
+  }
+}
+```
 
 ### Quality specification formats
 

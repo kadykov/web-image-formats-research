@@ -49,6 +49,10 @@ Each study page includes:
   full-resolution zoom and swipe navigation
 - **Tool versions** — encoder and measurement tool versions for reproducibility
 
+For crop-impact studies, the report also includes annotated originals that show the
+selected comparison fragment, the measured analysis fragment, and the crop windows
+used for the different crop levels.
+
 ### Navigation
 
 Each report page has:
