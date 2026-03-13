@@ -61,9 +61,10 @@ def _ensure_noindex_404(root: Path) -> None:
             '<meta name="robots" content="noindex,follow"/></head>',
             1,
         )
-        assert new_content != content, (
-            f"Could not inject noindex robots meta tag into {html_file}: </head> not found"
-        )
+        if new_content == content:
+            raise RuntimeError(
+                f"Could not inject noindex robots meta tag into {html_file}: </head> not found"
+            )
         html_file.write_text(new_content, encoding="utf-8")
 
 
