@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src.site_config import copy_deployable_assets
+
 
 def generate_api_docs(src_dir: Path, output_dir: Path) -> None:
     """Generate API reference documentation from Python source files.
@@ -273,11 +275,18 @@ def main() -> None:
     docs_site_dir = project_root / "docs-site"
     content_dir = docs_site_dir / "src" / "content" / "docs"
     api_dir = content_dir / "reference" / "api"
+    public_assets_dir = docs_site_dir / "public" / "assets"
+    docs_src_assets_dir = docs_site_dir / "src" / "assets"
 
     # Check if docs-site exists
     if not docs_site_dir.exists():
         print("❌ docs-site directory not found. Run 'just docs-init' first.")
         sys.exit(1)
+
+    copy_deployable_assets(public_assets_dir)
+    print(f"✅ Synced shared site assets to {public_assets_dir}")
+    docs_src_assets_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(public_assets_dir / "logo.svg", docs_src_assets_dir / "logo.svg")
 
     # Clean existing content (except example files)
     if content_dir.exists():

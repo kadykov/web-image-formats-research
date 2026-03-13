@@ -1,38 +1,74 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Web Image Formats Research</title>
-  <meta name="description" content="Research project for determining optimal modern image formats for the web, comparing AVIF, JPEG, WebP, and JPEG XL." />
+  <meta name="description"
+    content="Research project for determining optimal modern image formats for the web, comparing AVIF, JPEG, WebP, and JPEG XL." />
+  <meta name="robots" content="index,follow" />
+  <meta name="theme-color" content="#118ab2" />
+  <link rel="canonical" href="https://github.kadykov.com/web-image-formats-research/" />
+  <link rel="icon" href="assets/favicon.ico" sizes="32x32" />
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+  <link rel="manifest" href="assets/manifest.webmanifest" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Web Image Formats Research" />
+  <meta property="og:title" content="Web Image Formats Research" />
+  <meta property="og:description"
+    content="Transparent, reproducible benchmarks comparing modern image formats for the web, with interactive reports and technical documentation." />
+  <meta property="og:url" content="https://github.kadykov.com/web-image-formats-research/" />
+  <meta property="og:image" content="https://github.kadykov.com/web-image-formats-research/assets/opengraph.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Web Image Formats Research" />
+  <meta name="twitter:description"
+    content="Transparent, reproducible benchmarks comparing modern image formats for the web, with interactive reports and technical documentation." />
+  <meta name="twitter:image" content="https://github.kadykov.com/web-image-formats-research/assets/opengraph.png" />
   <style>
     :root {
-      --bg: #ffffff;
-      --text: #1a1a2e;
-      --muted: #555;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
-      --card-bg: #f8fafc;
-      --card-border: #e2e8f0;
-      --badge-bg: #e0e7ff;
-      --badge-text: #3730a3;
+      --bg: #f4f8fb;
+      --text: #073b4c;
+      --muted: #476573;
+      --accent: #10789b;
+      --accent-hover: #0c6f8f;
+      --accent-soft: #dff2fb;
+      --on-accent: #ffffff;
+      --card-bg: #ffffff;
+      --card-border: #cfe0e8;
+      --badge-bg: #def7ef;
+      --badge-text: #0f6d56;
+      --hero-glow: rgba(17, 138, 178, 0.12);
     }
+
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #0f172a;
-        --text: #e2e8f0;
-        --muted: #94a3b8;
-        --accent: #60a5fa;
-        --accent-hover: #93bbfd;
-        --card-bg: #1e293b;
-        --card-border: #334155;
-        --badge-bg: #1e1b4b;
-        --badge-text: #a5b4fc;
+        --bg: #091f29;
+        --text: #ebf5f8;
+        --muted: #9fc0cc;
+        --accent: #23a1cb;
+        --accent-hover: #7ad1ea;
+        --accent-soft: #123a49;
+        --on-accent: #000000;
+        --card-bg: #10303d;
+        --card-border: #1d4959;
+        --badge-bg: #153d32;
+        --badge-text: #8ce1c8;
+        --hero-glow: rgba(36, 184, 145, 0.18);
       }
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
-      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Source Sans 3', 'Segoe UI', sans-serif;
       color: var(--text);
       background: var(--bg);
       line-height: 1.6;
@@ -40,8 +76,16 @@
       display: flex;
       flex-direction: column;
     }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    a {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    a:hover {
+      color: var(--accent-hover);
+      text-decoration: none;
+    }
 
     /* Header */
     .hero {
@@ -49,9 +93,39 @@
       padding: 4rem 1.5rem 3rem;
       max-width: 56rem;
       margin: 0 auto;
+      position: relative;
     }
-    .hero h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.025em; }
-    .hero p { margin-top: 1rem; font-size: 1.125rem; color: var(--muted); max-width: 40rem; margin-inline: auto; }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 1rem 10% auto;
+      height: 9rem;
+      background: radial-gradient(circle, var(--hero-glow), transparent 70%);
+      pointer-events: none;
+      filter: blur(10px);
+    }
+
+    .hero-logo {
+      width: min(20rem, 82vw);
+      height: auto;
+      display: block;
+      margin: 0 auto 1.25rem;
+    }
+
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+    }
+
+    .hero p {
+      margin-top: 1rem;
+      font-size: 1.125rem;
+      color: var(--muted);
+      max-width: 40rem;
+      margin-inline: auto;
+    }
 
     /* Cards */
     .cards {
@@ -62,9 +136,13 @@
       margin: 0 auto;
       padding: 0 1.5rem 3rem;
     }
+
     @media (min-width: 40rem) {
-      .cards { grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+      .cards {
+        grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+      }
     }
+
     .card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
@@ -74,25 +152,48 @@
       flex-direction: column;
       transition: box-shadow 0.15s;
     }
-    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-    .card h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
-    .card p { color: var(--muted); font-size: 0.95rem; flex: 1; }
+
+    .card:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .card h2 {
+      font-size: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .card p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      flex: 1;
+    }
+
     .card .btn {
       display: inline-block;
       margin-top: 1.25rem;
       padding: 0.5rem 1.25rem;
       background: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       border-radius: 0.375rem;
       font-weight: 600;
       font-size: 0.9rem;
       text-align: center;
       transition: background 0.15s;
     }
-    .card .btn:hover { background: var(--accent-hover); text-decoration: none; }
+
+    .card .btn:hover {
+      background: var(--accent-hover);
+      text-decoration: none;
+    }
 
     /* Badges */
-    .badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .badges {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
     .badge {
       font-size: 0.75rem;
       font-weight: 600;
@@ -108,29 +209,45 @@
       margin: 0 auto;
       padding: 0 1.5rem 3rem;
     }
-    .figures > h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    .figures > p { color: var(--muted); font-size: 0.95rem; margin-bottom: 1.5rem; }
+
+    .figures>h2 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .figures>p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+    }
+
     .figure-grid {
       display: flex;
       flex-direction: column;
       gap: 2.5rem;
     }
+
     figure {
       margin: 0;
     }
+
     figure img {
       width: 100%;
       height: auto;
       display: block;
       border-radius: 0.375rem;
     }
+
     figcaption {
       margin-top: 0.75rem;
       font-size: 0.875rem;
       color: var(--muted);
       line-height: 1.5;
     }
-    figcaption strong { color: var(--text); }
+
+    figcaption strong {
+      color: var(--text);
+    }
 
     /* About section */
     .about {
@@ -138,9 +255,21 @@
       margin: 0 auto;
       padding: 0 1.5rem 3rem;
     }
-    .about h2 { font-size: 1.5rem; margin-bottom: 1rem; }
-    .about ul { list-style: disc; padding-left: 1.5rem; color: var(--muted); }
-    .about li { margin-bottom: 0.35rem; }
+
+    .about h2 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .about ul {
+      list-style: disc;
+      padding-left: 1.5rem;
+      color: var(--muted);
+    }
+
+    .about li {
+      margin-bottom: 0.35rem;
+    }
 
     /* Footer */
     footer {
@@ -153,105 +282,106 @@
     }
   </style>
 </head>
+
 <body>
-
-<div class="hero">
-  <h1>Web Image Formats Research</h1>
-  <p>
-    Transparent, reproducible benchmarks comparing modern image formats
-    for the web&nbsp;&mdash; AVIF, JPEG&nbsp;XL, WebP, and JPEG&nbsp;&mdash;
-    using perceptual quality metrics.
-  </p>
-</div>
-
-<div class="cards">
-  <div class="card">
-    <div class="badges">
-      <span class="badge">Interactive</span>
-      <span class="badge">Plotly</span>
+  <main>
+    <div class="hero">
+      <img class="hero-logo" src="assets/logo.svg" alt="Web Image Formats Research logo" width="400" height="400" />
+      <h1>Web Image Formats Research</h1>
+      <p>
+        Transparent, reproducible benchmarks comparing modern image formats
+        for the web&nbsp;&mdash; AVIF, JPEG&nbsp;XL, WebP, and JPEG&nbsp;&mdash;
+        using perceptual quality metrics.
+      </p>
     </div>
-    <h2>Research Report</h2>
-    <p>
-      Interactive figures and analysis results from encoding studies.
-      Compare formats across quality, file size, and encoding speed.
-    </p>
-    <a class="btn" href="report/">View Report &rarr;</a>
-  </div>
 
-  <div class="card">
-    <div class="badges">
-      <span class="badge">Starlight</span>
-      <span class="badge">Diátaxis</span>
+    <div class="cards">
+      <div class="card">
+        <div class="badges">
+          <span class="badge">Interactive</span>
+          <span class="badge">Plotly</span>
+        </div>
+        <h2>Research Report</h2>
+        <p>
+          Interactive figures and analysis results from encoding studies.
+          Compare formats across quality, file size, and encoding speed.
+        </p>
+        <a class="btn" href="report/">View Report &rarr;</a>
+      </div>
+
+      <div class="card">
+        <div class="badges">
+          <span class="badge">Starlight</span>
+          <span class="badge">Diátaxis</span>
+        </div>
+        <h2>Documentation</h2>
+        <p>
+          Tutorials, how-to guides, API reference, and background explanations
+          for running and extending the research.
+        </p>
+        <a class="btn" href="docs/">Read Docs &rarr;</a>
+      </div>
+
+      <div class="card">
+        <div class="badges">
+          <span class="badge">GitHub</span>
+        </div>
+        <h2>Source Code</h2>
+        <p>
+          Browse the source, study configurations, and CI workflows.
+          Contributions and issue reports are welcome.
+        </p>
+        <a class="btn" href="https://github.com/kadykov/web-image-formats-research">
+          View on GitHub &rarr;
+        </a>
+      </div>
     </div>
-    <h2>Documentation</h2>
-    <p>
-      Tutorials, how-to guides, API reference, and background explanations
-      for running and extending the research.
-    </p>
-    <a class="btn" href="docs/">Read Docs &rarr;</a>
-  </div>
 
-  <div class="card">
-    <div class="badges">
-      <span class="badge">GitHub</span>
+    <section class="figures">
+      <h2>Key Findings</h2>
+      <p>A preview of results from the format comparison study &mdash; two metrics, one story with a twist.</p>
+      <div class="figure-grid">
+        <figure>
+          <img src="report/data/format-comparison/format-comparison_ssimulacra2_vs_bits_per_pixel.svg" width="960"
+            height="576"
+            alt="SSIMULACRA2 vs bits per pixel: AVIF and JPEG XL both clearly outperform WebP and JPEG across all quality levels."
+            loading="lazy" />
+          <figcaption>
+            <strong>SSIMULACRA2 metric.</strong> AVIF and JPEG&nbsp;XL deliver comparable
+            perceptual quality at significantly lower file sizes than WebP and JPEG.
+          </figcaption>
+        </figure>
+        <figure>
+          <img src="report/data/format-comparison/format-comparison_butteraugli_vs_bits_per_pixel.svg" width="960"
+            height="576"
+            alt="Butteraugli vs bits per pixel: JPEG XL consistently outperforms AVIF, while both outperform WebP and JPEG."
+            loading="lazy" />
+          <figcaption>
+            <strong>Butteraugli metric.</strong> Under this distortion model JPEG&nbsp;XL
+            consistently edges ahead of AVIF &mdash; a different verdict than SSIMULACRA2,
+            highlighting how metric choice matters.
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <div class="about">
+      <h2>About This Project</h2>
+      <ul>
+        <li>Identify optimal quality settings for AVIF encoding</li>
+        <li>Determine when to use chroma subsampling based on quality targets</li>
+        <li>Compare AVIF effectiveness against JPEG, WebP, and JPEG&nbsp;XL</li>
+        <li>Analyze compression efficiency using SSIMULACRA2, Butteraugli, PSNR, and SSIM</li>
+        <li>All studies run on GitHub Actions&nbsp;&mdash; fully transparent and reproducible</li>
+      </ul>
     </div>
-    <h2>Source Code</h2>
-    <p>
-      Browse the source, study configurations, and CI workflows.
-      Contributions and issue reports are welcome.
-    </p>
-    <a class="btn" href="https://github.com/kadykov/web-image-formats-research">
-      View on GitHub &rarr;
-    </a>
-  </div>
-</div>
+  </main>
 
-<section class="figures">
-  <h2>Key Findings</h2>
-  <p>A preview of results from the format comparison study &mdash; two metrics, one story with a twist.</p>
-  <div class="figure-grid">
-    <figure>
-      <img
-        src="report/data/format-comparison/format-comparison_ssimulacra2_vs_bits_per_pixel.svg"
-        alt="SSIMULACRA2 vs bits per pixel: AVIF and JPEG XL both clearly outperform WebP and JPEG across all quality levels."
-        loading="lazy"
-      />
-      <figcaption>
-        <strong>SSIMULACRA2 metric.</strong> AVIF and JPEG&nbsp;XL deliver comparable
-        perceptual quality at significantly lower file sizes than WebP and JPEG.
-      </figcaption>
-    </figure>
-    <figure>
-      <img
-        src="report/data/format-comparison/format-comparison_butteraugli_vs_bits_per_pixel.svg"
-        alt="Butteraugli vs bits per pixel: JPEG XL consistently outperforms AVIF, while both outperform WebP and JPEG."
-        loading="lazy"
-      />
-      <figcaption>
-        <strong>Butteraugli metric.</strong> Under this distortion model JPEG&nbsp;XL
-        consistently edges ahead of AVIF &mdash; a different verdict than SSIMULACRA2,
-        highlighting how metric choice matters.
-      </figcaption>
-    </figure>
-  </div>
-</section>
-
-<div class="about">
-  <h2>About This Project</h2>
-  <ul>
-    <li>Identify optimal quality settings for AVIF encoding</li>
-    <li>Determine when to use chroma subsampling based on quality targets</li>
-    <li>Compare AVIF effectiveness against JPEG, WebP, and JPEG&nbsp;XL</li>
-    <li>Analyze compression efficiency using SSIMULACRA2, Butteraugli, PSNR, and SSIM</li>
-    <li>All studies run on GitHub Actions&nbsp;&mdash; fully transparent and reproducible</li>
-  </ul>
-</div>
-
-<footer>
-  Web Image Formats Research &middot;
-  <a href="https://github.com/kadykov/web-image-formats-research">GitHub</a> &middot;
-  MIT License
-</footer>
-
+  <footer>
+    Web Image Formats Research &middot;
+    <a href="https://github.com/kadykov/web-image-formats-research">GitHub</a> &middot;
+    MIT License
+  </footer>
 </body>
+
 </html>
