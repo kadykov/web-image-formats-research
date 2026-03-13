@@ -1303,8 +1303,11 @@ def generate_comparison(
                                 # encode_image would re-crop if it saw both.
                             elif crop_level is not None:
                                 enc_measurement["crop"] = crop_level
-                                if crop_region_info is not None:
-                                    enc_measurement["crop_region"] = crop_region_info
+                                # Do NOT set crop_region in enc_measurement:
+                                # source_path (tile_ref_path) is already the
+                                # cropped image; encode_image would re-crop if
+                                # it saw crop_region (coordinates are in
+                                # original-image space).
 
                             encoded_dir = work / "encoded" / target_label
                             encoded_dir.mkdir(parents=True, exist_ok=True)
