@@ -999,6 +999,34 @@ def test_encode_image_jxl(sample_rgb_image: Path, tmp_output: Path) -> None:
     not shutil.which("cjpeg"),
     reason="cjpeg not available",
 )
+def test_encode_image_with_crop_level_no_crop_region_does_not_re_crop(
+    sample_rgb_image: Path, tmp_output: Path
+) -> None:
+    """encode_image with crop set but no crop_region encodes the source
+    as-is without cropping again.
+
+    This guards against the double-crop regression where passing
+    ``crop_region`` (in original-image coordinates) to a source image
+    that is already pre-cropped would produce the wrong output.
+    """
+    with Image.open(sample_rgb_image) as img:
+        source_w, source_h = img.size
+
+    # Measurement has a crop tag but no crop_region – simulates the
+    # comparison.py path where source_path is already the pre-cropped image.
+    measurement = {"format": "jpeg", "quality": 75, "crop": 800}
+    result = encode_image(sample_rgb_image, measurement, tmp_output)
+
+    assert result is not None
+    with Image.open(result) as encoded:
+        # Dimensions must match the pre-cropped source, not be re-cropped.
+        assert encoded.size == (source_w, source_h)
+
+
+@pytest.mark.skipif(
+    not shutil.which("cjpeg"),
+    reason="cjpeg not available",
+)
 # ---------------------------------------------------------------------------
 # _default_tile_parameter
 # ---------------------------------------------------------------------------

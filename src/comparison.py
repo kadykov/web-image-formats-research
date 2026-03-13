@@ -1137,15 +1137,9 @@ def generate_comparison(
 
                 for crop_level in unique_crops:
                     crop_source_path: Path
-                    crop_region_info: dict | None = None
-                    analysis_fragment_info: dict | None = None
 
                     if crop_level is not None:
-                        (
-                            crop_source_path,
-                            crop_region_info,
-                            analysis_fragment_info,
-                        ) = _resolve_source_for_crop(
+                        crop_source_path, _, _ = _resolve_source_for_crop(
                             original_path,
                             crop_level,
                             measurements,
