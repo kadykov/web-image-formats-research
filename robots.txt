@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://github.kadykov.com/web-image-formats-research/sitemap.xml
