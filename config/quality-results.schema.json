@@ -119,7 +119,7 @@
           },
           "analysis_fragment": {
             "type": ["object", "null"],
-            "description": "Coordinates of the analysis fragment in the original image coordinate space. Quality metrics are measured only on this region. Null when crop-impact mode is not used.",
+            "description": "Coordinates of the analysis fragment in the source_image coordinate space (i.e. relative to the cropped image, not the original). To reconstruct original-image coordinates, add the crop_region origin (x, y). Quality metrics are measured only on this region. Null when crop-impact mode is not used.",
             "properties": {
               "x": { "type": "integer", "minimum": 0 },
               "y": { "type": "integer", "minimum": 0 },
