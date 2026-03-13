@@ -77,8 +77,8 @@ see the auto-generated <a href="api/">API reference</a>.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="srcstudypy--study-configuration"><code dir="auto">src/study.py</code> — Study configuration</h2><a class="sl-anchor-link" href="#srcstudypy--study-configuration"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only" data-pagefind-ignore="">Section titled “src/study.py — Study configuration”</span></a></div>
 <p>Loads and validates study JSON configs from <code dir="auto">config/studies/</code>.</p>
 <ul>
-<li><code dir="auto">StudyConfig</code> — dataclass with id, name, dataset_id, encoders, time_budget, description</li>
-<li><code dir="auto">EncoderConfig</code> — per-format settings: quality, chroma_subsampling, speed, effort, method, resolution</li>
+<li><code dir="auto">StudyConfig</code> — dataclass with study metadata plus analysis/comparison settings and crop-impact options</li>
+<li><code dir="auto">EncoderConfig</code> — per-format settings: quality, chroma_subsampling, speed, effort, method, resolution, crop</li>
 </ul>
 <div class="sl-heading-wrapper level-h2"><h2 id="srcdatasetpy--dataset-fetching"><code dir="auto">src/dataset.py</code> — Dataset fetching</h2><a class="sl-anchor-link" href="#srcdatasetpy--dataset-fetching"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only" data-pagefind-ignore="">Section titled “src/dataset.py — Dataset fetching”</span></a></div>
 <p>Downloads and manages image datasets using <code dir="auto">config/datasets.json</code>.</p>
@@ -88,9 +88,10 @@ see the auto-generated <a href="api/">API reference</a>.</p>
 <li>Supports direct HTTP, Google Drive, and Dropbox downloads</li>
 </ul>
 <div class="sl-heading-wrapper level-h2"><h2 id="srcpreprocessingpy--image-preprocessing"><code dir="auto">src/preprocessing.py</code> — Image preprocessing</h2><a class="sl-anchor-link" href="#srcpreprocessingpy--image-preprocessing"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only" data-pagefind-ignore="">Section titled “src/preprocessing.py — Image preprocessing”</span></a></div>
-<p>Resizes images for resolution-impact studies.</p>
+<p>Resizes and crops images for preprocessing-driven studies.</p>
 <ul>
-<li><code dir="auto">ImagePreprocessor</code> — <code dir="auto">resize_image()</code> with configurable target size and aspect ratio</li>
+<li><code dir="auto">ImagePreprocessor</code> — <code dir="auto">resize_image()</code> and <code dir="auto">crop_image_around_fragment()</code></li>
+<li><code dir="auto">CropResult</code> — cropped image path plus the crop rectangle in original-image coordinates</li>
 </ul>
 <div class="sl-heading-wrapper level-h2"><h2 id="srcencoderpy--image-encoding"><code dir="auto">src/encoder.py</code> — Image encoding</h2><a class="sl-anchor-link" href="#srcencoderpy--image-encoding"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only" data-pagefind-ignore="">Section titled “src/encoder.py — Image encoding”</span></a></div>
 <p>Encodes images using external CLI tools (cjpeg, cwebp, avifenc, cjxl).</p>
@@ -105,7 +106,7 @@ see the auto-generated <a href="api/">API reference</a>.</p>
 <ul>
 <li><code dir="auto">QualityMeasurer</code> — <code dir="auto">measure_ssimulacra2()</code>, <code dir="auto">measure_psnr()</code>, <code dir="auto">measure_ssim()</code>, <code dir="auto">measure_butteraugli()</code>, <code dir="auto">measure_butteraugli_with_distmap()</code>, <code dir="auto">measure_all()</code></li>
 <li><code dir="auto">QualityMetrics</code> — dataclass: ssimulacra2, psnr, ssim, butteraugli</li>
-<li><code dir="auto">QualityRecord</code>, <code dir="auto">QualityResults</code> — structured containers for pipeline output, with <code dir="auto">save()</code> to JSON</li>
+<li><code dir="auto">QualityRecord</code>, <code dir="auto">QualityResults</code> — structured containers for pipeline output, including crop metadata, with <code dir="auto">save()</code> to JSON</li>
 <li><code dir="auto">to_png()</code> — converts AVIF/JXL/WebP to PNG for measurement tools</li>
 <li><code dir="auto">read_pfm()</code> — reads Butteraugli PFM distortion maps</li>
 <li><code dir="auto">find_worst_region_in_array()</code> — sliding-window worst-region detection using integral images</li>
@@ -116,12 +117,13 @@ see the auto-generated <a href="api/">API reference</a>.</p>
 <li><code dir="auto">PipelineRunner</code> — main class: <code dir="auto">run(config, time_budget, save_artifacts, save_worst_image, num_workers)</code></li>
 <li><code dir="auto">parse_time_budget()</code> — parses “30m”, “1h”, ”90s” format strings</li>
 <li>Worker-per-image architecture using <code dir="auto">ProcessPoolExecutor</code></li>
+<li>Supports resolution sweeps and crop-impact studies with fragment-only metric measurement</li>
 </ul>
 <div class="sl-heading-wrapper level-h2"><h2 id="srcanalysispy--statistical-analysis"><code dir="auto">src/analysis.py</code> — Statistical analysis</h2><a class="sl-anchor-link" href="#srcanalysispy--statistical-analysis"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only" data-pagefind-ignore="">Section titled “src/analysis.py — Statistical analysis”</span></a></div>
 <p>Computes statistics and generates static matplotlib plots.</p>
 <ul>
 <li><code dir="auto">load_quality_results()</code> — load quality.json</li>
-<li><code dir="auto">create_analysis_dataframe()</code> — build DataFrame with derived metrics (bytes_per_pixel, compression_ratio, efficiency)</li>
+<li><code dir="auto">create_analysis_dataframe()</code> — build DataFrame with derived metrics (bits_per_pixel, compression_ratio, efficiency)</li>
 <li><code dir="auto">compute_statistics()</code> — mean, min, max, percentiles (5/25/50/75/95)</li>
 <li><code dir="auto">determine_sweep_parameter()</code>, <code dir="auto">determine_secondary_sweep_parameter()</code> — auto-detect what varies</li>
 <li><code dir="auto">plot_quality_metrics()</code>, <code dir="auto">plot_rate_distortion()</code> — SVG output with mean + worst-case lines</li>
@@ -154,7 +156,7 @@ settings interpolated from <code dir="auto">quality.json</code>.</p>
 <li><code dir="auto">generate_distortion_map()</code> — create raw Butteraugli PFM distortion maps</li>
 <li><code dir="auto">find_worst_region()</code> — sliding-window worst-region search on a PFM map</li>
 <li><code dir="auto">crop_and_zoom()</code> — crop a fragment and scale with nearest-neighbour interpolation</li>
-<li><code dir="auto">assemble_comparison_grid()</code> — assemble labeled tiles with ImageMagick 7 <code dir="auto">montage</code></li>
+<li><code dir="auto">assemble_comparison_grid()</code> — assemble labeled tiles with ImageMagick 7 <code dir="auto">montage</code>, including fixed-position placeholders for missing variants</li>
 <li><code dir="auto">encode_image()</code> — re-encode a source image using measurement-record parameters</li>
 <li><code dir="auto">_anisotropic_std_map()</code> — compute aggregate per-pixel std map across distortion maps</li>
 </ul>

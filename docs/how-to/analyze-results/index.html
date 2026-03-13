@@ -82,11 +82,14 @@ and writes outputs to <code dir="auto">data/analysis/format-comparison/</code>.<
 and sweep parameters</li>
 <li><strong>Quality plots (SVG)</strong> — SSIMULACRA2, PSNR, SSIM, Butteraugli vs the
 sweep parameter, showing mean and 5th-percentile (worst case)</li>
-<li><strong>Rate-distortion plots (SVG)</strong> — quality metrics vs bytes per pixel,
+<li><strong>Rate-distortion plots (SVG)</strong> — quality metrics vs bits per pixel,
 grouped by format</li>
-<li><strong>Efficiency plots (SVG)</strong> — bytes per quality unit per pixel</li>
-<li><strong>Bytes-per-pixel plots (SVG)</strong> — file size distribution with percentile bands</li>
+<li><strong>Efficiency plots (SVG)</strong> — bits per quality unit per pixel</li>
+<li><strong>Bits-per-pixel plots (SVG)</strong> — file size distribution with percentile bands</li>
 </ul>
+<p>For crop-impact studies, analysis uses the <code dir="auto">crop</code> parameter as the natural x-axis
+and reports <code dir="auto">bits_per_pixel</code> rather than absolute file size, which makes values
+comparable across different crop areas.</p>
 <p>All plots are SVG vector graphics, suitable for papers and presentations.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="list-studies-with-available-results">List studies with available results</h2><a class="sl-anchor-link" href="#list-studies-with-available-results"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentcolor" d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 0 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 1 0-1.42-1.42Zm8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 0 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 1 0 1.42 1.42l3.88-3.89a4.49 4.49 0 0 0 0-6.33ZM8.83 15.17a1 1 0 0 0 1.1.22 1 1 0 0 0 .32-.22l4.92-4.92a1 1 0 0 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42Z"></path></svg></span><span class="sr-only" data-pagefind-ignore="">Section titled “List studies with available results”</span></a></div>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="bash"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">python3</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">scripts/analyze_study.py</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">--list</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="python3 scripts/analyze_study.py --list"><div></div></button></div></figure></div>
