@@ -56,13 +56,15 @@ def _ensure_noindex_404(root: Path) -> None:
         content = html_file.read_text(encoding="utf-8")
         if 'name="robots"' in content:
             continue
-        content = content.replace(
-            '<meta name="viewport" content="width=device-width, initial-scale=1"/>',
-            '<meta name="viewport" content="width=device-width, initial-scale=1"/>'
-            '<meta name="robots" content="noindex,follow"/>',
+        new_content = content.replace(
+            "</head>",
+            '<meta name="robots" content="noindex,follow"/></head>',
             1,
         )
-        html_file.write_text(content, encoding="utf-8")
+        assert new_content != content, (
+            f"Could not inject noindex robots meta tag into {html_file}: </head> not found"
+        )
+        html_file.write_text(new_content, encoding="utf-8")
 
 
 def stage_site(

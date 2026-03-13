@@ -348,7 +348,9 @@ def generate_report(
 
     # Copy plotly.js bundle to output
     assets_output = output_dir / "assets"
-    assets_output.mkdir(exist_ok=True)
+    if assets_output.exists():
+        shutil.rmtree(assets_output)
+    assets_output.mkdir()
     plotly_dst = assets_output / "plotly-basic.min.js"
     shutil.copy2(plotly_src, plotly_dst)
     copy_deployable_assets(assets_output)

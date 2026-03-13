@@ -9,7 +9,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const siteConfig = JSON.parse(
 	readFileSync(join(__dirname, '../config/site.json'), 'utf-8'),
 );
+const isGitHubPages = process.env.GITHUB_PAGES === 'true';
 const docsBase = `${siteConfig.base_path}/${siteConfig.docs_subpath}`;
+// In local dev/preview the docs are served at the root, so asset links have no prefix.
+// In production (GitHub Pages) they are served under docsBase.
+const assetsBase = isGitHubPages ? docsBase : '';
 
 // https://astro.build/config
 export default defineConfig({
@@ -18,7 +22,7 @@ export default defineConfig({
 	preview: { host: true },
 	// Use base path for GitHub Pages deployment (docs live at /web-image-formats-research/docs/)
 	// For local dev/preview, leave it empty so assets load correctly
-	base: process.env.GITHUB_PAGES === 'true' ? docsBase : undefined,
+	base: isGitHubPages ? docsBase : undefined,
 	integrations: [
 		starlight({
 			title: siteConfig.site_name,
@@ -29,10 +33,10 @@ export default defineConfig({
 			},
 			favicon: '/assets/favicon.ico',
 			head: [
-				{ tag: 'link', attrs: { rel: 'icon', href: `${docsBase}/assets/favicon.ico`, sizes: '32x32' } },
-				{ tag: 'link', attrs: { rel: 'icon', href: `${docsBase}/assets/icon.svg`, type: 'image/svg+xml' } },
-				{ tag: 'link', attrs: { rel: 'apple-touch-icon', href: `${docsBase}/assets/apple-touch-icon.png` } },
-				{ tag: 'link', attrs: { rel: 'manifest', href: `${docsBase}/assets/manifest.webmanifest` } },
+				{ tag: 'link', attrs: { rel: 'icon', href: `${assetsBase}/assets/favicon.ico`, sizes: '32x32' } },
+				{ tag: 'link', attrs: { rel: 'icon', href: `${assetsBase}/assets/icon.svg`, type: 'image/svg+xml' } },
+				{ tag: 'link', attrs: { rel: 'apple-touch-icon', href: `${assetsBase}/assets/apple-touch-icon.png` } },
+				{ tag: 'link', attrs: { rel: 'manifest', href: `${assetsBase}/assets/manifest.webmanifest` } },
 				{ tag: 'meta', attrs: { name: 'theme-color', content: siteConfig.brand.accent } },
 				{ tag: 'meta', attrs: { property: 'og:image', content: `${siteConfig.site_origin}${docsBase}/assets/opengraph.png` } },
 				{ tag: 'meta', attrs: { name: 'twitter:image', content: `${siteConfig.site_origin}${docsBase}/assets/opengraph.png` } },
