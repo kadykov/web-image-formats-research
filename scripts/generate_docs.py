@@ -283,6 +283,8 @@ def main() -> None:
         print("❌ docs-site directory not found. Run 'just docs-init' first.")
         sys.exit(1)
 
+    if public_assets_dir.exists():
+        shutil.rmtree(public_assets_dir)
     copy_deployable_assets(public_assets_dir)
     print(f"✅ Synced shared site assets to {public_assets_dir}")
     docs_src_assets_dir.mkdir(parents=True, exist_ok=True)
