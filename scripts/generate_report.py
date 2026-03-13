@@ -23,6 +23,7 @@ from src.report_images import (
     optimise_svg,
     picture_html,
 )
+from src.site_config import asset_paths, canonical_url, copy_deployable_assets, get_site_config, minify_html_document
 
 # Paths relative to project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -137,10 +138,17 @@ def _load_study_metadata(quality_json_path: Path) -> dict[str, str | int | list[
     measurements = data.get("measurements", [])
     formats = sorted({m["format"] for m in measurements if "format" in m})
 
+    study_id = data.get("study_id", "unknown")
+    description = ""
+    study_config = PROJECT_ROOT / "config" / "studies" / f"{study_id}.json"
+    if study_config.exists():
+        with open(study_config, encoding="utf-8") as f:
+            description = json.load(f).get("description", "")
+
     return {
-        "study_id": data.get("study_id", "unknown"),
+        "study_id": study_id,
         "study_name": data.get("study_name", data.get("study_id", "Unknown Study")),
-        "description": "",  # quality.json doesn't carry description; could load from config
+        "description": description,
         "dataset_id": data.get("dataset", {}).get("id", "unknown"),
         "image_count": data.get("dataset", {}).get("image_count", 0),
         "measurement_count": len(measurements),
@@ -205,6 +213,7 @@ def generate_study_page(
     """
     metadata = _load_study_metadata(quality_json_path)
     study_id = str(metadata["study_id"])
+    site_config = get_site_config()
 
     # Resolve study config path for analysis parameter overrides
     study_config_path = PROJECT_ROOT / "config" / "studies" / f"{study_id}.json"
@@ -271,6 +280,19 @@ def generate_study_page(
     # Render template
     template = env.get_template("study.html.j2")
     html = template.render(
+        page_title=f"{metadata['study_name']} | {site_config.site_name}",
+        page_description=(
+            str(metadata.get("description"))
+            or f"Interactive study results for {metadata['study_name']} on dataset {metadata['dataset_id']}."
+        ),
+        robots_directive="index,follow",
+        theme_color=site_config.brand["accent"],
+        canonical_url=canonical_url(f"{site_config.report_subpath}/{metadata['filename']}"),
+        og_image_url=canonical_url(f"{site_config.report_subpath}/assets/opengraph.png"),
+        og_type="article",
+        site_name=site_config.site_name,
+        repository_url=site_config.repository_url,
+        site_assets=asset_paths(),
         study_name=metadata["study_name"],
         study_description=metadata.get("description", ""),
         dataset_id=metadata["dataset_id"],
@@ -294,7 +316,7 @@ def generate_study_page(
 
     # Write HTML file
     output_file = output_dir / metadata["filename"]
-    output_file.write_text(html, encoding="utf-8")
+    output_file.write_text(minify_html_document(html), encoding="utf-8")
     print(f"  Written: {output_file}")
 
     return metadata
@@ -323,6 +345,7 @@ def generate_report(
     assets_output.mkdir(exist_ok=True)
     plotly_dst = assets_output / "plotly-basic.min.js"
     shutil.copy2(plotly_src, plotly_dst)
+    copy_deployable_assets(assets_output)
 
     # Copy PhotoSwipe assets to output
     for src in (pswp_css_src, pswp_js_src, pswp_lightbox_src):
@@ -359,14 +382,27 @@ def generate_report(
 
     # Generate index page
     template = env.get_template("index.html.j2")
+    site_config = get_site_config()
     html = template.render(
+        page_title=site_config.site_name,
+        page_description=(
+            "Interactive benchmarks comparing AVIF, JPEG XL, WebP, and JPEG across study results and downloadable figures."
+        ),
+        robots_directive="index,follow",
+        theme_color=site_config.brand["accent"],
+        canonical_url=canonical_url(f"{site_config.report_subpath}/"),
+        og_image_url=canonical_url(f"{site_config.report_subpath}/assets/opengraph.png"),
+        og_type="website",
+        site_name=site_config.site_name,
+        repository_url=site_config.repository_url,
+        site_assets=asset_paths(),
         studies=study_metadata_list,
         plotly_js_path=plotly_js_path,
         index_path=index_path,
         generation_timestamp=timestamp,
     )
     index_file = output_dir / "index.html"
-    index_file.write_text(html, encoding="utf-8")
+    index_file.write_text(minify_html_document(html), encoding="utf-8")
     print(f"Index written: {index_file}")
 
 

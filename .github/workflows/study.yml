@@ -62,6 +62,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -330,19 +332,28 @@ jobs:
           name: report
           path: report-output/
 
-      - name: Deploy report to gh-pages/report/
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./report-output
-          destination_dir: report
+      - name: Load current gh-pages tree
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages
+            git worktree add --detach site-current origin/gh-pages
+          else
+            mkdir -p site-current
+          fi
 
-      - name: Deploy landing page to gh-pages root
+      - name: Stage combined site
+        run: |
+          python3 scripts/stage_github_pages.py \
+            --output-root site-staged \
+            --current-root site-current \
+            --landing-root pages \
+            --report-root report-output
+
+      - name: Deploy staged site root
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./pages
-          keep_files: true
+          publish_dir: ./site-staged
 
   # ── 8. Create GitHub Release with assets ────────────────────────────
   release:

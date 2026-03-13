@@ -118,12 +118,14 @@ docs-build:
 
 # Start local documentation development server
 docs-dev:
+    @just docs-generate
     @echo "Starting documentation development server..."
     @echo "Visit http://localhost:4321"
     cd docs-site && npm run dev
 
 # Preview production build locally
 docs-preview:
+    @just docs-generate
     @echo "Starting documentation preview server..."
     @echo "Visit http://localhost:4321"
     cd docs-site && npm run preview

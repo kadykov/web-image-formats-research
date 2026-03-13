@@ -1,0 +1,36 @@
+{
+  "site_name": "Web Image Formats Research",
+  "site_description": "Transparent, reproducible benchmarks comparing modern image formats for the web, with a focus on AVIF, JPEG XL, WebP, and JPEG.",
+  "site_origin": "https://github.kadykov.com",
+  "base_path": "/web-image-formats-research",
+  "custom_domain": "github.kadykov.com",
+  "repository_url": "https://github.com/kadykov/web-image-formats-research",
+  "report_subpath": "report",
+  "docs_subpath": "docs",
+  "brand": {
+    "accent": "#118ab2",
+    "accent_alt": "#24b891",
+    "highlight": "#ffb91c",
+    "ink": "#073b4c",
+    "rose": "#cf677e",
+    "light_bg": "#f4f8fb",
+    "light_surface": "#ffffff",
+    "dark_bg": "#091f29",
+    "dark_surface": "#10303d"
+  },
+  "deployable_assets": [
+    "apple-touch-icon.png",
+    "favicon.ico",
+    "icon-192.png",
+    "icon-512.png",
+    "icon-mask.png",
+    "icon.svg",
+    "logo.svg",
+    "manifest.webmanifest",
+    "opengraph.png"
+  ],
+  "source_only_assets": [
+    "logo-original.svg",
+    "opengraph-original.svg"
+  ]
+}

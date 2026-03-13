@@ -1,0 +1,15 @@
+{
+  "name": "Web Image Formats Research",
+  "short_name": "Image Research",
+  "description": "Transparent, reproducible benchmarks comparing modern image formats for the web.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f4f8fb",
+  "theme_color": "#118ab2",
+  "icons": [
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icon-mask.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}
