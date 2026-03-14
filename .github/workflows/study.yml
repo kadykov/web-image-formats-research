@@ -338,6 +338,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./report-output
           destination_dir: report  # matches report_subpath in config/site.json
+          keep_files: true
 
   # ── 8. Create GitHub Release with assets ────────────────────────────
   release:
