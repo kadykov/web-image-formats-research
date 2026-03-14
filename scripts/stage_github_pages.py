@@ -48,7 +48,10 @@ def stage_site(
     landing_html = (landing_root / "index.html").read_text(encoding="utf-8")
     (output_root / "index.html").write_text(minify_html_document(landing_html), encoding="utf-8")
 
-    copy_deployable_assets(output_root / "assets")
+    not_found_html = (landing_root / "404.html").read_text(encoding="utf-8")
+    (output_root / "404.html").write_text(minify_html_document(not_found_html), encoding="utf-8")
+
+    copy_deployable_assets(output_root)
 
     (output_root / ".nojekyll").write_text("", encoding="utf-8")
     (output_root / "CNAME").write_text(f"{site_config.custom_domain}\n", encoding="utf-8")
