@@ -19,7 +19,6 @@ const assetsBase = isGitHubPages ? docsBase : '';
 export default defineConfig({
 	site: siteConfig.site_origin,
 	server: { host: true },
-	preview: { host: true },
 	// Use base path for GitHub Pages deployment (docs live at /web-image-formats-research/docs/)
 	// For local dev/preview, leave it empty so assets load correctly
 	base: isGitHubPages ? docsBase : undefined,
