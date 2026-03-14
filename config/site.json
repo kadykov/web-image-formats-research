@@ -17,20 +17,5 @@
     "light_surface": "#ffffff",
     "dark_bg": "#091f29",
     "dark_surface": "#10303d"
-  },
-  "deployable_assets": [
-    "apple-touch-icon.png",
-    "favicon.ico",
-    "icon-192.png",
-    "icon-512.png",
-    "icon-mask.png",
-    "icon.svg",
-    "logo.svg",
-    "manifest.webmanifest",
-    "opengraph.png"
-  ],
-  "source_only_assets": [
-    "logo-original.svg",
-    "opengraph-original.svg"
-  ]
+  }
 }

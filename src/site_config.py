@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import Any
 
 import minify_html
 
@@ -28,8 +28,6 @@ class SiteConfig:
     report_subpath: str
     docs_subpath: str
     brand: dict[str, str]
-    deployable_assets: tuple[str, ...]
-    source_only_assets: tuple[str, ...]
 
     @property
     def canonical_base_url(self) -> str:
@@ -51,8 +49,6 @@ def get_site_config() -> SiteConfig:
         report_subpath=data["report_subpath"],
         docs_subpath=data["docs_subpath"],
         brand=dict(data["brand"]),
-        deployable_assets=tuple(data["deployable_assets"]),
-        source_only_assets=tuple(data["source_only_assets"]),
     )
 
 
@@ -65,15 +61,8 @@ def canonical_url(path: str = "") -> str:
 
 
 def copy_deployable_assets(target_dir: Path) -> None:
-    """Copy the deployable website assets into a published directory root."""
-    config = get_site_config()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for asset_name in config.deployable_assets:
-        src = SITE_ASSETS_DIR / asset_name
-        if not src.exists():
-            raise FileNotFoundError(f"Missing deployable asset: {src}")
-        dst = target_dir / asset_name
-        dst.write_bytes(src.read_bytes())
+    """Copy the website assets into a published directory root."""
+    shutil.copytree(SITE_ASSETS_DIR, target_dir, dirs_exist_ok=True)
 
 
 def asset_paths() -> dict[str, str]:
@@ -97,24 +86,3 @@ def minify_html_document(html: str) -> str:
         minify_css=True,
         minify_js=True,
     )
-
-
-def sitemap_entries(root_dir: Path) -> list[dict[str, Any]]:
-    """Collect sitemap entries from the published site tree."""
-    entries: list[dict[str, Any]] = []
-    for html_file in sorted(root_dir.rglob("*.html")):
-        if html_file.name == "404.html":
-            continue
-        content = html_file.read_text(encoding="utf-8")
-        if 'name="robots" content="noindex' in content.lower():
-            continue
-
-        relative = html_file.relative_to(root_dir).as_posix()
-        if relative == "index.html":
-            loc = canonical_url("")
-        elif relative.endswith("/index.html"):
-            loc = canonical_url(relative[: -len("index.html")])
-        else:
-            loc = canonical_url(relative)
-        entries.append({"loc": loc})
-    return entries

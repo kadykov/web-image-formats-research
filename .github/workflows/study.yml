@@ -332,28 +332,12 @@ jobs:
           name: report
           path: report-output/
 
-      - name: Load current gh-pages tree
-        run: |
-          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git fetch origin gh-pages
-            git worktree add --detach site-current origin/gh-pages
-          else
-            mkdir -p site-current
-          fi
-
-      - name: Stage combined site
-        run: |
-          python3 scripts/stage_github_pages.py \
-            --output-root site-staged \
-            --current-root site-current \
-            --landing-root pages \
-            --report-root report-output
-
-      - name: Deploy staged site root
+      - name: Deploy report to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site-staged
+          publish_dir: ./report-output
+          destination_dir: report  # matches report_subpath in config/site.json
 
   # ── 8. Create GitHub Release with assets ────────────────────────────
   release:
