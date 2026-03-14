@@ -36,11 +36,30 @@ from src.site_config import (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _write_report_sitemap(output_dir: Path) -> None:
-    """Generate sitemap.xml for the report section."""
+def _write_report_sitemap(output_dir: Path, study_filenames: list[str] | None = None) -> None:
+    """Generate sitemap.xml for the report section.
+
+    Args:
+        output_dir: Directory where report files are written
+        study_filenames: List of study HTML filenames that were generated.
+                        If provided, only these files (plus index.html) are included.
+                        If None, scans directory for all HTML files (legacy behavior).
+    """
     site_config = get_site_config()
     urlset = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
-    for html_file in sorted(output_dir.rglob("*.html")):
+
+    # Determine which files to include in sitemap
+    if study_filenames is not None:
+        # Use only the explicitly generated study files
+        files_to_include = set(study_filenames) | {"index.html"}
+        html_files = sorted(
+            [output_dir / fname for fname in files_to_include if (output_dir / fname).exists()]
+        )
+    else:
+        # Legacy behavior: scan directory for all HTML files
+        html_files = sorted(output_dir.rglob("*.html"))
+
+    for html_file in html_files:
         if html_file.name == "404.html":
             continue
         content = html_file.read_text(encoding="utf-8")
@@ -437,7 +456,9 @@ def generate_report(
     index_file.write_text(minify_html_document(html), encoding="utf-8")
     print(f"Index written: {index_file}")
 
-    _write_report_sitemap(output_dir)
+    # Generate sitemap with only the study pages that were actually generated
+    study_filenames = [m["filename"] for m in study_metadata_list]
+    _write_report_sitemap(output_dir, study_filenames=study_filenames)
     print(f"Sitemap written: {output_dir / 'sitemap.xml'}")
 
 
