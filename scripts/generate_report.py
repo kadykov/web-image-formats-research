@@ -13,6 +13,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.request import urlretrieve
+from xml.etree.ElementTree import Element, ElementTree, SubElement
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -33,6 +34,29 @@ from src.site_config import (
 
 # Paths relative to project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _write_report_sitemap(output_dir: Path) -> None:
+    """Generate sitemap.xml for the report section."""
+    site_config = get_site_config()
+    urlset = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+    for html_file in sorted(output_dir.rglob("*.html")):
+        if html_file.name == "404.html":
+            continue
+        content = html_file.read_text(encoding="utf-8")
+        if 'name="robots" content="noindex' in content.lower():
+            continue
+        relative = html_file.relative_to(output_dir).as_posix()
+        if relative == "index.html":
+            loc = canonical_url(f"{site_config.report_subpath}/")
+        elif relative.endswith("/index.html"):
+            loc = canonical_url(f"{site_config.report_subpath}/{relative[: -len('index.html')]}")
+        else:
+            loc = canonical_url(f"{site_config.report_subpath}/{relative}")
+        SubElement(SubElement(urlset, "url"), "loc").text = loc
+    ElementTree(urlset).write(output_dir / "sitemap.xml", encoding="utf-8", xml_declaration=True)
+
+
 REPORT_DIR = PROJECT_ROOT / "report"
 TEMPLATES_DIR = REPORT_DIR / "templates"
 ASSETS_DIR = REPORT_DIR / "assets"
@@ -412,6 +436,9 @@ def generate_report(
     index_file = output_dir / "index.html"
     index_file.write_text(minify_html_document(html), encoding="utf-8")
     print(f"Index written: {index_file}")
+
+    _write_report_sitemap(output_dir)
+    print(f"Sitemap written: {output_dir / 'sitemap.xml'}")
 
 
 def main() -> int:
