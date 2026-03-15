@@ -22,3 +22,9 @@ pnpm-debug.log*
 
 # Generated documentation content (regenerated from docs/ and src/)
 src/content/docs/
+
+# Copied assets (from pages/assets/)
+src/assets/
+public/assets/
+
+
