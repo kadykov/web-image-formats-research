@@ -1,5 +1,9 @@
 # Web Image Formats Research
 
+<div align="center">
+  <img src="https://github.kadykov.com/web-image-formats-research/logo.svg" alt="Web Image Formats Research Logo" width="400" />
+</div>
+
 [![CI](https://github.com/kadykov/web-image-formats-research/workflows/CI/badge.svg)](https://github.com/kadykov/web-image-formats-research/actions)
 [![codecov](https://codecov.io/gh/kadykov/web-image-formats-research/branch/main/graph/badge.svg)](https://codecov.io/gh/kadykov/web-image-formats-research)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
