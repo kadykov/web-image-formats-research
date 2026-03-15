@@ -33,7 +33,7 @@
     {
       "format": "avif",
       "quality": [35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
-      "speed": 4
+      "speed": 3
     },
     {
       "format": "jxl",

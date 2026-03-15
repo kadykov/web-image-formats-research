@@ -26,7 +26,7 @@
     {
       "format": "avif",
       "quality": 65,
-      "speed": 4,
+      "speed": 3,
       "resolution": [2048, 1280, 720, 480, 320, 240, 200, 160, 120]
     },
     {
