@@ -1,0 +1,136 @@
+# Render the technical paper and optionally deploy to GitHub Pages
+# and/or attach the PDF to a GitHub Release.
+#
+# Triggers:
+#   - Push to main when paper-related files change — renders HTML and
+#     deploys it to the paper/ subdirectory on GitHub Pages.
+#   - Tag push matching "paper-*" — renders the PDF and uploads it as
+#     a GitHub Release asset attached to the tag.
+#   - Manual dispatch — renders both outputs; optionally deploys HTML
+#     and/or creates a release.
+#
+# Data: The workflow fetches study results from the latest GitHub
+# Release (or a specified tag) so the paper can be rendered without
+# running the full study pipeline.
+#
+# Prerequisites:
+#   Repository Settings → Pages → Source: "Deploy from a branch",
+#   branch "gh-pages", folder "/ (root)".
+
+name: Render Paper
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "paper/**"
+      - "scripts/fetch_release_assets.py"
+      - ".github/workflows/paper.yml"
+    tags:
+      - "paper-*"
+  workflow_dispatch:
+    inputs:
+      data_tag:
+        description: "Study data release tag (default: latest)"
+        required: false
+        default: ""
+        type: string
+      deploy_html:
+        description: "Deploy HTML to GitHub Pages"
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: paper-deploy
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: Render Paper
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -e .
+
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Fetch study data from release
+        timeout-minutes: 10
+        run: |
+          TAG="${{ inputs.data_tag }}"
+          if [ -n "$TAG" ]; then
+            python3 scripts/fetch_release_assets.py --tag "$TAG"
+          else
+            python3 scripts/fetch_release_assets.py
+          fi
+
+      - name: Render paper (HTML + PDF)
+        run: cd paper && quarto render
+
+      - name: Upload paper artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: paper
+          path: paper/_output/
+
+  # ── Deploy HTML to GitHub Pages ───────────────────────────────────
+  deploy-html:
+    name: Deploy Paper HTML
+    runs-on: ubuntu-latest
+    needs: render
+    if: >-
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_html)
+    permissions:
+      contents: write
+    steps:
+      - name: Download paper artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: paper
+          path: paper-output/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./paper-output
+          destination_dir: paper
+          keep_files: true
+
+  # ── Attach PDF to GitHub Release on tag push ──────────────────────
+  release-pdf:
+    name: Attach PDF to Release
+    runs-on: ubuntu-latest
+    needs: render
+    if: startsWith(github.ref, 'refs/tags/paper-')
+    permissions:
+      contents: write
+    steps:
+      - name: Download paper artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: paper
+          path: paper-output/
+
+      - name: Create GitHub Release with PDF
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Paper — ${{ github.ref_name }}"
+          files: paper-output/*.pdf

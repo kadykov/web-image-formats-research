@@ -1,0 +1,289 @@
+---
+title: "Comparative Analysis of Modern Lossy Image Formats for the Web"
+subtitle: "An Empirical Evaluation of JPEG, WebP, AVIF, and JPEG XL"
+abstract: |
+  Modern web applications increasingly rely on efficient image compression to
+  balance visual quality and bandwidth. This paper presents a systematic
+  empirical comparison of four lossy image formats — JPEG, WebP, AVIF, and
+  JPEG XL — using perceptual quality metrics (SSIMULACRA2, Butteraugli) alongside
+  traditional metrics (PSNR, SSIM). We first determine optimal encoder parameters
+  for each format through parameter sweep studies, then compare the formats at
+  their best operating points. Our analysis reveals that both AVIF and JPEG XL
+  significantly outperform JPEG and WebP in compression efficiency. While
+  SSIMULACRA2 scores show parity between AVIF and JPEG XL, Butteraugli
+  consistently favors JPEG XL. Combined with JPEG XL's substantially lower
+  encoding time, our findings support the adoption of JPEG XL for web image
+  delivery. We complement the quantitative analysis with a qualitative
+  examination of compression artifacts, observing that AVIF tends to preserve
+  sharp details at the expense of textures, whereas JPEG XL maintains a more
+  balanced reproduction.
+keywords:
+  - image compression
+  - AVIF
+  - JPEG XL
+  - WebP
+  - SSIMULACRA2
+  - Butteraugli
+  - perceptual quality
+  - web performance
+---
+
+## Introduction {#sec-introduction}
+
+<!-- TODO: Write introduction covering:
+  - The importance of image compression for web performance
+  - Evolution from JPEG to modern formats (WebP, AVIF, JPEG XL)
+  - Motivation: which format should web developers adopt?
+  - Contribution statement: systematic empirical comparison with
+    perceptual metrics, open and reproducible methodology
+  - Paper organization overview
+-->
+
+## Methodology {#sec-methodology}
+
+### Dataset {#sec-dataset}
+
+<!-- TODO: Describe DIV2K validation dataset:
+  - 100 high-quality 2K-resolution images
+  - Diverse content (natural scenes, textures, fine details)
+  - Why this dataset was chosen
+  - Note: image 0828 excluded from analysis (reason)
+-->
+
+### Quality Metrics {#sec-metrics}
+
+<!-- TODO: Describe each metric:
+  - SSIMULACRA2: perceptual quality metric, scoring scale
+  - Butteraugli: perceptual distortion metric (lower is better)
+  - PSNR: traditional signal fidelity metric
+  - SSIM: structural similarity
+  - Why perceptual metrics (SSIMULACRA2, Butteraugli) are prioritized
+  - Bits per pixel (bpp) as the compression efficiency axis
+-->
+
+### Encoding Pipeline {#sec-pipeline}
+
+<!-- TODO: Describe:
+  - Automated encode → measure → analyze pipeline
+  - Encoder versions (libjpeg-turbo, libwebp, libavif/libaom, libjxl)
+  - Reproducibility via containerized environment
+  - Time-budget-based execution model
+-->
+
+### Fragment Selection for Visual Comparison {#sec-fragment-selection}
+
+<!-- TODO: Describe the heuristic:
+  - Coefficient of variation (CV) across formats to select representative image
+  - Butteraugli distortion map aggregation to find highest-distortion fragment
+  - Single fragment shared across quality levels for comparability
+-->
+
+## Encoder Parameter Optimization {#sec-parameter-optimization}
+
+### WebP Method Sweep {#sec-webp-method}
+
+<!-- TODO: Analyze WebP method parameter (0-6):
+  - Higher method monotonically decreases bpp
+  - No quality degradation at high encoder quality settings
+  - Minor degradation at quality ≤80 (e.g., SSIMULACRA2 73.9→73.5)
+  - More substantial at quality 30 (51.1→47.8)
+  - Encoding time remains <0.8 µs/pixel even at highest method
+  - Conclusion: use method=6 for optimal quality/size with negligible cost
+-->
+
+```{python}
+#| label: fig-webp-method
+#| fig-cap: "WebP method parameter sweep: quality metrics vs. bits per pixel at different method settings."
+
+# TODO: Load webp-method-sweep statistics and generate figure
+```
+
+### AVIF Speed Sweep {#sec-avif-speed}
+
+<!-- TODO: Analyze AVIF speed parameter (0-10):
+  - Lower speed = more compute, better compression
+  - Tradeoff between encoding time and compression efficiency
+  - Optimal speed setting determination
+-->
+
+```{python}
+#| label: fig-avif-speed
+#| fig-cap: "AVIF speed parameter sweep: quality metrics vs. bits per pixel at different speed settings."
+
+# TODO: Load avif-speed-sweep statistics and generate figure
+```
+
+### JPEG XL Effort Sweep {#sec-jxl-effort}
+
+<!-- TODO: Analyze JXL effort parameter (1-10):
+  - Higher effort = better compression, more compute
+  - Diminishing returns analysis
+  - Optimal effort setting determination
+-->
+
+```{python}
+#| label: fig-jxl-effort
+#| fig-cap: "JPEG XL effort parameter sweep: quality metrics vs. bits per pixel at different effort settings."
+
+# TODO: Load jxl-effort-sweep statistics and generate figure
+```
+
+### AVIF Chroma Subsampling {#sec-avif-chroma}
+
+<!-- TODO: Analyze 4:4:4 vs 4:2:0 chroma subsampling:
+  - Impact on quality metrics at different quality levels
+  - When subsampling is acceptable vs. when full chroma is needed
+-->
+
+```{python}
+#| label: fig-avif-chroma
+#| fig-cap: "AVIF chroma subsampling comparison: quality metrics vs. bits per pixel for YUV444 and YUV420."
+
+# TODO: Load avif-chroma-subsampling statistics and generate figure
+```
+
+### Summary of Optimal Parameters {#sec-optimal-parameters}
+
+<!-- TODO: Summary table of selected parameters for each encoder:
+  - JPEG: quality range (baseline, no speed parameter)
+  - WebP: method=6, quality range
+  - AVIF: selected speed, chroma mode, quality range
+  - JXL: selected effort, quality range
+-->
+
+## Resolution and Scale Effects {#sec-resolution}
+
+<!-- TODO: Decide if this is a full section or supplementary material -->
+
+### Resolution Impact {#sec-resolution-impact}
+
+<!-- TODO: Resolution scaling study:
+  - Performance across resolutions (2048 → 120px)
+  - SSIMULACRA2 degrades significantly below ~200px
+  - Format ranking remains stable across resolutions
+-->
+
+### Crop Impact Studies {#sec-crop-impact}
+
+<!-- TODO: Per-format crop impact:
+  - Isolates resolution effect from content-area effect
+  - Most encoders maintain performance at reduced area
+  - WebP degrades at lower resolution + lower quality
+  - Implications for fair cross-format comparison methodology
+-->
+
+## Format Comparison {#sec-format-comparison}
+
+### Rate-Distortion Analysis {#sec-rate-distortion}
+
+<!-- TODO: Core comparison at optimal parameters:
+  - SSIMULACRA2 vs bpp curves for all four formats
+  - Butteraugli vs bpp curves for all four formats
+  - AVIF and JXL significantly outperform JPEG and WebP
+  - WebP outperforms JPEG
+-->
+
+```{python}
+#| label: fig-format-ssimulacra2
+#| fig-cap: "Format comparison: SSIMULACRA2 score vs. bits per pixel for all four formats at optimal encoder settings."
+
+# TODO: Load format-comparison statistics and generate rate-distortion figure
+```
+
+```{python}
+#| label: fig-format-butteraugli
+#| fig-cap: "Format comparison: Butteraugli distortion vs. bits per pixel for all four formats at optimal encoder settings."
+
+# TODO: Load format-comparison statistics and generate rate-distortion figure
+```
+
+### Metric Agreement and Disagreement {#sec-metric-agreement}
+
+<!-- TODO: Analyze when metrics disagree:
+  - SSIMULACRA2 shows AVIF ≈ JXL
+  - Butteraugli shows JXL > AVIF
+  - PSNR/SSIM perspective
+  - What does this disagreement tell us about the codecs?
+-->
+
+### Encoding Speed {#sec-encoding-speed}
+
+<!-- TODO: Encoding time comparison:
+  - JXL requires substantially less compute than AVIF
+  - JPEG and WebP encoding costs
+  - Practical implications for server-side encoding
+-->
+
+```{python}
+#| label: fig-encoding-speed
+#| fig-cap: "Encoding time per pixel across formats."
+
+# TODO: Load statistics and generate encoding speed comparison
+```
+
+### Compression Efficiency {#sec-efficiency}
+
+<!-- TODO: Bits-per-quality-unit analysis:
+  - Efficiency metrics derived from quality and size
+  - Which format gives best quality per byte?
+-->
+
+## Visual Artifact Analysis {#sec-artifacts}
+
+### Fragment Comparison Methodology {#sec-artifact-method}
+
+<!-- TODO: Recap the fragment selection approach and how the comparison
+  grids are assembled (reference @sec-fragment-selection) -->
+
+### Artifact Characteristics by Format {#sec-artifact-characteristics}
+
+<!-- TODO: Qualitative analysis of compression artifacts:
+  - JPEG: blocking artifacts, color bleeding
+  - WebP: less blocking, but ringing near edges
+  - AVIF: preserves sharp/fine details, tends to remove textures
+  - JXL: more balanced texture and detail preservation
+  - Include representative fragment comparison figures
+-->
+
+### Butteraugli Distortion Map Patterns {#sec-distortion-maps}
+
+<!-- TODO: Analysis of where each encoder introduces distortion:
+  - Different encoders prioritize different image regions
+  - AVIF distortion concentrated in textured areas
+  - JXL distortion more evenly distributed
+  - Include distortion map comparison figures
+-->
+
+## Discussion {#sec-discussion}
+
+<!-- TODO: Synthesize findings:
+  - Practical recommendations for web developers
+  - AVIF vs JPEG XL: when to choose which
+    - AVIF: wider browser support (as of writing)
+    - JXL: better or equal quality, faster encoding, richer feature set
+  - Metric selection matters — different metrics can yield different rankings
+  - Limitations:
+    - Single dataset (DIV2K validation, 100 images)
+    - Specific encoder versions (results may shift with updates)
+    - Synthetic benchmarks vs. real user perception
+  - Future work:
+    - Larger/diverse datasets
+    - Updated encoder versions
+    - Lossless compression comparison
+    - Animated/video content
+-->
+
+## Conclusions {#sec-conclusions}
+
+<!-- TODO: Concise summary of key findings:
+  1. AVIF and JXL both significantly outperform JPEG and WebP
+  2. JXL matches or exceeds AVIF in perceptual quality (metric-dependent)
+  3. JXL encoding is substantially faster than AVIF
+  4. AVIF preserves fine detail but sacrifices texture; JXL is more balanced
+  5. Adoption of JPEG XL is recommended where browser support permits
+-->
+
+## References {.unnumbered}
+
+::: {#refs}
+:::

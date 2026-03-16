@@ -27,6 +27,7 @@ class SiteConfig:
     repository_url: str
     report_subpath: str
     docs_subpath: str
+    paper_subpath: str
     brand: dict[str, str]
 
     @property
@@ -48,6 +49,7 @@ def get_site_config() -> SiteConfig:
         repository_url=data["repository_url"],
         report_subpath=data["report_subpath"],
         docs_subpath=data["docs_subpath"],
+        paper_subpath=data["paper_subpath"],
         brand=dict(data["brand"]),
     )
 

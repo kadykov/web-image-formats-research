@@ -12,7 +12,8 @@
 				"github.vscode-github-actions",
 				"skellock.just",
 				"DavidAnson.vscode-markdownlint",
-				"wholroyd.jinja"
+				"wholroyd.jinja",
+				"quarto.quarto"
 			]
 		}
 	},

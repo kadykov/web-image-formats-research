@@ -130,6 +130,39 @@ docs-preview:
     @echo "Visit http://localhost:4321"
     cd docs-site && npm run preview
 
+# ── Paper ────────────────────────────────────────────────────────────
+# Technical report — renders via Quarto (Typst for PDF, HTML for web)
+
+# Fetch study results from a GitHub Release (latest or specific tag)
+paper-fetch TAG="":
+    @if [ -z "{{TAG}}" ]; then \
+        python3 scripts/fetch_release_assets.py; \
+    else \
+        python3 scripts/fetch_release_assets.py --tag "{{TAG}}"; \
+    fi
+
+# Render both PDF (Typst) and HTML versions of the paper
+paper-render:
+    cd paper && quarto render
+
+# Render PDF only (via Typst)
+paper-pdf:
+    cd paper && quarto render --to typst
+
+# Render HTML only
+paper-html:
+    cd paper && quarto render --to html
+
+# Live preview of the paper (auto-reloads on changes)
+paper-preview:
+    @echo "Starting paper preview server..."
+    cd paper && quarto preview
+
+# Clean rendered paper outputs
+paper-clean:
+    rm -rf paper/_output/
+    rm -rf paper/.quarto/
+
 # ── Utilities ────────────────────────────────────────────────────────
 
 # Verify all encoding and measurement tools are available

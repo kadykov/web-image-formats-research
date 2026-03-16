@@ -1,0 +1,47 @@
+project:
+  title: "Comparative Analysis of Modern Lossy Image Formats for the Web"
+  type: default
+  output-dir: _output
+
+# Shared metadata
+author:
+  - name: "Aleksandr Kadykov"
+    # orcid: 0000-0000-0000-0000
+    # affiliation: ""
+date: last-modified
+bibliography: references.bib
+# csl: ieee.csl  # uncomment to use a specific citation style
+
+# Shared execution options for Python code cells
+execute:
+  echo: false
+  warning: false
+  freeze: auto
+
+format:
+  # ── HTML output for GitHub Pages ──────────────────────────────────
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    self-contained: true
+    code-fold: true
+    theme:
+      light: flatly
+      dark: darkly
+    fig-format: svg
+    fig-dpi: 150
+
+  # ── PDF output via Typst for arxiv ────────────────────────────────
+  typst:
+    toc: true
+    number-sections: true
+    fig-format: png
+    fig-dpi: 300
+    papersize: us-letter
+    margin:
+      x: 1in
+      y: 1in
+    mainfont: "Libertinus Serif"
+    fontsize: 11pt
+    columns: 1

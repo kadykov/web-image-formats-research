@@ -24,6 +24,11 @@ release-assets/*
 # Report assets
 report/assets/*
 
+# Paper outputs (Quarto-rendered)
+paper/_output/
+paper/.quarto/
+paper/_freeze/
+
 # IDE
 *.swp
 *.swo

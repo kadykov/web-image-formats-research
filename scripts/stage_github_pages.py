@@ -27,6 +27,7 @@ def _write_sitemap_index(root: Path) -> None:
     for loc in [
         canonical_url(f"{site_config.docs_subpath}/sitemap-index.xml"),
         canonical_url(f"{site_config.report_subpath}/sitemap.xml"),
+        canonical_url(f"{site_config.paper_subpath}/"),
     ]:
         SubElement(SubElement(sitemapindex, "sitemap"), "loc").text = loc
     ElementTree(sitemapindex).write(

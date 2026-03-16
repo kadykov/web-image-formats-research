@@ -26,6 +26,11 @@
     // MkDocs build output (legacy)
     "site/**",
     // Study data files
-    "data/**"
+    "data/**",
+    // Python virtual environments
+    "**/venv/**",
+    "**/.venv/**",
+    // Quarto build output
+    "**/.quarto/**"
   ]
 }

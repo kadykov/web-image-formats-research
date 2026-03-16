@@ -116,5 +116,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Quarto CLI (includes Typst bundled)
+# Update QUARTO_VERSION to latest release from https://github.com/quarto-dev/quarto-cli/releases
+ARG QUARTO_VERSION=1.9.35
+RUN curl -fsSL -o /tmp/quarto.deb \
+    "https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb" && \
+    dpkg -i /tmp/quarto.deb && \
+    rm /tmp/quarto.deb
+
 # Set up working directory
 WORKDIR /workspace

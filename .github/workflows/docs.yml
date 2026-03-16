@@ -24,6 +24,7 @@ on:
       - "pages/**"
       - "scripts/generate_docs.py"
       - "scripts/stage_github_pages.py"
+      - "scripts/fetch_release_assets.py"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
