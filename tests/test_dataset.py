@@ -318,7 +318,7 @@ def test_fetch_dataset_invalid_id(tmp_path: Path) -> None:
 
 @patch("src.dataset.gdown")
 def test_download_from_google_drive_file(mock_gdown: Mock, tmp_path: Path) -> None:
-    """Test downloading a file from Google Drive."""
+    """Test downloading a file from Google Drive with the current gdown API."""
     config_file = create_test_config(tmp_path)
     fetcher = DatasetFetcher(tmp_path / "datasets", config_file=config_file)
 
@@ -333,7 +333,11 @@ def test_download_from_google_drive_file(mock_gdown: Mock, tmp_path: Path) -> No
     )
 
     assert result is True
-    mock_gdown.download.assert_called_once()
+    mock_gdown.download.assert_called_once_with(
+        "https://drive.google.com/file/d/test123/view",
+        str(output_path),
+        quiet=False,
+    )
 
 
 @patch("src.dataset.gdown")

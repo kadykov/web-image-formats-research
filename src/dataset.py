@@ -188,8 +188,9 @@ class DatasetFetcher:
                 # Download entire folder
                 gdown.download_folder(url, output=str(output_path), quiet=False, use_cookies=False)
             else:
-                # Download single file
-                gdown.download(url, str(output_path), quiet=False, fuzzy=True)
+                # gdown 6.x extracts Google Drive file IDs from share URLs directly,
+                # so the legacy fuzzy flag is no longer needed.
+                gdown.download(url, str(output_path), quiet=False)
 
             return output_path.exists()
         except Exception as e:
