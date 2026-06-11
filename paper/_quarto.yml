@@ -6,7 +6,8 @@ project:
 # Shared metadata
 author:
   - name: "Aleksandr Kadykov"
-    # orcid: 0000-0000-0000-0000
+    orcid: 0000-0002-3012-2004
+    email: "research@kadykov.com"
     # affiliation: ""
 date: last-modified
 bibliography: references.bib
