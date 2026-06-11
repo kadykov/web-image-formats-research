@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/python:3-3.13-trixie
+FROM mcr.microsoft.com/devcontainers/python:3.14-trixie
 
 # Version variables for dependencies
 ARG JPEG_XL_VERSION=v0.11.2
