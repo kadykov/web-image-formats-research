@@ -61,7 +61,7 @@ jobs:
       image-tag: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -100,7 +100,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Compute matrix
         id: set-matrix
@@ -130,7 +130,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install project
         run: pip install -e .
@@ -161,7 +161,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install project
         run: pip install -e .
@@ -218,7 +218,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install project
         run: pip install -e .
@@ -262,7 +262,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install project
         run: pip install -e .
@@ -324,7 +324,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download report artifact
         uses: actions/download-artifact@v8
@@ -350,7 +350,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download release materials
         uses: actions/download-artifact@v8
